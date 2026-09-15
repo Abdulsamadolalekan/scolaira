@@ -1,88 +1,138 @@
-# SCOLAIRA — Decision Log
+# SCOLAIRA — Decision Log (REVISED v2)
 
 > Every significant decision is classified: MUST / SHOULD / MAY / DEFER and tagged with domains.
-
-Format: `D-<id> | <date> | <classification> | <tags> — <summary>`
+> Format: `D-<id> | <date> | <classification> | <tags> — <summary>`
 
 ---
 
-## Pending (Awaiting Approval)
+## Section I — Approved in This Revision (Founder Corrections)
 
-See `/docs/ARCHITECTURE.md` §T — D1 through D15. These decisions gate Phase 0 exit.
+### D-011 | 2026-09-15 | MUST | ARCHITECTURE, OPERATIONS
+**Decision:** Stack is approved architecturally as Next.js + TypeScript + PostgreSQL (via Supabase) + Drizzle + Vercel + Vitest + Playwright. Exact versions are NOT hard-coded; they are selected at scaffolding time based on current stable production-supported releases, compatibility, and security, and recorded in `package.json` + lockfile.
+**Why:** Per Founder Correction 1. Pinning Next.js 14 at this stage would be brittle; we commit to the stack *shape* and let the current stable versions be chosen at implementation time.
+**Benefit:** Uses best available stable versions at build time; avoids known-vulnerable versions.
+**Risk:** Framework minor-version differences could introduce surprises; mitigated by lockfile pinning + CI + upgrade discipline.
+**Status:** APPROVED.
 
-## Log
+### D-012 | 2026-09-15 | MUST | OPERATIONS, INFRA
+**Decision:** GitHub remote is a HARD PRE-CODE GATE. No application code is created until: (1) founder-owned private repo exists; (2) local git initialized (already done); (3) remote configured; (4) initial documentation pushed; (5) remote verified (`git ls-remote`); (6) default branch is `main` (already renamed). At every major milestone: COMMIT → PUSH → VERIFY REMOTE. Backups are not claimed unless verified.
+**Why:** Per Founder Correction 2 and §47 of the directive. The project must NEVER again exist only in an Arena sandbox.
+**Status:** APPROVED; GATE NOT YET PASSED. Needs founder to create repo and grant push access.
 
-### D-001 | 2026-09-15 | MUST | ARCHITECTURE
+### D-013 | 2026-09-15 | MUST | INFRA, LEGAL
+**Decision:** All critical company infrastructure is ultimately owned and controlled by the founder/company: GitHub, Domain, Vercel, Supabase, Paystack, Resend, monitoring, email, future messaging providers. Arena is an engineering environment only.
+**Why:** Per Founder Correction 3. Founder controls the company; infrastructure ownership cannot rest with a contractor, employee, or sandbox.
+**Status:** APPROVED.
+
+### D-014 | 2026-09-15 | MUST | INFRA, ARCHITECTURE
+**Decision:** Domain architecture: public `scolaira.com`; app `app.scolaira.com`; parent pages `app.scolaira.com/pay/:token` initially (future `pay.scolaira.com` migration designed to be straightforward); platform admin lives on an isolated `/admin` route during pilot, to migrate to `admin.scolaira.com` later.
+**Why:** Per Founder Correction 4. Keep pilot simple; design so later migration to dedicated subdomains is not a rewrite (canonical URL helper env-driven; cookies scoped appropriately).
+**Status:** APPROVED.
+
+### D-015 | 2026-09-15 | MUST | UX, DESIGN
+**Decision:** Do NOT invent a new visual identity. Use the founder-established brand direction (private bank × distinguished school; deep forest/emerald green, rich gold, white, warm ivory, near-black). Color is implemented through SEMANTIC DESIGN TOKENS, not hard-coded hex values in components. Interim token values draw from the founder-provided references (`#1B4332`, `#D4AF37`, `#FDFBF6`, `#17201C` and `#0B3D2E`, `#C9A227`) but are NOT final. Final palette to be established via the design system review process.
+**Why:** Per Founder Correction 5.
+**Status:** APPROVED.
+
+### D-016 | 2026-09-15 | MUST | PRODUCT, PROCESS
+**Decision:** The pilot school is important but NOT a blocker for foundational engineering. Build Phase 1 (Financial Truth) on documented domain assumptions; mark assumptions explicitly; pilot school will validate/refine. Do not wait indefinitely; do not pretend assumptions are facts.
+**Why:** Per Founder Correction 6.
+**Status:** APPROVED.
+
+### D-017 | 2026-09-15 | MUST | PRIVACY, LEGAL
+**Decision:** Before production student data is introduced, a specific DATA RESIDENCY & PRIVACY DECISION document will be completed covering: selected Supabase region, why selected, residency considerations, subprocessors, backup locations, international transfer considerations, retention, deletion/erasure, NDPR considerations, school responsibilities, SCOLAIRA responsibilities, and items requiring legal review. Selecting a hosting region does not itself equal legal compliance.
+**Why:** Per Founder Correction 7.
+**Status:** Skeleton drafted at `/docs/DATA_RESIDENCY_AND_PRIVACY.md`; completion required before production go-live.
+
+### D-018 | 2026-09-15 | MUST | PRODUCT, DISCOVERY
+**Decision:** Before finalizing Reconciliation (Phase 3), execute the REAL-WORLD FINANCIAL WORKFLOW DISCOVERY PLAN covering every cash/transfer/POS/online/edge-case workflow enumerated by the founder, including: sibling payments, multi-invoice payments, previous-term debt, over/under payments, wrong-account, unidentified payments, duplicates, refunds, reversals, discounts/scholarships/waivers, manual receipts, bank statement reconciliation, finance-officer workflow, and proprietor review workflow.
+**Why:** Per Founder Correction 8.
+**Status:** Plan created at `/docs/discovery/REAL_WORLD_DISCOVERY_PLAN.md`; execution begins as soon as pilot school is identified. Phase 1 (which uses manual reconciliation) proceeds in parallel.
+
+### D-019 | 2026-09-15 | MUST | ARCHITECTURE, DATA
+**Decision:** State machines explicitly defined for Student, Invoice, Payment, Payment Allocation, Receipt, Reversal, Refund, Payment Link, Communication, Term, Fee Assignment. Each specifies: valid states, allowed transitions, who triggers each, DB changes, audit event, failure behavior.
+**Why:** Per Founder Correction 9.
+**Status:** Defined in `/docs/state-machines/`.
+
+### D-020 | 2026-09-15 | MUST | ARCHITECTURE, DATA
+**Decision:** Explicitly classify records as either AUTHORITATIVE FINANCIAL TRUTH (the ledger) or DERIVED / OPERATIONAL / PRESENTATION. Dashboard KPIs and reports never become an alternative source of truth.
+**Why:** Per Founder Correction 10.
+**Status:** Defined in `/docs/FINANCIAL_TRUTH_MODEL.md`.
+
+### D-021 | 2026-09-15 | MUST | TECHNICAL, FINANCIAL
+**Decision:** For each of the 7 concurrency cases (A–G), concrete transaction behavior is specified: lock, constraint, idempotency, transaction steps, state transition, expected result.
+**Why:** Per Founder Correction 11.
+**Status:** Defined in `/docs/CONCURRENCY_DESIGN.md`. Tests will cover each case.
+
+### D-022 | 2026-09-15 | MUST | SECURITY, AUDIT
+**Decision:** Audit model defines financially significant events (enumerated per founder's list) with the seven required questions: WHO, DID WHAT, WHEN, TO WHICH RECORD, BEFORE, AFTER, WHY. Audit table is append-only (INSERT-only DB role), tamper-evident hash chain deferred post-pilot.
+**Why:** Per Founder Correction 12.
+**Status:** Defined in `/docs/AUDIT_MODEL.md`.
+
+### D-023 | 2026-09-15 | MUST | PRODUCT, DISCOVERY
+**Decision:** Maintain a PRODUCT DISCOVERY BACKLOG categorized VALIDATED / ASSUMED / UNKNOWN. UNKNOWN requirements must not silently become architecture.
+**Why:** Per Founder Correction 13.
+**Status:** Created at `/docs/discovery/PRODUCT_DISCOVERY_BACKLOG.md`.
+
+### D-024 | 2026-09-15 | MUST | BUSINESS
+**Decision:** Pricing/commercial model uses the company brief as source of truth. No new pricing is invented during implementation. If a pricing decision requires reconsideration, it is entered in this decision log rather than silently changed. Billing integration is deferred to Phase 9; `organizations.plan` included in schema for future use.
+**Why:** Per Founder Correction 14.
+**Status:** APPROVED.
+
+### D-025 | 2026-09-15 | MUST | UX, DESIGN
+**Decision:** Before building many screens, create a real SCOLAIRA design system foundation (typography, spacing, color tokens, semantic colors, borders, radii, shadows, buttons, inputs, tables, badges, status indicators, dialogs, drawers, navigation, empty/loading/error states, confirmation patterns, financial number formatting). Screens are composed from these primitives.
+**Why:** Per Founder Correction 15.
+**Status:** Plan created at `/docs/design-system/DESIGN_SYSTEM_PLAN.md`; implementation as M1 milestone post-gate.
+
+### D-026 | 2026-09-15 | MUST | UX, PRODUCT
+**Decision:** UX priority order: (1) OWNER — Command Center → financial truth → action; (2) FINANCE OFFICER — Payment → allocation → reconciliation → receipt; (3) PARENT — View obligation → understand amount → pay / know how to pay → confirmation. Everything else supports these journeys.
+**Why:** Per Founder Correction 16.
+**Status:** APPROVED; IA updated in `/docs/ARCHITECTURE.md` §M.
+
+### D-027 | 2026-09-15 | MUST | PROCESS
+**Decision:** After incorporating all 17 founder corrections, STOP ONCE MORE and present the revised gate (decision register, state machines, financial truth model, discovery plan, risk register, architecture, design system plan, implementation sequence, pre-code checklist). Do NOT scaffold until this revised gate is approved.
+**Why:** Per Founder Correction 17.
+**Status:** This document is part of that STOP.
+
+### D-028 | 2026-09-15 | MUST | PRODUCT, PHILOSOPHY
+**Decision:** SCOLAIRA is not to be the most technically complicated school-fee product. It is to be the most TRUSTWORTHY, CLEAR, OPERATIONALLY USEFUL, and FINANCIALLY CORRECT system a Nigerian private-school proprietor can use. Complexity belongs underneath; clarity belongs on top. Build for the first school; architect for thousands. Protect financial truth as if the company's reputation depends on every naira — because it does.
+**Why:** Final Founder Principle.
+**Status:** APPROVED as guiding principle.
+
+---
+
+## Section II — Previously Recorded Decisions (Carried Forward)
+
+### D-001 | 2026-09-15 | MUST | ARCHITECTURE, PROCESS
 **Decision:** Do not code on day 1; produce documentation and architecture review first.
-**Why:** Per company-build directive §67/§68. Coding before architecture, security, and invariants are defined is how the previous project lost coherence and safety.
-**Benefit:** Single source of truth, explicit approvals, known risks.
-**Risk:** Slower nominal start; pays for itself in avoiding rework.
-**Status:** Adopted this session.
-
-### D-002 | 2026-09-15 | SHOULD | ARCHITECTURE, OPERATIONS
-**Decision:** Adopt a monolithic Next.js application for pilot (Next.js + Drizzle + Postgres/Supabase + Tailwind).
-**Why:** Lean stack, single language, fast iteration, low ops overhead. Avoids premature microservices and enables fast correctness work.
-**Benefit:** Speed, simplicity, easier correctness reasoning.
-**Risk:** Vercel/Supabase lock-in (mitigated by standard frameworks, documented migration path).
-**Migration cost off platform:** Acceptable — standard Next.js/Postgres migrate easily.
-**Status:** RECOMMENDED; pending D1 approval.
+**Status:** Done and extended by D-027 (double stop-gate).
 
 ### D-003 | 2026-09-15 | MUST | FINANCIAL, DATA
-**Decision:** Internal money representation is INTEGER KOBO (BIGINT); external API is NAIRA STRING.
-**Why:** Per directives §6.
-**Benefit:** Eliminates floating-point errors; exact arithmetic; clear contract boundary.
-**Risk:** Serialization mistakes at the boundary; mitigated by single conversion module and tests.
-**Status:** Adopted as canonical invariant in /docs/FINANCIAL_INVARIANTS.md.
+**Decision:** Internal money = INTEGER KOBO (BIGINT); external API = NAIRA STRING.
+**Status:** Canonical invariant; unchanged.
 
-### D-004 | 2026-09-15 | MUST | FINANCIAL
-**Decision:** Allocation is deterministic (overdue-first, then current, then prior-term; remainder stays unallocated for review). Finance officer can reallocate within audited controls.
-**Why:** No silent magic; explainable; works for auto-recorded transfers; gives finance officer control.
-**Benefit:** Predictability, auditability, testability.
-**Risk:** May not match every school's idiosyncratic allocation preference — address by allowing manual reallocation; revisit if pilot schools reveal strong pattern.
-**Status:** Proposed as default; pending validation with pilot school finance officer.
+### D-004 | 2026-09-15 | SHOULD | FINANCIAL
+**Decision:** Default deterministic allocation: overdue-first → current-term due-date order → prior-term oldest-first; remainder stays unallocated for review. Finance officer can reallocate.
+**Status:** In code plan; to be validated during Discovery.
 
 ### D-005 | 2026-09-15 | MUST | SECURITY
-**Decision:** Tenant isolation uses defense-in-depth: application-level org scoping + Postgres Row Level Security.
-**Why:** Relying on a single layer has historically produced breaches in SaaS.
-**Benefit:** Resilience to application bugs; reduces blast radius.
-**Risk:** Slightly more schema/test overhead; acceptable.
-**Status:** Proposed; pending D1 approval.
+**Decision:** Defense-in-depth tenant isolation (app scoping + Postgres RLS).
+**Status:** Unchanged.
 
 ### D-006 | 2026-09-15 | MUST | UX
-**Decision:** Parents do NOT create conventional SCOLAIRA accounts. Parent experience is transactional (message → view → pay → receipt), mobile-first, via signed expiring links.
-**Why:** Per directives §3/§61/§62; parents are not the customer; forcing accounts kills conversion and trust.
-**Benefit:** Lower friction, higher payment rates, no password-management burden on parents.
-**Risk:** Harder to show multi-year history to parents without login — address with long-lived signed "statement" links if needed post-pilot.
-**Status:** Adopted as product principle.
+**Decision:** Parents do NOT create conventional accounts; transactional signed-link experience.
+**Status:** Unchanged.
 
 ### D-007 | 2026-09-15 | MUST | DATA
-**Decision:** No SQLite for dev; use local Postgres from day one.
-**Why:** Avoid SQLite→Postgres migration pain per §25; Drizzle supports Postgres natively; local Postgres via Docker is easy.
-**Benefit:** No dialect drift; same SQL semantics in dev, test, prod.
-**Risk:** Slightly heavier dev setup — mitigated by docker-compose one-liner.
-**Status:** Proposed as dev standard.
-
-### D-008 | 2026-09-15 | SHOULD | UX, VISUAL
-**Decision:** Adopt interim palette: deep emerald `#046A38`, rich gold `#C9A961` (accent only), near-black `#0B1F16`, white `#FFFFFF`, warm paper `#F7F3EC` for backgrounds. Pending brand system (D8).
-**Why:** Matches "private bank × distinguished school" directive with emerald as Nigerian green resonance; gold as premium accent without overuse.
-**Benefit:** Enables UI work during scaffolding without waiting for final brand assets.
-**Risk:** Refactor when final brand arrives; acceptable if tokens are centralized.
-**Status:** Interim recommendation; see /docs/UX_PRINCIPLES.md.
+**Decision:** Local Postgres from day one (no SQLite dev; no SQLite-specific logic).
+**Status:** Unchanged.
 
 ### D-009 | 2026-09-15 | MUST | FINANCIAL, UX
-**Decision:** Confirmed payments cannot be deleted. Reversal and correction are the only correction paths, with required reason and audit entry.
-**Why:** Per §6/§8; preserves financial truth; protects proprietor trust.
-**Benefit:** Non-destructive history; enables dispute resolution.
-**Risk:** Finance officers new to software may expect a "delete" button; address with clear UI for reversal and training.
-**Status:** Adopted as invariant F5/F6.
-
-### D-010 | 2026-09-15 | DEFER | BUSINESS, OPERATIONS
-**Decision:** Full subscription/billing automation is deferred; pilot schools handled manually via out-of-system arrangements.
-**Why:** Phase 1–2 focus is financial truth; pricing integration is Phase 9.
-**Benefit:** Keeps focus on correctness and pilot value.
-**Risk:** Manual renewal tracking — acceptable for 1–10 schools; revisit before 20+ schools.
-**Status:** Deferred; Organization.plan field included in schema for future use.
+**Decision:** Confirmed payments cannot be deleted; reversal/correction with reason is the only correction path.
+**Status:** Unchanged; codified in state machines.
 
 ---
 
-## ADR-style records will be added here for all consequential architectural choices as they are made.
+## Section III — Remaining Open Items From D1–D15, Updated
+
+Original D1–D15 have been resolved by D-011 through D-028 except where noted below. Items still needing explicit founder sign-off in the revised gate are listed in the executive review §DD (Approval Checklist).

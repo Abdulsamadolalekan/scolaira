@@ -170,6 +170,70 @@ Scale:
 
 ---
 
+## R-021 — Building Reconciliation Around Unvalidated Assumptions
+- **Type:** Product / UX
+- **Description:** Reconciliation UX is designed without observing real finance-officer work, causing it to diverge from actual practice; finance officers return to spreadsheets.
+- **Likelihood:** Medium.
+- **Impact:** High (wastes Phase 3 effort and loses pilot trust).
+- **Priority:** **P1**
+- **Mitigations:** Real-World Financial Workflow Discovery Plan executed before Phase 3 final build; Phase 1 uses a simple manual-reconciliation queue that makes no assumptions beyond "payments must be confirmed and allocated"; interviews and shadowing with at least one real finance officer; incremental refinements based on observed behavior.
+
+## R-022 — Pre-code GitHub/Ownership Not Established
+- **Type:** Operations
+- **Description:** Code or credentials exist only in the Arena sandbox; session loss destroys work; company does not own infrastructure.
+- **Likelihood:** Current state.
+- **Impact:** Critical.
+- **Priority:** **P0 (pre-code gate)**
+- **Mitigations:** D2 hard gate — no application code before founder-owned GitHub repo verified; branch `main` established; initial docs pushed; remote verified with `git ls-remote`.
+
+## R-023 — Design Drift From Hard-coded Colors/Spacing
+- **Type:** UX / Design
+- **Description:** Screens are built with ad-hoc hex/spacing rather than tokens, making brand-final palette swap costly and producing inconsistent visual language.
+- **Likelihood:** Medium (common in fast builds).
+- **Impact:** Medium.
+- **Priority:** **P2**
+- **Mitigations:** Design system foundation (tokens + primitives) built before screens (M1 milestone); Tailwind config enforces token usage; lint/PR review rejects hard-coded hex in screen components.
+
+## R-024 — NDPR/Legal Sign-off Not Complete Before Real Data
+- **Type:** Legal / Business
+- **Description:** Production student data is introduced before data-residency decision is finalized and legal review completed; non-compliance risk.
+- **Likelihood:** Medium if rushed.
+- **Impact:** High (fines, shutdown, reputation).
+- **Priority:** **P1 before production go-live (P2 during scaffolding with test data only)**
+- **Mitigations:** Data Residency & Privacy decision document drafted; legal review gate before production; scaffolding uses fictional seed data only.
+
+## R-025 — Brand Review Happens Too Late
+- **Type:** UX
+- **Description:** Many screens built on interim palette; final brand review requests significant visual changes late, causing rework.
+- **Likelihood:** Medium.
+- **Impact:** Medium.
+- **Priority:** **P2**
+- **Mitigations:** Token-based styling means palette swap is a config change; founder review of design primitives early (M1) before many screens exist; final brand review gate before launch.
+
+## R-026 — Parent Pay-Page Origin Migration (Future pay.scolaira.com) Breaks Existing Links
+- **Type:** Technical / UX
+- **Description:** When parent pages move from `/pay/:token` on app.scolaira.com to pay.scolaira.com, existing links in SMS/WhatsApp/email stop working.
+- **Likelihood:** Low if planned.
+- **Impact:** Medium (parent payment friction).
+- **Priority:** **P2**
+- **Mitigations:** Architect token resolution to be origin-independent; plan redirects; canonical URL helper; do not hard-code origin in link generation. For pilot, same origin is fine.
+
+## R-027 — Framework Version Upgrade Pain
+- **Type:** Technical
+- **Description:** Because exact Next.js/Drizzle/other versions are selected at scaffold time, a major-version incompatibility could cause issues.
+- **Likelihood:** Low–Medium.
+- **Impact:** Medium.
+- **Priority:** **P2**
+- **Mitigations:** Pin exact versions in lockfile; use LTS/current-stable (not bleeding-edge canary); CI catches breakages; upgrade deliberately rather than on every release.
+
+## R-028 — Concurrency Races Not Caught Before Pilot
+- **Type:** Technical / Financial
+- **Description:** Concurrent allocations, duplicate webhooks, or double reversals cause invariant violation under real load despite tests.
+- **Likelihood:** Low–Medium (races are notoriously hard to fully replicate in tests).
+- **Impact:** Critical.
+- **Priority:** **P0**
+- **Mitigations:** Defense-in-depth (constraints + triggers + locks + service checks); automated concurrency tests using multiple Postgres sessions; staging load testing with webhook flood/duplication; invariant violation paging in production; easy rollback + PITR for recovery.
+
 ## New Risks
 
 Add new risks to this register as they are discovered, with the same fields. P0/P1 risks must have owners and mitigation plans before the area ships.

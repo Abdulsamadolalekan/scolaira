@@ -1,113 +1,131 @@
-# SCOLAIRA — Architecture
+# SCOLAIRA — Architecture (REVISED v2)
 
 > Build today's product such that tomorrow's platform remains possible.
+> **Complexity belongs underneath. Clarity belongs on top.**
+> **Build for the first school. Architect for thousands.**
 
 ---
 
 ## A. Executive Summary
 
-SCOLAIRA is a multi-tenant financial SaaS for proprietor-owned Nigerian private schools. It owns the fee financial chain — bill → collect → allocate → reconcile → report — across every payment method a school uses (cash, transfer, POS, online).
+SCOLAIRA is a multi-tenant financial SaaS for proprietor-owned Nigerian private schools. It owns the fee financial chain — bill → collect → allocate → reconcile → report — across every payment method a school uses (cash, transfer, POS, online). Parents never need a conventional account.
 
-The architecture must deliver:
-- **Financial correctness** above all else (integer-kobo ledger, transactional mutations, immutable audit history).
-- **Tenant isolation** at database, API, business-logic, and UI layers.
-- **Operational simplicity** for a pilot-stage startup (lean stack, low operational overhead, inexpensive to run).
-- **Scalability path** from 1 school → 10 → 100 → 1000 without rewrite.
+The architecture must deliver, in priority order:
+1. **Trustworthiness & financial correctness** (integer-kobo ledger, transactional mutations, immutable audit history).
+2. **Clarity** for the proprietor ("where is my money?" answered within seconds), for the finance officer ("what do I record/reconcile/follow up?"), and for the parent ("how much do I owe and how do I pay?").
+3. **Operational usefulness** for daily finance work in real Nigerian schools.
+4. **Tenant isolation** at database, API, business-logic, and UI layers.
+5. **Lean operation** (low operational overhead, inexpensive for pilot) — without compromising correctness.
+6. **Scalability path** from 1 school → 10 → 100 → 1000 without rewrite.
 
-## B. Why It Matters
+The goal is NOT to be the most technically complicated school-fee product. It is to be the most TRUSTWORTHY, CLEAR, OPERATIONALLY USEFUL, and FINANCIALLY CORRECT one.
 
-A school collecting ₦60M+ per term depends on this system for financial truth. A single invariant violation (silent over-allocation, cross-tenant leak, lost payment) destroys trust irreparably. The architecture exists to protect that trust first, deliver a premium experience second, and minimize cost/complexity third.
+## B. Founder Mandates Reflected In This Revision
 
-## C. Current State (First-Session Assessment)
+This architecture reflects 17 founder corrections applied on 2026-09-15:
+1. **Stack versioning** — framework versions are not hard-coded; we select current stable production versions at scaffolding time and record them.
+2. **GitHub is a pre-code hard gate** — D2 must be verified complete (repo created, remote configured, docs pushed, remote verified, `main` branch established) before any application code.
+3. **Founder ownership** — all critical infrastructure (GitHub, domain, Vercel, Supabase, Paystack, Resend, monitoring, messaging) is founder/company-owned. Arena is an engineering environment only.
+4. **Domain architecture** — public: `scolaira.com`; application: `app.scolaira.com`; parent: `app.scolaira.com/pay/:token` initially (future `pay.scolaira.com`); platform admin: isolated `/admin` in pilot, future `admin.scolaira.com`.
+5. **Brand system** — do not invent a new visual identity; use documented brand direction; design tokens are centralized so palette can be adjusted without rewriting components.
+6. **Pilot school** — important but not a blocker for foundational engineering; we build on documented domain assumptions and mark assumptions explicitly; pilot school then validates/refines.
+7. **Data residency/privacy** — a specific decision document required before production student data; selecting a region is not compliance.
+8. **Real-world financial workflow discovery plan** — required before finalizing reconciliation.
+9. **Domain state machines** — explicitly defined for all core entities before scaffolding.
+10. **Financial ledger vs operational/presentation data** — distinction documented and enforced.
+11. **Concurrency design** — concrete transaction behavior specified for 7 named races.
+12. **Audit model** — financially-significant events enumerated; each audit record answers who/what/when/to-which-record/before/after/why.
+13. **Product discovery backlog** — VALIDATED / ASSUMED / UNKNOWN explicitly separated.
+14. **Business model** — use company brief as source of truth; any pricing change goes through decision log; do not invent pricing.
+15. **Design system** — create a real SCOLAIRA design system foundation before building many screens.
+16. **UX priority** — three journeys in order: (1) Owner Command Center → truth → action; (2) Finance Officer payment → allocation → reconciliation → receipt; (3) Parent view → understand → pay → confirmation.
+17. **Implementation gate** — after incorporating changes, STOP again and present revised gate; do not scaffold until approved.
+
+## C. Current State
 
 | Area | Status |
 |---|---|
-| Repository | Initialized locally; **no remote configured yet** (DECISION REQUIRED — see §T) |
-| Application code | None — greenfield |
-| Framework | Not selected — RECOMMENDATION below |
-| Database | Not provisioned |
-| Auth | Not implemented |
-| CI/CD | None |
-| Hosting | Not provisioned |
-| Secrets | None configured |
-| Backups | None |
-| Monitoring | None |
-| Documentation | This document set |
+| Repository | Local git at `/home/user/scolaira/`, branch `main`, commits verified (current: updated commit after this revision). |
+| Remote (GitHub) | **NOT YET CONFIGURED — HARD GATE (D2).** No application code will be written until remote is configured, initial docs pushed, and remote verified. |
+| Application code | None — per pre-code gate. |
+| Framework versions | Not pinned yet; will be selected at scaffolding per D1 (corrected). |
+| Infrastructure (Vercel/Supabase/Paystack/Resend) | Not provisioned; to be created under founder-owned accounts (D3). |
+| Documentation | Complete revised set, including this document. |
+| Domain | `scolaira.com` (recommended per D4); DNS not configured. |
+| Pilot school | Not yet identified (D7); not blocking foundation engineering. |
 
-## D. Target Architecture (Pilot Phase, Phase 1–3)
+## D. Target Architecture (Pilot Phase 1–3)
 
-### D.1 Stack Recommendation
+### D.1 Stack (Founder-Approved)
 
-> **DECISION REQUIRED:** Approve or adjust the following stack before coding begins.
+> Exact versions will be selected at scaffolding time based on current stable, production-supported releases, compatibility and security. They will be recorded in the repository (README + `package.json` lockfile).
 
-| Layer | Choice | Rationale |
+| Layer | Choice (architectural) | Notes |
 |---|---|---|
-| **Frontend framework** | Next.js 14+ (App Router, TypeScript) | React ecosystem, SSR/SSG for payment pages, strong Vercel/supabase integration, fast onboarding, file-based routing reduces boilerplate. Pilot-appropriate. |
-| **UI** | Tailwind CSS + shadcn/ui + custom design tokens | Private-bank aesthetic: emerald/gold/white/near-black. Premium feel without custom component library overhead. |
-| **Backend** | Next.js Route Handlers (API) + Server Actions (for privileged mutations) + a thin service layer | Keeps the pilot monolithic; same language (TS) across stack; easy to extract later if needed. Avoid premature microservices. |
-| **Database** | PostgreSQL (Supabase managed) | Production-grade, row-level security (RLS) for defense-in-depth tenant isolation, built-in auth option, backups, point-in-time recovery, affordable. Migration-safe path from local Postgres to Supabase. |
-| **ORM / Query** | Drizzle ORM | Type-safe, SQL-aligned, supports migrations well, lightweight, explicit transactions. Avoids Prisma's N+1 and opaque magic; suitable for financial code. |
-| **Auth** | Supabase Auth (email/password, secure sessions, future 2FA) | Comes with Supabase; supports RLS integration; secure defaults; reduces custom auth surface area. Platform-admin login uses separate route with elevated role checks. |
-| **Payments (online)** | Paystack integration (webhook-driven) | Dominant Nigerian processor; webhook idempotency is the hard part — documented below. |
-| **Sms/WhatsApp** | Termly/Twilio/MSG91 — DEFER integration provider selection to Phase 7 | Do not bind early; design communication module as channel-agnostic. |
-| **Hosting** | Vercel (app) + Supabase (DB/auth) | Zero-ops for pilot; both have Nigerian-developer familiarity; auto-preview environments; cost scales from free/cheap. Migrate off if cost/control demands. |
-| **File storage** | Supabase Storage (or S3-compatible) | For CSV imports, receipts, exports. Server-side validation on all uploads. |
-| **Email** | Resend or Postmark (transactional only) | Receipts, password reset, login alerts. No marketing email at pilot. |
-| **Observability** | Vercel logs + Sentry (errors) + Supabase logs + simple /health endpoint | Keep it lean; add proper metrics platform after pilot signals. |
+| **Frontend framework** | Next.js + TypeScript | App Router pattern preferred; SSR/CSR hybrid; exact Next.js major version chosen at scaffold time. |
+| **UI** | Tailwind CSS + shadcn/ui + SCOLAIRA design tokens | Centralized token system (color, typography, spacing, radii, shadows) per D8/D15; no hard-coded palette in components. |
+| **Backend** | Next.js Route Handlers + Server Actions (for privileged mutations) + domain service layer | Modular monolith; same language across stack. |
+| **Database** | PostgreSQL (Supabase managed) | Production-grade, RLS, backups, PITR. |
+| **ORM / Query** | Drizzle ORM | Type-safe, SQL-aligned, explicit migrations, lightweight. |
+| **Auth** | Supabase Auth (email/password; 2FA roadmap) | Secure sessions; integrates with RLS. |
+| **Online Payments** | Paystack (webhook-driven) | Test mode for development; settlement to school's own account. |
+| **Hosting** | Vercel (app) + Supabase (DB/auth) | Zero-ops for pilot; founder-owned accounts. |
+| **File Storage** | Supabase Storage (or S3-compatible) | Receipts, CSV imports, exports; server-side validation. |
+| **Email** | Resend (transactional) | Receipts, password reset, login alerts; founder-owned account. |
+| **Observability** | Vercel logs + Sentry (errors) + Supabase logs + `/health` endpoint | Lean; upgrade post-pilot. |
+| **Testing** | Vitest (unit/integration/financial/security) + Playwright (E2E/visual/a11y) | Exact versions selected at scaffold. |
 
-**Monolith, modular monolith, then services (if ever).** The codebase is organized into domain modules so that future extraction is possible without rewrite. Do NOT start with microservices.
+**No microservices. No AI gimmicks. No premature distributed architecture.**
 
 ### D.2 High-Level Architecture Diagram
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                         CLIENT (Browser)                         │
-│  ┌────────────────────┐   ┌─────────────────────┐               │
-│  │  School Web App    │   │ Parent Payment Page  │               │
-│  │  (Next.js SSR/CSR) │   │ (Mobile-first, no    │               │
-│  │  Auth-gated        │   │  login required)     │               │
-│  └─────────┬──────────┘   └──────────┬──────────┘               │
-└────────────┼─────────────────────────┼──────────────────────────┘
-             │ session cookie          │ signed token in URL
-             ▼                         ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                    NEXT.JS APPLICATION (Vercel)                  │
-│  ┌──────────────────────────────────────────────────────────┐   │
-│  │  Route Handlers (REST-like JSON API)                     │   │
-│  │  ── auth ── students ── billing ── payments ── invoices ──│   │
-│  │  ── reconciliation ── reports ── communication ── admin ──│   │
-│  └─────────────────────────┬────────────────────────────────┘   │
-│  ┌─────────────────────────▼────────────────────────────────┐   │
-│  │  Domain Service Layer (TS)                               │   │
-│  │  BillingService, PaymentService, AllocationService,      │   │
-│  │  ReconciliationService, ReportingService, etc.           │   │
-│  │  - enforces invariants                                   │   │
-│  │  - wraps DB transactions                                 │   │
-│  │  - emits audit events                                    │   │
-│  └─────────────────────────┬────────────────────────────────┘   │
-│  ┌─────────────────────────▼────────────────────────────────┐   │
-│  │  Drizzle ORM / Postgres client (transaction-aware)       │   │
-│  └─────────────────────────┬────────────────────────────────┘   │
-└────────────────────────────┼────────────────────────────────────┘
-                             │ TLS
-                             ▼
-┌─────────────────────────────────────────────────────────────────┐
-│            POSTGRES (Supabase) — single database                 │
-│  ┌──────────────────────────────────────────────────────────┐   │
-│  │  Per-tenant RLS policies (defense-in-depth)              │   │
-│  │  Financial tables: invoices, payments, allocations,      │   │
-│  │  reversals, receipts, fee_definitions, etc.              │   │
-│  │  Audit events (append-only)                              │   │
-│  │  Idempotency keys                                        │   │
-│  └──────────────────────────────────────────────────────────┘   │
-└─────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────┐
+│                        CLIENT (Browser)                      │
+│  ┌─────────────────────┐   ┌───────────────────────────┐    │
+│  │ School Console      │   │ Parent Payment Pages      │    │
+│  │ (app.scolaira.com)  │   │ (app.scolaira.com/pay/…)  │    │
+│  │ Auth-gated          │   │ No account required       │    │
+│  └──────────┬──────────┘   └──────────┬────────────────┘    │
+└─────────────┼─────────────────────────┼─────────────────────┘
+              │ secure cookie           │ signed URL token
+              ▼                         ▼
+┌─────────────────────────────────────────────────────────────┐
+│            NEXT.JS APPLICATION (Vercel)                       │
+│  ┌──────────────────────────────────────────────────────┐   │
+│  │ Route Handlers (JSON API) + Server Actions            │   │
+│  │  /api/auth, /api/students, /api/billing, /api/payments│   │
+│  │  /api/reconciliation, /api/reports, /api/comms        │   │
+│  │  /api/admin/* (PLATFORM_ADMIN role-gated, isolated)   │   │
+│  └──────────────────────────┬───────────────────────────┘   │
+│  ┌──────────────────────────▼───────────────────────────┐   │
+│  │  Domain Service Layer                                 │   │
+│  │  - BillingService, PaymentService, AllocationService  │   │
+│  │  - ReconciliationService, ReportingService            │   │
+│  │  Enforces invariants; wraps transactions; emits audits│   │
+│  └──────────────────────────┬───────────────────────────┘   │
+│  ┌──────────────────────────▼───────────────────────────┐   │
+│  │  Drizzle ORM (transaction-aware)                      │   │
+│  └──────────────────────────┬───────────────────────────┘   │
+└─────────────────────────────┼───────────────────────────────┘
+                              │ TLS
+                              ▼
+┌─────────────────────────────────────────────────────────────┐
+│            POSTGRES (Supabase)                                │
+│  ┌──────────────────────────────────────────────────────┐   │
+│  │ - Per-tenant RLS (defense-in-depth)                   │   │
+│  │ - Authoritative financial tables                      │   │
+│  │ - Append-only audit_events                            │   │
+│  │ - Idempotency keys                                    │   │
+│  └──────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────┘
          ▲                       ▲                         ▲
-         │ webhooks              │ CSV import uploads      │ auth
+         │ webhooks              │ uploads                 │ auth
          │                       │                         │
-    ┌────┴─────┐            ┌────┴────┐              ┌─────┴─────┐
-    │ Paystack │            │ Storage │              │  Supabase  │
-    │          │            │ (S3)    │              │   Auth     │
-    └──────────┘            └─────────┘              └───────────┘
+    ┌────┴─────┐           ┌─────┴─────┐            ┌──────┴──────┐
+    │ Paystack │           │ Supabase  │            │  Supabase   │
+    │          │           │ Storage   │            │    Auth     │
+    └──────────┘           └───────────┘            └─────────────┘
 ```
 
 ### D.3 Code Layout (Planned)
@@ -115,10 +133,10 @@ A school collecting ₦60M+ per term depends on this system for financial truth.
 ```
 scolaira/
 ├── apps/
-│   └── web/                       # Next.js application
-│       ├── app/                   # App Router (pages, API routes)
-│       │   ├── (auth)/            # login, logout, password reset
-│       │   ├── (school)/          # authenticated school UI
+│   └── web/
+│       ├── app/                     # Next.js App Router
+│       │   ├── (auth)/              # login, logout, reset
+│       │   ├── (school)/            # authenticated school console
 │       │   │   ├── command-center/
 │       │   │   ├── students/
 │       │   │   ├── billing/
@@ -127,282 +145,279 @@ scolaira/
 │       │   │   ├── reconciliation/
 │       │   │   ├── reports/
 │       │   │   ├── communication/
-│       │   │   ├── settings/
-│       │   │   └── ...
-│       │   ├── (admin)/           # platform admin
-│       │   ├── pay/               # parent payment pages (public)
-│       │   └── api/               # route handlers
+│       │   │   └── settings/
+│       │   ├── (admin)/             # Platform admin (isolated segment)
+│       │   ├── pay/                 # Public parent payment pages
+│       │   └── api/                 # Route handlers
 │       ├── components/
+│       │   └── ui/                  # Design system primitives
 │       ├── lib/
-│       │   ├── domain/            # domain services (financial logic)
-│       │   │   ├── billing.ts
-│       │   │   ├── payments.ts
-│       │   │   ├── allocations.ts
-│       │   │   ├── reconciliation.ts
-│       │   │   └── reporting.ts
-│       │   ├── db/                # Drizzle schema + client
-│       │   │   ├── schema/
-│       │   │   ├── migrations/
-│       │   │   └── index.ts
-│       │   ├── auth/              # auth helpers, RLS helpers
-│       │   ├── money/             # kobo/naira utilities
-│       │   ├── invariants/        # financial invariant guards
+│       │   ├── domain/              # Financial domain services
+│       │   ├── db/                  # Drizzle schema + migrations
+│       │   ├── auth/
+│       │   ├── money/               # kobo/naira utilities
+│       │   ├── invariants/          # Invariant guards
 │       │   ├── idempotency.ts
 │       │   ├── audit.ts
-│       │   └── validators/        # Zod schemas
-│       └── ...
-├── packages/
-│   └── scolaira-types/            # shared types (if needed later)
-├── docs/                          # this documentation set
+│       │   └── validators/          # Zod schemas
+│       └── styles/                  # Design tokens (Tailwind config)
+├── docs/                            # All documentation
 └── ...
 ```
 
-> **Note:** Start with a single `apps/web` Next.js project. Introduce `packages/` only when code duplication demands it. Avoid pre-emptory monorepo complexity.
+Single Next.js app at pilot. Monorepo packages only introduced when duplication demands.
 
-### D.4 Key Architectural Principles
+### D.4 Key Architectural Principles (Founder-Aligned)
 
-1. **Server-side authority.** Every authorization and financial decision happens server-side. The UI is never trusted.
-2. **Transaction boundaries.** Every financial mutation is wrapped in a Postgres transaction. A payment is never half-recorded.
-3. **Idempotency.** Every mutating endpoint accepts an idempotency key; webhooks are deduplicated.
-4. **Append-only audit log.** Financial history cannot be silently destroyed; reversals and corrections are separate records.
-5. **Defense-in-depth tenant isolation:** application-level check + Postgres RLS policies. No single layer is the sole protection.
-6. **Money is integer kobo.** All arithmetic on kobo; formatted to naira strings only at edges.
-7. **Domain services own invariants.** Route handlers validate input and call services; services enforce invariants and emit events. Route handlers never perform financial math directly.
-8. **Fail closed.** If invariants cannot be verified, the mutation is rejected; never "best effort" with money.
-9. **Explicit states.** Invoices, payments, allocations, links all have finite, documented state machines.
-10. **Backwards-compatible migrations.** Database migrations are additive where possible; destructive changes require explicit multi-step migrations.
+1. **Trust over cleverness.** Financial correctness outranks visual cleverness, speed of shipping, and feature count.
+2. **Server-side authority.** Authz and financial decisions happen server-side; UI is never trusted.
+3. **Explicit financial truth vs derived/presentation data.** (See /docs/FINANCIAL_TRUTH_MODEL.md.) Dashboard numbers are always read-side derivations from the ledger; they never become a source of truth.
+4. **Transaction boundaries.** Every financial mutation runs inside a Postgres transaction.
+5. **Idempotency by default.** Mutating endpoints accept idempotency keys; webhooks dedup.
+6. **Append-only audit log.** Financial history cannot be silently destroyed; reversals/corrections are explicit.
+7. **Defense-in-depth tenant isolation.** App scoping + RLS; never rely on a single layer.
+8. **Money is integer kobo.** Arithmetic on kobo; formatted to naira strings only at edges.
+9. **Domain services own invariants.** Route handlers validate input and call services; services enforce invariants and emit events. Route handlers never perform financial math directly.
+10. **Fail closed.** If invariants cannot be verified, reject. No "best effort" with money.
+11. **Explicit state machines.** All core entities have finite, documented state machines (see `/docs/state-machines/`).
+12. **Backwards-compatible migrations.** Additive where possible; destructive changes use multi-step migrations.
+13. **Centralized design tokens.** Palette, spacing, typography, radii, shadows live in one place; components never hard-code hex values or ad-hoc spacing.
+14. **Journey-priority UX.** Design for owner journey first, finance officer second, parent third; everything else supports these.
 
-## E. Domain Model
+## E. Domain Model (Revised)
 
-See `/docs/DATABASE.md` for full schema. Core entities:
+Full schema in `/docs/DATABASE.md`. Core entities grouped by kind:
 
-- **Organization** (the school tenant)
-- **User** (login identity) + **Membership** (user-to-organization with role)
-- **Student** (ACTIVE / ARCHIVED / WITHDRAWN)
-- **Guardian** (contact info; guardians do not log into school console)
-- **Class** (e.g. "JSS 2A")
-- **Session** (academic year, e.g. "2025/2026")
-- **Term** (e.g. "First Term", belongs to session)
-- **FeeDefinition** (catalog entry: "Tuition", "Uniforms", etc.)
-- **FeeAssignment** (instance of a fee for a given class/term, with amount)
-- **Invoice** (bill to a student for a term; sum of InvoiceLines)
-- **InvoiceLine** (one line on an invoice, points to FeeAssignment)
-- **Payment** (money received; method, amount, date, reference, state)
-- **PaymentAllocation** (portion of a Payment applied to one Invoice)
-- **Receipt** (issued per successful allocation)
-- **Reversal / Refund** (explicit correction events)
-- **PaymentLink** (shareable link for an obligation; states: ACTIVE / EXPIRED / REVOKED / PAID)
-- **CommunicationEvent** (SMS/WhatsApp/email/print — audited)
-- **AuditEvent** (append-only log of all mutations)
-- **IdempotencyKey** (deduplication table)
+**Tenant & access:** organizations, users, memberships (with role).
+**Academic structure:** sessions, terms, classes, student_class_enrollments.
+**People:** students, guardians.
+**Billing structure:** fee_definitions, fee_assignments.
+**Authoritative financial records (ledger):** invoices, invoice_lines, payments, payment_allocations, receipts, reversals.
+**Supporting financial records:** payment_links, communication_events.
+**System records:** audit_events, idempotency_keys, webhook_events, subscriptions, onboarding_state.
 
-## F. Financial Invariants
+For every core entity, explicit lifecycle state machines are defined in `/docs/state-machines/`. See §F.
 
-See `/docs/FINANCIAL_INVARIANTS.md` for the full invariant catalog and enforcement strategy. Summary:
+## F. State Machines
 
-1. Invoice totals = sum of valid invoice lines.
-2. Payment amounts are positive; reversals/refunds are explicit, separate records.
-3. Σ(allocations for a payment) ≤ payment.amount.
-4. Σ(allocations to an invoice) ≤ invoice.outstanding.
-5. A confirmed payment never silently disappears.
-6. Reversals preserve historical truth.
-7. Refunded/reversed payments do not contribute to collected totals.
-8. Duplicate payment references are handled safely.
-9. Webhooks are idempotent; out-of-order events do not corrupt balances.
-10. Every financial mutation belongs to exactly one organization.
-11. Financial history remains auditable.
-12. Previous-term balances are distinguishable from current-term obligations.
-13. Reports derive from authoritative financial data, not duplicated dashboard state.
-14. The system never manufactures a financial result because the UI expects one.
+Per founder item 9, each of the following has a full state machine defined in `/docs/state-machines/`:
 
-## G. Security Model
+- Student (ACTIVE / ARCHIVED / WITHDRAWN)
+- Invoice (DRAFT / ISSUED / PARTIALLY_PAID / PAID / VOID)
+- Payment (PENDING / CONFIRMED / DUPLICATE_SUSPECT / REVERSED / REFUNDED / FAILED)
+- Payment Allocation (ACTIVE / REVERSED)
+- Receipt (ISSUED / VOID)
+- Reversal (RECORDED — effectively append-only)
+- Refund (RECORDED — append-only, modeled as reversal with type=REFUND)
+- Payment Link (ACTIVE / PAID / EXPIRED / REVOKED)
+- Communication (PENDING / SENT / DELIVERED / FAILED)
+- Term (PLANNED / ACTIVE / CLOSED)
+- Fee Assignment (DRAFT / ACTIVE / ARCHIVED)
 
-See `/docs/SECURITY.md`. Summary:
+Each state machine document specifies: valid states, allowed transitions, who may trigger each, DB changes, audit event, and failure behavior.
 
-- **Authentication:** Supabase Auth (email/password), secure HTTP-only cookies, session expiry, password reset with single-use tokens. 2FA on roadmap.
-- **Authorization:** Role-based (OWNER / SCHOOL ADMIN / FINANCE OFFICER / STAFF), with per-action permission matrix enforced server-side. Platform-admin surface at `/admin` is separate and audited.
-- **Tenant isolation:** Every query scoped by `organization_id`; Postgres RLS as defense-in-depth; cross-tenant access tested.
-- **CSRF:** SameSite cookies + CSRF tokens for state-changing requests.
-- **Rate limiting:** Per-IP and per-account on auth and public endpoints.
-- **Input validation:** Zod schemas on every endpoint; parameterized queries via Drizzle.
-- **Webhooks:** HMAC signature verification, idempotency keys, timestamp replay windows.
-- **Secrets:** Environment variables, never in code or logs.
-- **Privacy:** NDPR-aligned handling of student/guardian PII; minimal collection.
+## G. Financial Truth Model (Authoritative vs Derived)
 
-## H. Role / Permission Matrix
+Per founder item 10, documented in `/docs/FINANCIAL_TRUTH_MODEL.md`. Summary:
 
-See §I of the executive review below and `/docs/SECURITY.md` for the full matrix.
+**AUTHORITATIVE FINANCIAL TRUTH (the ledger):**
+- invoices + invoice_lines
+- payments
+- payment_allocations
+- reversals
+- receipts (as issued evidence; derived from allocations/payments but never back-influences them)
 
-## I. Product Information Architecture
+**DERIVED / OPERATIONAL / PRESENTATION:**
+- Outstanding balances (computed: total − paid + reversals)
+- Collection rate (computed)
+- Overdue status (computed from due_date + outstanding)
+- Dashboard KPIs (computed)
+- Reports (computed)
+- Priority scores (computed, deterministic)
+- "Collection velocity" trends (computed from timestamps)
+- Command Center action feed (computed)
+- Payment link state is authoritative for link lifecycle but is not the source of payment truth (the payment record is)
 
-**Sidebar (school console, role-aware):**
+**Rule:** Derived values may be cached in materialized views for performance, but they can ALWAYS be recomputed from authoritative tables; they are never manually mutated; any discrepancy is resolved in favor of the ledger.
 
-```
-COMMAND CENTER
-STUDENTS
-FEE CATALOG
-BILLING
-INVOICES
-PAYMENTS
-RECEIPTS
-RECONCILIATION            ← flagship
-COMMUNICATION
-REPORTS
-TERMS & SESSIONS
-STAFF & PERMISSIONS
-SETTINGS
-AUDIT HISTORY
-```
+## H. Financial Invariants
 
-**Platform admin (`/admin`):**
+See `/docs/FINANCIAL_INVARIANTS.md`. 15 invariants (F1–F15) unchanged in principle, with added concurrency behavior (§J below) and clarified ledger boundaries (§G).
 
-```
-SCHOOLS
-SUBSCRIPTIONS
-ONBOARDING STATUS
-SUPPORT
-SYSTEM HEALTH
-PLATFORM METRICS
-AUDIT
-```
+## I. Concurrency Design (Per Founder Item 11)
 
-**Parent payment page (`/pay/[token]`):** Single transactional page — balance, itemization, payment methods, confirmation. No sidebar, no account.
+Concrete transaction behavior for the 7 specified race cases is documented in `/docs/CONCURRENCY_DESIGN.md`.
 
-## J. UX Strategy
+Summary:
+- Pessimistic locking (`SELECT … FOR UPDATE`) on payment and invoice rows during allocation.
+- Unique constraints on idempotency keys, webhook event IDs, and external references.
+- Strict state-machine transition checks inside every transaction.
+- User-initiated retries are protected by client-generated idempotency keys.
+- Webhook retries are protected by `(provider, event_id)` unique key.
+- Refund/success out-of-order cases route to review queue rather than silent application.
 
-See `/docs/UX_PRINCIPLES.md`. Summary:
+## J. Audit Model
 
-- **Benchmark:** Private bank × distinguished school × modern financial software.
-- **Palette:** Deep emerald green, rich gold (accent only), white, near-black.
-- **Tone:** Authoritative, calm, premium, precise, trustworthy, Nigerian, mature.
-- **Typography:** Highly legible, professional, appropriately dense, mobile-friendly.
-- **Financial screens:** AMOUNT → STATUS → WHO → WHAT → WHEN → WHY → NEXT ACTION, discoverable at a glance.
-- **Copy:** Facts and actions. No startup fluff.
-- **Accessibility:** WCAG 2.1 AA — keyboard nav, focus states, contrast, semantic markup, labels, form errors, touch targets, screen-reader support.
-- **Responsive:** Desktop/laptop/tablet/cheap Android/narrow mobile. Parent pages mobile-first.
+Defined in `/docs/AUDIT_MODEL.md`. A financially-significant event is any event that affects: who owes what, who paid what, where money is allocated, or who can perform those actions. The 15 event classes enumerated by the founder are all included, with full WHO/DID WHAT/WHEN/TO WHICH RECORD/BEFORE/AFTER/WHY shape.
 
-## K. Data Strategy
+The `audit_events` table is append-only; the application DB role has INSERT-only (no UPDATE/DELETE). Platform admins cannot delete audit entries.
 
-- Single PostgreSQL database (Supabase) with all tenants.
-- All financial tables have `organization_id NOT NULL` and RLS enabled.
-- Money stored as integer kobo (`BIGINT`). Naira strings at API boundary.
-- All timestamps `timestamptz`. Naira currency; Nigerian timezone (`Africa/Lagos`) for display.
-- Reports are **computed** from financial tables; no cached denormalized "dashboard state" that drifts.
-- CSV import is a risk boundary: server-side validation, dry-run preview, error reporting, no silent bad-data writes.
-- Backups: Supabase automated + point-in-time recovery + weekly manual off-site export; restore drills documented.
+## K. Security Model
 
-## L. Testing Strategy
+See `/docs/SECURITY.md`. Unchanged in structure; updated to reflect:
+- Separate platform admin surface (`admin.scolaira.com` future; `/admin` on app domain during pilot with strict role gate and isolated middleware).
+- Founder-owned infrastructure means credential/ownership is outside the engineering environment; rotation/recovery is founder-controlled.
+- Data residency decision is deferred to a specific document (see `/docs/DATA_RESIDENCY_AND_PRIVACY.md`) required BEFORE production student data is introduced.
 
-See `/docs/TESTING.md`. Summary:
+## L. Role / Permission Matrix
 
-- **Unit:** Vitest — money, invariants, allocators, state machines, validators.
-- **Integration / API:** Vitest + test Postgres (or Supabase local) — endpoint contracts, authorization, transactions.
-- **Financial test matrix (MANDATORY before pilot):** cash, transfer, POS, online; partial + multiple payments; multiple invoices; previous-term debt; exact/under/over payment; duplicate references; duplicate webhooks; reversed/refunded; late webhooks; failed payments; unmatched payments; manual and automatic allocation; allocation correction; unauthorized reversal; cross-tenant access; report consistency; concurrent payment recording.
-- **Security test matrix:** cross-tenant access, privilege escalation, IDOR, CSRF, webhook forgery/replay, malicious imports, XSS, injection, secret exposure, rate abuse, unauthorized exports.
-- **E2E:** Playwright — critical happy paths (login → bill → record payment → reconcile → view report) + parent payment flow.
-- **Visual / UX:** Storybook for core components; screenshot-based review on key screens; real-device mobile checks.
-- **Accessibility:** axe-core in E2E; manual keyboard/focus testing.
-- **CI:** All tests run on push; no deploy on red.
+See `/docs/SECURITY.md` §III.2. OWNER / SCHOOL_ADMIN / FINANCE_OFFICER / STAFF / PLATFORM_ADMIN matrix preserved. Platform admin actions are purpose-specific and audited.
 
-## M. Deployment Strategy
+## M. Product Information Architecture (Revised — Journey-Prioritized)
 
-See `/docs/DEPLOYMENT.md`. Summary:
+Per founder item 16, the IA supports three journeys in priority order.
 
-- **Pilot environment:** Vercel (app) + Supabase cloud (DB). Preview deployments per PR.
-- **Environments:** `local` → `preview` (PR) → `staging` → `production`.
-- **Migrations:** Drizzle migrations applied via CI/CD on deploy to staging/prod; never manual in prod.
-- **Environment variables:** Managed per environment; secrets never in repo.
-- **Domain:** `app.scolaira.app` (school), `scolaira.app/pay/...` or `pay.scolaira.app` (parents), `admin.scolaira.app` or `/admin` (platform). **EXACT DOMAIN DECISION REQUIRED.**
-- **SSL:** Automatic via Vercel + Supabase.
+**Journey 1 — Owner (Command Center → truth → action):**
+`COMMAND CENTER` (home) · REPORTS · INVOICES · PAYMENTS · RECONCILIATION · STUDENTS · AUDIT HISTORY · SETTINGS.
 
-## N. Backup & Disaster Recovery
+**Journey 2 — Finance Officer (payment → allocation → reconciliation → receipt):**
+`PAYMENTS` (record/manage) · `RECONCILIATION` (queue) · `INVOICES` · `RECEIPTS` · `STUDENTS` · `BILLING` · `FEE CATALOG` · `TERMS`.
 
-See `/docs/DISASTER_RECOVERY.md`. Summary:
+**Journey 3 — Parent (view → understand → pay → confirm):**
+Single page at `/pay/:token` — school identity, student, itemized balance, payment options, confirmation, receipt.
 
-- Automated daily Supabase backups + PITR (point-in-time recovery) enabled.
-- Weekly encrypted logical backup to separate cloud storage.
-- Documented restore procedure; quarterly restore test.
-- Rollback strategy: database migrations are reversible where possible; app deploy uses Vercel instant rollback.
-- RPO ≤ 1 hour, RTO ≤ 4 hours (pilot targets).
+Modules not on these critical paths (Staff/Permissions, Comm setup, etc.) are available but not primary navigation in pilot.
 
-## O. Observability
+Sidebar adapts to role; owner sees audit/reports more prominently; finance officer sees payments/reconciliation at the top.
 
-See `/docs/OPERATIONS.md`. Summary:
+## N. UX Strategy & Design System
 
-- Structured JSON logs (Vercel + Sentry for errors).
-- `/api/health` endpoint: app + DB connectivity + basic latency.
-- Audit log table (in-app) for every financial mutation.
-- Webhook monitoring: success/failure counts, dead-letter visibility.
-- Backup monitoring: alert on failed backups.
-- Sensitive data (PII, auth tokens, full card/account numbers) never logged.
-- Financial anomaly signals (e.g., negative balance, duplicate high-value reference) flagged in app for human review.
+See `/docs/UX_PRINCIPLES.md` and `/docs/design-system/DESIGN_SYSTEM_PLAN.md`.
 
-## P. Product Roadmap
+- **Palette tokens** (semantic, not hard-coded hex in components):
+  - Brand direction tokens: `--color-forest`, `--color-gold`, `--color-ivory`, `--color-ink`, `--color-white`.
+  - Brand references provided by founder are the starting point:
+    - `#1B4332` (deep forest reference) and `#0B3D2E` (refined deep emerald).
+    - `#D4AF37` (rich gold reference) and `#C9A227` (refined gold).
+    - `#FDFBF6` (warm ivory) and `#FFFFFF` (white).
+    - `#17201C` (near-black).
+  - Final palette is NOT hard-coded yet. Tokens will be refined via the design system process (§D15) and reviewed against real screens.
+- **Typography:** Inter (default), tabular-nums for money; scale and weights defined in design tokens.
+- **Spacing:** 4px grid scale defined in tokens.
+- **Semantic colors:** success / warning / danger / info mapped via tokens.
+- **Borders/radii/shadows:** tokenized; tight shadows, restrained radii (≤8px).
+- **Components:** button, input, select, table, badge, status chip, dialog, drawer, nav, empty/loading/error states, confirmation patterns — all built from tokens before screens are built.
+- **Financial number formatting** is a single utility used by every screen and component; never ad-hoc formatting.
 
-See `/docs/PRODUCT_ROADMAP.md`. Phased per §14 above; Phase 1 (Financial Truth) is the only phase in active build now.
+## O. Data Strategy (Revised)
 
-## Q. Business Risks
+- PostgreSQL (Supabase). All authoritative financial tables have `organization_id NOT NULL` + FK + RLS.
+- Money: BIGINT kobo; naira strings only at API edge.
+- Timestamps: TIMESTAMPTZ; display timezone Africa/Lagos.
+- Reports/Command Center derive from ledger; materialized views are allowed only as performance caches that can be fully recomputed; they carry `as_of` timestamp.
+- CSV import is a risk boundary: strict server-side validation, dry-run preview, no silent bad writes.
+- **Data residency:** Selected region documented in `/docs/DATA_RESIDENCY_AND_PRIVACY.md` BEFORE production data. Founder must review and approve.
 
-See `/docs/RISK_REGISTER.md`. Top items:
+## P. Real-World Financial Workflow Discovery Plan
 
-1. Trust failure from any financial invariant breach. **P0.**
-2. Payment-provider (Paystack) webhook reliability/mis-handling causing balance errors. **P0.**
-3. Tenant data leakage. **P0.**
-4. Low proprietor/finance-officer digital literacy → onboarding failure. **P1.**
-5. Cash/transfer reconciliation workflow not matching real school practice. **P1.**
-6. Pricing misalignment with term-based Nigerian school economics. **P1** (business).
-7. Parent/school mistrust of digital financial systems. **P1.**
-8. Weak network conditions at schools breaking usability. **P1.**
-9. NDPR non-compliance exposure. **P2** (needs early planning).
+Per founder item 8, documented in `/docs/discovery/REAL_WORLD_DISCOVERY_PLAN.md`. Covers all required workflow investigations: cash, bank transfers, POS, online, one-payment-multiple-students (siblings), multi-invoice payments, prior-term debt, over/under payments, wrong-account, unidentified, duplicates, refunds, reversals, discounts, scholarships, waivers, manual receipts, bank-statement reconciliation, finance-officer workflow, proprietor review.
 
-## R. Technical Risks
+Reconciliation is NOT finalized until discovery is completed with at least one real school finance officer. Phase 3 (Reconciliation flagship) build will incorporate findings. Phase 1 (Financial Truth) is built from domain truths that are unlikely to change (money in = recorded, allocation can't exceed outstanding, etc.) and uses the manual-reconciliation path so finance officers can always correct.
 
-1. Over-engineering: building services, AI, infra before Phase 1 correctness. Mitigation: stack is deliberately lean; monolith first.
-2. Floating-point money bugs. Mitigation: integer kobo everywhere; lint rule forbidding number on money fields; targeted tests.
-3. RLS bugs as sole tenant-isolation mechanism. Mitigation: defense-in-depth with application-level scoping + RLS; cross-tenant test matrix.
-4. Migration drift (prototyping on SQLite, migrating to Postgres). Mitigation: Drizzle with Postgres from the start; no SQLite-specific logic.
-5. Webhook duplication / out-of-order delivery. Mitigation: idempotency table + deterministic state machine + tests.
-6. CSV import as attack/data-poisoning vector. Mitigation: strict schema validation, row-level errors, dry-run preview, size limits.
-7. Vercel/Supabase lock-in. Mitigation: framework is standard Next.js/Postgres; migration path documented.
-8. Concurrency races (two finance officers recording/allocating simultaneously). Mitigation: transactions + row-level locking where needed + unique constraints + concurrency tests.
+## Q. Testing Strategy (Revised)
 
-## S. Unknowns (Require Discovery / Founder Input)
+See `/docs/TESTING.md`. Summary unchanged in structure; now also includes:
+- Explicit concurrency tests for each of the 7 named cases (A–G).
+- Tests for every state-machine transition (valid + invalid).
+- Tests verifying that derived/presentation views always match authoritative ledger (invariant F14 expanded).
+- The 32-case financial matrix and 15-case security matrix remain required.
 
-1. **Remote git host:** GitHub organization/repo name and access? (No GitHub credentials in env.)
-2. **Domain name:** Is `scolaira.app` (or similar) secured? What domains/subdomains for school vs parent vs admin?
-3. **Pricing/Terms:** The brief says "preserve the business model from the company brief" but the company brief provided is this directive only — no specific price/term numbers. Provide pricing details or mark TBD for pilot.
-4. **Paystack account:** Is there a Paystack merchant account available for development/testing, or should we use test-mode keys from a fresh account?
-5. **SMS/WhatsApp provider:** Deferred to Phase 7, but note any existing relationship.
-6. **Pilot school:** Is the first pilot school identified? Access to a real finance officer for usability testing is critical.
-7. **Supabase/Vercel accounts:** Should we create these under a SCOLAIRA-owned account or use founder credentials?
-8. **Legal/NDPR:** Is there a privacy policy/terms drafted? Required before onboarding real student data.
-9. **Existing data:** Any existing school data/spreadsheets we must import?
-10. **Multi-currency:** Only Naira in scope (assumption — confirm).
-11. **Support model:** Who supports pilot schools? In-app support widget vs WhatsApp vs phone?
-12. **Branding assets:** Logo, exact hex codes for emerald/gold, typography preferences beyond the direction given?
+## R. Deployment Strategy (Revised per D4)
 
-## T. Decisions Requiring Founder Approval
+- **Public marketing (future):** `scolaira.com`.
+- **Application:** `app.scolaira.com` (school console) once domain is provisioned; during pilot pre-domain, Vercel preview URLs are fine.
+- **Parent payment pages:** `app.scolaira.com/pay/:token` initially. Architecture must make migration to `pay.scolaira.com` straightforward (token resolution is server-side; no hard-coded origin dependencies in payment logic).
+- **Platform admin:** isolated `/admin` route under `app.scolaira.com` during pilot, gated by PLATFORM_ADMIN middleware; migrate to `admin.scolaira.com` when needed (cookie scoping designed to allow this without breaking sessions).
+- Migrations, environments, CI/CD, rollback, backups unchanged in principle (see `/docs/DEPLOYMENT.md`, `/docs/DISASTER_RECOVERY.md`).
 
-> **STOP GATE.** The following decisions must be approved before Phase 1 coding begins beyond scaffolding.
+## S. Product Discovery Backlog
 
-| # | Decision | Recommendation | Impact if delayed |
-|---|---|---|---|
-| D1 | **Stack approval** — Next.js + TypeScript + Drizzle + Supabase (Postgres/Auth) + Vercel + Tailwind/shadcn + Paystack | Approve as pilot stack; keeps us lean and correct | Blocks scaffolding |
-| D2 | **Git remote** — GitHub org name, repo name (`scolaira/scolaira`?), who owns credentials, branch strategy (`main` vs `master`, PRs vs direct) | `scolaira/scolaira` private repo on GitHub, trunk-based with short-lived PRs to `main` | Blocks pushes / backup per §47 |
-| D3 | **Hosting accounts** — Vercel + Supabase under company-owned credentials | Founder to create/own; grant engineering access | Blocks production & staging |
-| D4 | **Domain** — Production domain for app, parent pages, admin | `app.scolaira.app` (school), `pay.scolaira.app` (parents), platform admin at `app.scolaira.app/admin` (kept behind role, no separate subdomain to reduce surface) | Blocks deploy config, payment-link URLs, cookie scoping |
-| D5 | **Paystack test vs live** — Use Paystack test keys now; confirm production merchant entity | Use Paystack test mode for development; founder provides test keys | Blocks online-payment work |
-| D6 | **Pricing** — Confirm pricing model and any integration with billing/plan tables in v1 | Defer full billing integration; include Organization.plan field for future use; pilot schools handled manually | Blocks subscription/onboarding paywalls |
-| D7 | **Pilot school** — Confirm identity and expected involvement; access to real finance officer for user testing | Identify one school (150–800 students) willing to co-design; prioritize their workflow | Blocks real-data validation, onboarding design |
-| D8 | **Branding assets** — Logo files, exact emerald/gold hex codes, typography choice | Propose interim palette (emerald `#046A38`, gold `#C9A961`, near-black `#0B1F16`) pending brand system | Non-blocking for backend, blocking for production UI polish |
-| D9 | **Parent payment page domain** — Subdomain of scolaira.app vs custom per-school vanity | Subdomain of scolaira.app for pilot (cheaper, simpler, safe) | Blocks payment-link URL schema |
-| D10 | **Communications provider** — Defer to Phase 7 but confirm no pre-existing commitment | Defer; design CommunicationEvent table to be channel-agnostic | None now |
-| D11 | **Email provider** — Resend vs Postmark for transactional (receipts, reset) | Resend (simple API, good DX) | Blocks password reset / receipt email in Phase 1–2 |
-| D12 | **Data residency / NDPR** — Confirm Supabase region (recommend `eu-west-1` or `af-south-1` if available; otherwise EU with NDPR DPA) | Supabase region to minimize latency and address NDPR; legal review of DPA | Blocks production provisioning |
-| D13 | **Session duration / security policy** — Session length, password rules, rate-limit thresholds | 12-hour session with sliding refresh; 30-day "remember me" opt-in; ≥12 char passwords; rate-limit auth (5/10min lockout) | Blocks auth implementation specifics |
-| D14 | **Platform-admin scope** — Who holds platform admin (founder only initially)? Audit retention? | Founder-only initially; audit retained indefinitely; all platform mutations logged | Blocks `/admin` build |
-| D15 | **Name/branch default** — Rename default branch `main`? | Rename to `main` now | Trivial; will do on approval |
+Per founder item 13, documented in `/docs/discovery/PRODUCT_DISCOVERY_BACKLOG.md`. Items are categorized as VALIDATED, ASSUMED, or UNKNOWN. UNKNOWN items are not allowed to silently shape architecture — they are marked as requiring discovery.
+
+## T. Product Roadmap (Revised)
+
+Phasing unchanged (10 phases). Phase 0 now includes the new pre-code gates (GitHub remote verified, design system foundation, data residency decision begun). Phase 3 (Reconciliation) is preceded by the Real-World Discovery Plan; findings from the pilot school feed into Reconciliation build.
+
+## U. Business Model
+
+Source of truth is the company brief. Pricing is NOT invented here. The schema includes an `organizations.plan` field for future use; billing integration is deferred to Phase 9. Any pricing reconsideration goes through `/docs/DECISIONS.md`, never silently.
+
+## V. Observability
+
+See `/docs/OPERATIONS.md`. Principle unchanged: lean for pilot, rigorous about financial-invariant alerts and audit.
+
+## W. Backup & Disaster Recovery
+
+See `/docs/DISASTER_RECOVERY.md`. Backups (Supabase PITR + daily + weekly off-site), restore testing cadence, and incident response unchanged. Backup location is documented as part of the Data Residency decision (§O).
+
+## X. Business Risks (Top, Revised)
+
+See `/docs/RISK_REGISTER.md` for full updated register. Key changes:
+- Added R-021 **Building reconciliation around unvalidated assumptions** (P1) — mitigated by Real-World Discovery Plan and manual-reconciliation-first Phase 1.
+- Added R-022 **Pre-code GitHub/ownership not established** (P0) — mitigated by D2 hard gate.
+- Added R-023 **Design drift from hard-coded colors/spacing** (P2) — mitigated by design tokens.
+- Added R-024 **Legal/NDPR sign-off before real data** (P1 before go-live) — mitigated by Data Residency & Privacy decision document and legal review.
+
+## Y. Technical Risks
+
+- Same set as before. Added:
+  - Framework version drift: mitigate by pinning exact versions at scaffold in `package-lock.json`, dependabot PRs reviewed, CI green before update.
+  - Payment-origin hard-coding: mitigate by using single canonical URL helper; env-driven canonical origins.
+
+## Z. Implementation Gate (Pre-Code Checklist)
+
+Per founder item 17 and I (Implementation Sequence):
+
+**Before ANY application code, ALL of these must be true:**
+1. Founder creates a private GitHub repository under company ownership (D2).
+2. Founder provides a method for engineering to push (PAT or via pairing); initial documentation commit is pushed.
+3. Remote repository verified: `git ls-remote` succeeds; GitHub shows the README and docs.
+4. Default branch is `main`.
+5. Branch protection on `main`: PR required, status checks pass before merge (status checks added once CI is set).
+6. All revised documentation (this set) is committed and pushed.
+7. Stack versions selected at scaffold time and recorded.
+8. Founder-owned accounts created (or committed-to timeline) for: Vercel, Supabase, Paystack (test), Resend.
+9. Domain `scolaira.com` status confirmed (registered/in-progress; not blocking scaffolding if in progress, but blocking production).
+10. The Data Residency & Privacy decision document is drafted (final legal review can come later, but region selection is made before storing real student data).
+11. Design system foundation (tokens + core primitives) is implemented BEFORE building screen after screen.
+12. Real-World Financial Workflow Discovery Plan interviews scheduled (at minimum one school) before Phase 3 begins; Phase 1 can proceed with manual reconciliation.
+
+## AA. Implementation Sequence (After Gate Approval)
+
+After approval of this revised gate, the first engineering milestone is vertical-slice scaffolding in this order:
+
+1. **Scaffold M0 — Project skeleton:** Next.js app, TypeScript, Tailwind, Drizzle, ESLint, Vitest, Playwright, CI (GitHub Actions running lint/typecheck/unit). **PUSH + VERIFY REMOTE.**
+2. **Scaffold M1 — Design system foundation:** Typography scale, spacing scale, color tokens, semantic colors, borders/radii/shadows tokens, and core primitives (button, input, badge, status chip, dialog, drawer, table, empty/loading/error states, financial number formatter). Visual review. **PUSH + VERIFY REMOTE.**
+3. **Scaffold M2 — Database + migrations:** Initial schema migration (organizations, users, memberships, sessions, terms, classes) applied to local Postgres. Drizzle client wired. **PUSH + VERIFY REMOTE.**
+4. **Scaffold M3 — Auth:** Supabase Auth integrated (email/password), session handling, login page, logout, password reset, protected routes, role middleware. **PUSH + VERIFY REMOTE.**
+5. **Scaffold M4 — Tenant context:** Organization selection/membership enforcement, app scoping, RLS enabled in Postgres policies. Tests: cross-tenant access is blocked. **PUSH + VERIFY REMOTE.**
+6. **Slice 1 — Org onboarding:** Create organization, session, term, class setup.
+7. **Slice 2 — Students + guardians** (manual CRUD; CSV import deferred to Phase 2).
+8. **Slice 3 — Fee catalog + fee assignments.**
+9. **Slice 4 — Billing: preview → run (DRAFT) → issue.**
+10. **Slice 5 — Record payment (cash/transfer/POS) + auto-allocation + receipt print view.** Manual reconciliation (simple TO CONFIRM / TO ALLOCATE list).
+11. **Slice 6 — Basic Command Center v1** (BILLED / COLLECTED / OUTSTANDING for current term — derived from ledger).
+12. **Slice 7 — Audit log viewer** for OWNER.
+13. **Test & Security gates:** Run full financial matrix (as applicable to implemented features), cross-tenant tests, and authorization tests.
+14. **Visual inspection** of rendered screens against design system.
+15. **Staging deploy + smoke tests** once Vercel/Supabase are provisioned.
+
+Each slice: designed → implemented → tested → security-reviewed → visually-inspected → documented → committed → pushed → remote-verified.
+
+## BB. Decisions Requiring Founder Approval (Revised)
+
+The original D1–D15 with founder corrections incorporated and now presented as updated decisions in `/docs/DECISIONS.md`. Decisions that remain open for your sign-off at this revised gate are listed in §DD of this review's companion (the Executive Summary section of the STOP ONCE MORE presentation).
 
 ---
 
-*This document is the architectural source of truth. Changes follow the change-control process in §50 of the company-build directive and must be recorded in /docs/DECISIONS.md.*
+*This document supersedes the v1 architecture on the points addressed by founder corrections. Unchanged principles (invariants, kobo money, defense-in-depth, etc.) remain as specified in v1 and in their respective documents.*
