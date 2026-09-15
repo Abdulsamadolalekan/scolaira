@@ -9,6 +9,7 @@ Every financially significant event produces an append-only `audit_events` row. 
 ## I. What Constitutes a Financially Significant Event
 
 An event is financially significant if it affects:
+
 - Who owes money (invoices, billing changes)
 - How much is owed (invoice amounts, fee assignments used for billing)
 - Who paid money (payments)
@@ -24,84 +25,84 @@ An event is financially significant if it affects:
 
 Per founder item 12:
 
-| Event | Actor | Recorded when |
-|---|---|---|
-| `invoice.created` | user | DRAFT invoice created (manual or billing run) |
-| `invoice.issued` | user | DRAFT → ISSUED |
-| `invoice.voided` | user | ISSUED/DRAFT → VOID (reason required) |
-| `invoice.line_added` | user | Line added to DRAFT invoice |
-| `invoice.line_removed` | user | Line removed from DRAFT invoice |
-| `invoice.paid` | system | Invoice state → PAID |
-| `invoice.partially_paid` | system | Invoice state → PARTIALLY_PAID |
-| `invoice.reopened` | system | PAID → PARTIALLY_PAID/ISSUED due to reversal |
-| `payment.created` | user or system | Payment row inserted (with initial status) |
-| `payment.confirmed` | user or system | PENDING → CONFIRMED |
-| `payment.flagged_duplicate` | system or user | Payment → DUPLICATE_SUSPECT |
-| `payment.reversed` | user | CONFIRMED → REVERSED (reason required; links to reversal) |
-| `payment.refunded` | user | CONFIRMED → REFUNDED (reason required; links to refund) |
-| `payment.rejected` | user | DUPLICATE_SUSPECT/PENDING → REJECTED (reason) |
-| `payment.failed` | system | → FAILED (online payment failed) |
-| `allocation.created` | system or user | Allocation inserted |
-| `allocation.reversed` | user | Allocation → REVERSED (reason required) |
-| `receipt.issued` | system or user | Receipt ISSUED (channel recorded) |
-| `receipt.voided` | user or system | Receipt → VOID (reason, often tied to reversal) |
-| `payment_link.created` | user | Link created |
-| `payment_link.revoked` | user | ACTIVE → REVOKED (reason) |
-| `payment_link.paid` | system | Link → PAID |
-| `payment_link.expired` | system | Link → EXPIRED (info-level) |
-| `communication.queued` | user or system | Message queued |
-| `communication.sent` | system | Message accepted by provider |
-| `communication.delivered` | system | Delivery confirmed |
-| `communication.failed` | system | Delivery failed (error recorded) |
-| `communication.opt_out` | guardian (via link) or user | Opt-out recorded |
-| `membership.role_changed` | OWNER | Staff role changed (new/old role recorded) |
-| `membership.invited` | OWNER/ADMIN | Staff invited |
-| `membership.disabled` | OWNER/ADMIN | Staff access revoked |
-| `student.created` | user | Student created |
-| `student.updated` | user | Student demographic/class fields changed |
-| `student.archived` | user | → ARCHIVED (reason) |
-| `student.withdrawn` | user | → WITHDRAWN (reason) |
-| `student.graduated` | user | → GRADUATED |
-| `student.financial_adjustment` | user | Any change to a student that affects balances (e.g., waiver, scholarship, discount, manual balance adjustment) |
-| `fee_assignment.created` | user | Fee assignment created |
-| `fee_assignment.edited` | user | Edits before billing |
-| `fee_assignment.activated` | user | → ACTIVE |
-| `fee_assignment.archived` | user | → ARCHIVED |
-| `term.billed` | user or system | Term marked BILLED (after billing run) |
-| `term.closed` | OWNER | Term CLOSED (with acknowledgement of unreconciled items if any) |
-| `billing.run_executed` | user | Billing run executed (counts, totals recorded) |
-| `csv_import.completed` | user | CSV import (students or payments) completed with summary stats |
-| `csv_import.failed` | user or system | Import rejected/failed (errors recorded) |
-| `settings.changed` | OWNER/ADMIN | Org settings changes that affect finance (currency, receipt template, reminder policies) |
-| `auth.login.success` | system | (security event) Login success |
-| `auth.login.failed` | system | (security event) Login failure |
-| `auth.password_reset` | user | Password reset completed |
-| `auth.session_revoked` | user | Logout / "logout all devices" |
-| `platform_admin.impersonation_started` | PLATFORM_ADMIN | Audited support impersonation began |
-| `platform_admin.impersonation_ended` | PLATFORM_ADMIN | Audited support impersonation ended |
-| `security.cross_tenant_attempt` | system | Detected cross-tenant access attempt (security) |
+| Event                                  | Actor                       | Recorded when                                                                                                  |
+| -------------------------------------- | --------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `invoice.created`                      | user                        | DRAFT invoice created (manual or billing run)                                                                  |
+| `invoice.issued`                       | user                        | DRAFT → ISSUED                                                                                                 |
+| `invoice.voided`                       | user                        | ISSUED/DRAFT → VOID (reason required)                                                                          |
+| `invoice.line_added`                   | user                        | Line added to DRAFT invoice                                                                                    |
+| `invoice.line_removed`                 | user                        | Line removed from DRAFT invoice                                                                                |
+| `invoice.paid`                         | system                      | Invoice state → PAID                                                                                           |
+| `invoice.partially_paid`               | system                      | Invoice state → PARTIALLY_PAID                                                                                 |
+| `invoice.reopened`                     | system                      | PAID → PARTIALLY_PAID/ISSUED due to reversal                                                                   |
+| `payment.created`                      | user or system              | Payment row inserted (with initial status)                                                                     |
+| `payment.confirmed`                    | user or system              | PENDING → CONFIRMED                                                                                            |
+| `payment.flagged_duplicate`            | system or user              | Payment → DUPLICATE_SUSPECT                                                                                    |
+| `payment.reversed`                     | user                        | CONFIRMED → REVERSED (reason required; links to reversal)                                                      |
+| `payment.refunded`                     | user                        | CONFIRMED → REFUNDED (reason required; links to refund)                                                        |
+| `payment.rejected`                     | user                        | DUPLICATE_SUSPECT/PENDING → REJECTED (reason)                                                                  |
+| `payment.failed`                       | system                      | → FAILED (online payment failed)                                                                               |
+| `allocation.created`                   | system or user              | Allocation inserted                                                                                            |
+| `allocation.reversed`                  | user                        | Allocation → REVERSED (reason required)                                                                        |
+| `receipt.issued`                       | system or user              | Receipt ISSUED (channel recorded)                                                                              |
+| `receipt.voided`                       | user or system              | Receipt → VOID (reason, often tied to reversal)                                                                |
+| `payment_link.created`                 | user                        | Link created                                                                                                   |
+| `payment_link.revoked`                 | user                        | ACTIVE → REVOKED (reason)                                                                                      |
+| `payment_link.paid`                    | system                      | Link → PAID                                                                                                    |
+| `payment_link.expired`                 | system                      | Link → EXPIRED (info-level)                                                                                    |
+| `communication.queued`                 | user or system              | Message queued                                                                                                 |
+| `communication.sent`                   | system                      | Message accepted by provider                                                                                   |
+| `communication.delivered`              | system                      | Delivery confirmed                                                                                             |
+| `communication.failed`                 | system                      | Delivery failed (error recorded)                                                                               |
+| `communication.opt_out`                | guardian (via link) or user | Opt-out recorded                                                                                               |
+| `membership.role_changed`              | OWNER                       | Staff role changed (new/old role recorded)                                                                     |
+| `membership.invited`                   | OWNER/ADMIN                 | Staff invited                                                                                                  |
+| `membership.disabled`                  | OWNER/ADMIN                 | Staff access revoked                                                                                           |
+| `student.created`                      | user                        | Student created                                                                                                |
+| `student.updated`                      | user                        | Student demographic/class fields changed                                                                       |
+| `student.archived`                     | user                        | → ARCHIVED (reason)                                                                                            |
+| `student.withdrawn`                    | user                        | → WITHDRAWN (reason)                                                                                           |
+| `student.graduated`                    | user                        | → GRADUATED                                                                                                    |
+| `student.financial_adjustment`         | user                        | Any change to a student that affects balances (e.g., waiver, scholarship, discount, manual balance adjustment) |
+| `fee_assignment.created`               | user                        | Fee assignment created                                                                                         |
+| `fee_assignment.edited`                | user                        | Edits before billing                                                                                           |
+| `fee_assignment.activated`             | user                        | → ACTIVE                                                                                                       |
+| `fee_assignment.archived`              | user                        | → ARCHIVED                                                                                                     |
+| `term.billed`                          | user or system              | Term marked BILLED (after billing run)                                                                         |
+| `term.closed`                          | OWNER                       | Term CLOSED (with acknowledgement of unreconciled items if any)                                                |
+| `billing.run_executed`                 | user                        | Billing run executed (counts, totals recorded)                                                                 |
+| `csv_import.completed`                 | user                        | CSV import (students or payments) completed with summary stats                                                 |
+| `csv_import.failed`                    | user or system              | Import rejected/failed (errors recorded)                                                                       |
+| `settings.changed`                     | OWNER/ADMIN                 | Org settings changes that affect finance (currency, receipt template, reminder policies)                       |
+| `auth.login.success`                   | system                      | (security event) Login success                                                                                 |
+| `auth.login.failed`                    | system                      | (security event) Login failure                                                                                 |
+| `auth.password_reset`                  | user                        | Password reset completed                                                                                       |
+| `auth.session_revoked`                 | user                        | Logout / "logout all devices"                                                                                  |
+| `platform_admin.impersonation_started` | PLATFORM_ADMIN              | Audited support impersonation began                                                                            |
+| `platform_admin.impersonation_ended`   | PLATFORM_ADMIN              | Audited support impersonation ended                                                                            |
+| `security.cross_tenant_attempt`        | system                      | Detected cross-tenant access attempt (security)                                                                |
 
 ## III. Audit Record Shape
 
 Every audit_event row contains:
 
-| Field | Type | Description |
-|---|---|---|
-| id | UUID PK | |
-| organization_id | UUID FK (nullable) | Tenant (null for platform-wide events) |
-| actor_user_id | UUID FK users (nullable) | Acting user (null for system/webhook) |
-| actor_type | TEXT | 'user' / 'system' / 'webhook' / 'platform_admin' |
-| action | TEXT | One of the event types above |
-| entity_type | TEXT | 'invoice', 'payment', 'allocation', etc. |
-| entity_id | UUID | The record |
-| before | JSONB | Snapshot of changed fields before the mutation (null on create) |
-| after | JSONB | Snapshot after mutation (null on delete — but we never delete financial records; included for exceptional cases) |
-| reason | TEXT | Required for reversals, voids, revokes, role changes, student archive/withdraw |
-| metadata | JSONB | Context: channel, provider, ip, request_id |
-| request_id | TEXT | For tracing across logs |
-| ip | INET | For user-initiated actions |
-| user_agent | TEXT | |
-| created_at | TIMESTAMPTZ | Immutable |
+| Field           | Type                     | Description                                                                                                      |
+| --------------- | ------------------------ | ---------------------------------------------------------------------------------------------------------------- |
+| id              | UUID PK                  |                                                                                                                  |
+| organization_id | UUID FK (nullable)       | Tenant (null for platform-wide events)                                                                           |
+| actor_user_id   | UUID FK users (nullable) | Acting user (null for system/webhook)                                                                            |
+| actor_type      | TEXT                     | 'user' / 'system' / 'webhook' / 'platform_admin'                                                                 |
+| action          | TEXT                     | One of the event types above                                                                                     |
+| entity_type     | TEXT                     | 'invoice', 'payment', 'allocation', etc.                                                                         |
+| entity_id       | UUID                     | The record                                                                                                       |
+| before          | JSONB                    | Snapshot of changed fields before the mutation (null on create)                                                  |
+| after           | JSONB                    | Snapshot after mutation (null on delete — but we never delete financial records; included for exceptional cases) |
+| reason          | TEXT                     | Required for reversals, voids, revokes, role changes, student archive/withdraw                                   |
+| metadata        | JSONB                    | Context: channel, provider, ip, request_id                                                                       |
+| request_id      | TEXT                     | For tracing across logs                                                                                          |
+| ip              | INET                     | For user-initiated actions                                                                                       |
+| user_agent      | TEXT                     |                                                                                                                  |
+| created_at      | TIMESTAMPTZ              | Immutable                                                                                                        |
 
 ## IV. The Seven Questions, Per Record
 
@@ -132,6 +133,7 @@ Every audit_event row contains:
 ## VII. Logging Distinction
 
 Audit events are NOT the same as application logs:
+
 - **Audit events** are permanent, business-meaningful, shown in UI, exported to proprietors.
 - **Application logs** are for engineering troubleshooting; they are NOT the audit trail and must not contain sensitive data (per `/docs/OPERATIONS.md`).
 

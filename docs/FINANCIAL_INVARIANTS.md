@@ -8,27 +8,28 @@ All monetary values are **integer kobo (BIGINT)** internally. All API contracts 
 
 ## I. Canonical Invariants
 
-| # | Invariant | Enforcement |
-|---|---|---|
-| F1 | **Invoice totals** equal the sum of all non-void invoice lines for that invoice. | DB trigger + service-layer assertion; sum() on lines = invoice.total_kobo. |
-| F2 | **Payment amounts** are strictly positive. Reversals and refunds are explicit, separate records — never negative payments. | Check constraint `amount_kobo > 0`; reversals are in `reversals` table with positive amount and sign-polarity handled in aggregation views. |
-| F3 | **Allocations ≤ payment.** Σ(PaymentAllocation.amount_kobo) for a given payment ≤ payment.amount_kobo, minus any reversal already applied. | Check constraint + trigger + service-layer SELECT … FOR UPDATE lock on payment row during allocation. |
-| F4 | **Allocations ≤ invoice outstanding.** Σ(allocations to invoice) + Σ(reversals of allocations to invoice) ≤ invoice.total_kobo. | Trigger + service assertion; invoice outstanding is derived, never stored as independent mutable state. |
-| F5 | **Confirmed payments never disappear.** Soft-delete/void is not allowed for confirmed payments. Reversal is the only correction path. | `payments.state` is an enum (`PENDING`, `CONFIRMED`, `REVERSED`, `REFUNDED`, `FAILED`); hard-delete blocked by trigger; `state` transitions constrained. |
-| F6 | **Reversals preserve history.** Reversals are append-only rows pointing to the original payment/allocation. | Foreign key to original; reversal rows cannot be edited after insertion; audit log records who/when/why. |
-| F7 | **Refunded/reversed payments do not contribute to collected totals.** Aggregation views/reports exclude `REVERSED`/`REFUNDED` payments and adjust for partial reversals. | Reporting views sum only `CONFIRMED` minus reversed amounts; integration tests cover each scenario. |
-| F8 | **Duplicate payment references** are safely handled. | Unique `(organization_id, payment_method, external_reference)` where reference is non-null; duplicate webhooks dedup on provider reference + idempotency key. |
-| F9 | **Webhooks are idempotent.** Re-delivery of an already-processed event is a no-op; out-of-order events do not corrupt state. | Idempotency table keyed by `(provider, event_id)`; state machine enforces valid transitions only (e.g., you cannot reverse a payment that is still PENDING). |
-| F10 | **Out-of-order events** do not corrupt balances. Late `payment.success` after `refund` is reconciled as a separate, reviewable item — not double-counted. | State machine with explicit transitions; when a late event arrives for a non-current state, it is flagged for human review rather than auto-applied. |
-| F11 | **Single tenancy of financial records.** Every financial row belongs to exactly one organization; queries cannot cross tenants. | `organization_id NOT NULL` on every financial table + FK to organizations + Postgres RLS + application-level guard. |
-| F12 | **Auditability.** Every financial mutation writes an append-only audit event (actor, action, before/after snapshot hashes, timestamp, request id). | Audit trigger on financial tables + service-level audit emission; audit table has no UPDATE/DELETE permissions for app role. |
-| F13 | **Previous-term balances are distinguishable** from current-term obligations. | Invoices carry a `term_id`; outstanding aggregations group by term/current-vs-prior; the Command Center separates "current term outstanding" from "previous-term exposure." |
-| F14 | **Reports derive from authoritative data.** No cached dashboard totals; reports run against financial tables or materialized views refreshed transactionally. | Reporting functions read from invoices/payments/allocations directly; materialized views, if introduced, refresh in transactions and are marked stale-safe. |
-| F15 | **The system never manufactures a financial result** because the UI expects one. If data is missing or inconsistent, the UI shows the uncertainty rather than a false number. | Service methods return explicit uncertainty flags (e.g., reconciliation `FLAGGED`); UI exposes uncertainty; no client-side "fixing" of numbers. |
+| #   | Invariant                                                                                                                                                                     | Enforcement                                                                                                                                                                 |
+| --- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| F1  | **Invoice totals** equal the sum of all non-void invoice lines for that invoice.                                                                                              | DB trigger + service-layer assertion; sum() on lines = invoice.total_kobo.                                                                                                  |
+| F2  | **Payment amounts** are strictly positive. Reversals and refunds are explicit, separate records — never negative payments.                                                    | Check constraint `amount_kobo > 0`; reversals are in `reversals` table with positive amount and sign-polarity handled in aggregation views.                                 |
+| F3  | **Allocations ≤ payment.** Σ(PaymentAllocation.amount_kobo) for a given payment ≤ payment.amount_kobo, minus any reversal already applied.                                    | Check constraint + trigger + service-layer SELECT … FOR UPDATE lock on payment row during allocation.                                                                       |
+| F4  | **Allocations ≤ invoice outstanding.** Σ(allocations to invoice) + Σ(reversals of allocations to invoice) ≤ invoice.total_kobo.                                               | Trigger + service assertion; invoice outstanding is derived, never stored as independent mutable state.                                                                     |
+| F5  | **Confirmed payments never disappear.** Soft-delete/void is not allowed for confirmed payments. Reversal is the only correction path.                                         | `payments.state` is an enum (`PENDING`, `CONFIRMED`, `REVERSED`, `REFUNDED`, `FAILED`); hard-delete blocked by trigger; `state` transitions constrained.                    |
+| F6  | **Reversals preserve history.** Reversals are append-only rows pointing to the original payment/allocation.                                                                   | Foreign key to original; reversal rows cannot be edited after insertion; audit log records who/when/why.                                                                    |
+| F7  | **Refunded/reversed payments do not contribute to collected totals.** Aggregation views/reports exclude `REVERSED`/`REFUNDED` payments and adjust for partial reversals.      | Reporting views sum only `CONFIRMED` minus reversed amounts; integration tests cover each scenario.                                                                         |
+| F8  | **Duplicate payment references** are safely handled.                                                                                                                          | Unique `(organization_id, payment_method, external_reference)` where reference is non-null; duplicate webhooks dedup on provider reference + idempotency key.               |
+| F9  | **Webhooks are idempotent.** Re-delivery of an already-processed event is a no-op; out-of-order events do not corrupt state.                                                  | Idempotency table keyed by `(provider, event_id)`; state machine enforces valid transitions only (e.g., you cannot reverse a payment that is still PENDING).                |
+| F10 | **Out-of-order events** do not corrupt balances. Late `payment.success` after `refund` is reconciled as a separate, reviewable item — not double-counted.                     | State machine with explicit transitions; when a late event arrives for a non-current state, it is flagged for human review rather than auto-applied.                        |
+| F11 | **Single tenancy of financial records.** Every financial row belongs to exactly one organization; queries cannot cross tenants.                                               | `organization_id NOT NULL` on every financial table + FK to organizations + Postgres RLS + application-level guard.                                                         |
+| F12 | **Auditability.** Every financial mutation writes an append-only audit event (actor, action, before/after snapshot hashes, timestamp, request id).                            | Audit trigger on financial tables + service-level audit emission; audit table has no UPDATE/DELETE permissions for app role.                                                |
+| F13 | **Previous-term balances are distinguishable** from current-term obligations.                                                                                                 | Invoices carry a `term_id`; outstanding aggregations group by term/current-vs-prior; the Command Center separates "current term outstanding" from "previous-term exposure." |
+| F14 | **Reports derive from authoritative data.** No cached dashboard totals; reports run against financial tables or materialized views refreshed transactionally.                 | Reporting functions read from invoices/payments/allocations directly; materialized views, if introduced, refresh in transactions and are marked stale-safe.                 |
+| F15 | **The system never manufactures a financial result** because the UI expects one. If data is missing or inconsistent, the UI shows the uncertainty rather than a false number. | Service methods return explicit uncertainty flags (e.g., reconciliation `FLAGGED`); UI exposes uncertainty; no client-side "fixing" of numbers.                             |
 
 ## II. State Machines
 
 ### Invoice state
+
 ```
 DRAFT → ISSUED → PARTIALLY_PAID → PAID
   │        │         │
@@ -43,6 +44,7 @@ DRAFT → ISSUED → PARTIALLY_PAID → PAID
 - `VOID`: zeroed out via a credit note; history preserved; does not contribute to BILLED (net zero).
 
 ### Payment state
+
 ```
 PENDING → CONFIRMED → REVERSED
                 │
@@ -51,7 +53,7 @@ PENDING → FAILED
 PENDING → DUPLICATE_SUSPECT → CONFIRMED (manual review) or REJECTED
 ```
 
-- `PENDING`: recorded (e.g. webhook received but not signature-verified; or cash entered as provisional?). *Decision:* cash/transfer/POS entries should be created directly CONFIRMED by authorized finance officer; online payments PENDING until webhook confirmation.
+- `PENDING`: recorded (e.g. webhook received but not signature-verified; or cash entered as provisional?). _Decision:_ cash/transfer/POS entries should be created directly CONFIRMED by authorized finance officer; online payments PENDING until webhook confirmation.
 - `CONFIRMED`: counts toward collected; eligible for allocation.
 - `REVERSED`: full reversal; does not count toward collected.
 - `REFUNDED`: money returned; does not count toward collected; requires original payment reference.
@@ -59,6 +61,7 @@ PENDING → DUPLICATE_SUSPECT → CONFIRMED (manual review) or REJECTED
 - `DUPLICATE_SUSPECT`: suspected duplicate reference; held for review; not allocated until resolved.
 
 ### Payment Link state
+
 ```
 ACTIVE → PAID (one-time)
 ACTIVE → EXPIRED
@@ -70,14 +73,14 @@ ACTIVE → REVOKED
 
 ## III. Concurrency Controls
 
-| Scenario | Control |
-|---|---|
-| Two finance officers record payments on same student | Independent; sum naturally; no lock needed beyond per-statement transactions. |
+| Scenario                                                  | Control                                                                                                                                     |
+| --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| Two finance officers record payments on same student      | Independent; sum naturally; no lock needed beyond per-statement transactions.                                                               |
 | Two allocations against same payment/invoice concurrently | Transaction with `SELECT … FOR UPDATE` on payment and target invoice rows; check outstanding inside the transaction; abort if would exceed. |
-| Duplicate webhook | Idempotency table unique key on `(provider, event_id)`; second delivery returns 200 OK but performs no mutation. |
-| Webhook for already-refunded payment | State-machine guard; late `charge.success` after `refund.successful` routes to `DUPLICATE_SUSPECT` for manual reconciliation. |
-| CSV import during active billing | Import runs in a transaction; duplicate identifiers are flagged, not partially written. |
-| User double-clicks "Record payment" | Client disables + server-side idempotency key (client-generated UUID) enforced unique per `(organization_id, user_id, idempotency_key)`. |
+| Duplicate webhook                                         | Idempotency table unique key on `(provider, event_id)`; second delivery returns 200 OK but performs no mutation.                            |
+| Webhook for already-refunded payment                      | State-machine guard; late `charge.success` after `refund.successful` routes to `DUPLICATE_SUSPECT` for manual reconciliation.               |
+| CSV import during active billing                          | Import runs in a transaction; duplicate identifiers are flagged, not partially written.                                                     |
+| User double-clicks "Record payment"                       | Client disables + server-side idempotency key (client-generated UUID) enforced unique per `(organization_id, user_id, idempotency_key)`.    |
 
 ## IV. Kobo / Naira Boundary Rules
 
@@ -98,7 +101,7 @@ When a payment arrives without explicit allocation instruction (e.g., parent mak
 4. Remainder that cannot fully pay an invoice becomes partial allocation.
 5. If after allocation the payment is over-received (unlikely for method-captured payments; possible for unmatched transfers), the surplus remains on the payment as **unallocated** and surfaces in Reconciliation as "Excess payment — requires review."
 
-*Rationale:* deterministic, explainable, reviewable. Finance officer can always re-allocate before close; correction is an audited action.
+_Rationale:_ deterministic, explainable, reviewable. Finance officer can always re-allocate before close; correction is an audited action.
 
 ## VI. Audit Requirements for Financial Mutations
 

@@ -7,15 +7,15 @@
 
 ## 1. Product Identity
 
-| Field | Value |
-|---|---|
-| Name | SCOLAIRA |
-| Tagline | The Financial Operating System for Nigerian Private Schools |
-| Core promise | Every term, fully funded |
-| Primary customer | Proprietor-owned Nigerian private schools (150–800 students) |
-| Decision maker | School proprietor / owner |
-| Operational users | Owner, School Admin, Finance Officer, Authorized Staff |
-| Parent relationship | Transactional, no conventional account required |
+| Field               | Value                                                        |
+| ------------------- | ------------------------------------------------------------ |
+| Name                | SCOLAIRA                                                     |
+| Tagline             | The Financial Operating System for Nigerian Private Schools  |
+| Core promise        | Every term, fully funded                                     |
+| Primary customer    | Proprietor-owned Nigerian private schools (150–800 students) |
+| Decision maker      | School proprietor / owner                                    |
+| Operational users   | Owner, School Admin, Finance Officer, Authorized Staff       |
+| Parent relationship | Transactional, no conventional account required              |
 
 **Spelling is sacred:** S-C-O-L-A-I-R-A.
 (Schola + Naira). Never SCOLARIA, SCOLAIR, SCOLIARA.
@@ -23,6 +23,7 @@
 ## 2. What SCOLAIRA Is NOT
 
 SCOLAIRA is **not** primarily:
+
 - A generic school management system
 - A timetable or grading application
 - A parent social network
@@ -60,6 +61,7 @@ BILL → KNOW → COMMUNICATE → COLLECT → RECONCILE → ANALYZE → ACT → 
 ## 5. Payment-Method Agnosticism (NON-NEGOTIABLE)
 
 SCOLAIRA never assumes every parent:
+
 - Has a smartphone
 - Understands payment links
 - Uses online banking
@@ -67,6 +69,7 @@ SCOLAIRA never assumes every parent:
 - Can pay digitally
 
 Supported payment methods (at minimum):
+
 - **Cash**
 - **Bank transfer**
 - **POS**
@@ -97,6 +100,7 @@ No "sometimes naira, sometimes kobo." One contract. One meaning.
 Answers one question: **WHERE IS OUR MONEY?**
 
 Core metrics:
+
 1. Where are we now? (BILLED / COLLECTED / OUTSTANDING)
 2. What changed?
 3. What is at risk? (OVERDUE / UNRECONCILED / PREVIOUS-TERM EXPOSURE)
@@ -110,6 +114,7 @@ No decorative charts. Every number supports a decision.
 Data → Insight → Priority → Action.
 
 Surfaces:
+
 - Overdue high-value accounts
 - Unreconciled payments
 - Duplicate-suspect payments
@@ -122,6 +127,7 @@ Surfaces:
 ## 9. Collection Priority (Deterministic, Explainable)
 
 **No fake "AI."** Priority is computed deterministically from:
+
 - Amount outstanding
 - Days overdue
 - Previous-term debt
@@ -155,13 +161,13 @@ No vanity sidebar items. Every module serves the financial OS.
 
 ## 11. Role Model
 
-| Role | Scope |
-|---|---|
-| **OWNER** | Full organization control |
-| **SCHOOL ADMIN** | Operational administration (no ownership transfer or platform-level actions) |
-| **FINANCE OFFICER** | Payments, reconciliation, receipts, financial reporting, billing ops (as authorized) |
-| **STAFF** | Only explicitly authorized capabilities |
-| **PLATFORM ADMIN** | Separate surface at `/admin` for schools, subscriptions, support, system health, metrics |
+| Role                | Scope                                                                                    |
+| ------------------- | ---------------------------------------------------------------------------------------- |
+| **OWNER**           | Full organization control                                                                |
+| **SCHOOL ADMIN**    | Operational administration (no ownership transfer or platform-level actions)             |
+| **FINANCE OFFICER** | Payments, reconciliation, receipts, financial reporting, billing ops (as authorized)     |
+| **STAFF**           | Only explicitly authorized capabilities                                                  |
+| **PLATFORM ADMIN**  | Separate surface at `/admin` for schools, subscriptions, support, system health, metrics |
 
 ## 12. Parent Experience
 
@@ -175,28 +181,28 @@ No forced account creation. No complicated dashboards. No forced app download.
 
 ## 13. Long-Term Platform Layers
 
-| Layer | Purpose |
-|---|---|
-| SCOLAIRA SCHOOL | Core fee & financial OS (build first) |
-| SCOLAIRA COLLECTIONS | Collection workflows & channels |
-| SCOLAIRA RECONCILIATION | Money matching & exception management |
-| SCOLAIRA INTELLIGENCE | Financial visibility, trends, risk, prioritization |
-| SCOLAIRA PAYMENTS | Future payment infrastructure (do not build now) |
+| Layer                   | Purpose                                            |
+| ----------------------- | -------------------------------------------------- |
+| SCOLAIRA SCHOOL         | Core fee & financial OS (build first)              |
+| SCOLAIRA COLLECTIONS    | Collection workflows & channels                    |
+| SCOLAIRA RECONCILIATION | Money matching & exception management              |
+| SCOLAIRA INTELLIGENCE   | Financial visibility, trends, risk, prioritization |
+| SCOLAIRA PAYMENTS       | Future payment infrastructure (do not build now)   |
 
 ## 14. Product Phasing
 
-| Phase | Name | Goal |
-|---|---|---|
-| 1 | Financial Truth | Correct ledger, invoices, payments, allocations |
-| 2 | Payment Completeness | All payment methods recorded, receipts issued |
-| 3 | Reconciliation | Flagship reconciliation workflow |
-| 4 | Command Center Intelligence | Proprietor control room |
-| 5 | Collection Priority | Deterministic prioritization |
-| 6 | Financial Memory | Historical depth, term-over-term |
-| 7 | Communication / Workflow Refinement | SMS/WhatsApp/reminders |
-| 8 | Parent Experience Refinement | Mobile payment pages |
-| 9 | Platform Scalability | Multi-school operations |
-| 10 | Financial Infrastructure | Deeper payment rails |
+| Phase | Name                                | Goal                                            |
+| ----- | ----------------------------------- | ----------------------------------------------- |
+| 1     | Financial Truth                     | Correct ledger, invoices, payments, allocations |
+| 2     | Payment Completeness                | All payment methods recorded, receipts issued   |
+| 3     | Reconciliation                      | Flagship reconciliation workflow                |
+| 4     | Command Center Intelligence         | Proprietor control room                         |
+| 5     | Collection Priority                 | Deterministic prioritization                    |
+| 6     | Financial Memory                    | Historical depth, term-over-term                |
+| 7     | Communication / Workflow Refinement | SMS/WhatsApp/reminders                          |
+| 8     | Parent Experience Refinement        | Mobile payment pages                            |
+| 9     | Platform Scalability                | Multi-school operations                         |
+| 10    | Financial Infrastructure            | Deeper payment rails                            |
 
 **Do not jump to Phase 10 before Phase 1 is trustworthy.**
 
@@ -217,15 +223,15 @@ SCOLAIRA becomes known for doing **FEES** exceptionally well.
 
 ## 16. Three-Layer Experience
 
-| User | Primary question |
-|---|---|
-| Owner | "What is happening with my money?" |
+| User            | Primary question                                         |
+| --------------- | -------------------------------------------------------- |
+| Owner           | "What is happening with my money?"                       |
 | Finance Officer | "What needs to be recorded, reconciled, or followed up?" |
-| Staff | "What am I authorized to do?" |
-| Parent | "How much do I owe and how can I pay?" |
+| Staff           | "What am I authorized to do?"                            |
+| Parent          | "How much do I owe and how can I pay?"                   |
 
 Do not give every user the same interface.
 
 ---
 
-*This document is the product source of truth. Terminology herein is canonical.*
+_This document is the product source of truth. Terminology herein is canonical._

@@ -16,12 +16,14 @@ This is the initial skeleton of the data-residency decision required by Founder 
 **DECISION PENDING (D12).** To be chosen before production provisioning.
 
 **Candidate options:**
+
 - `eu-west-1` (Ireland) — stable, robust, Supabase-supported; GDPR-mature; data leaves Africa.
 - `eu-west-2` (London) — similar to Ireland, good latency to Nigeria from UK cables.
 - `af-south-1` (Cape Town, if Supabase supports) — African data residency, potentially higher latency/less mature than EU regions; verify availability.
 - `us-east-1` (N. Virginia) — avoid for data residency reasons.
 
 **Selection criteria:**
+
 1. Supabase availability and reliability.
 2. Network latency from Nigeria (tested during staging).
 3. NDPR compliance / adequacy decisions for cross-border transfers.
@@ -32,6 +34,7 @@ This is the initial skeleton of the data-residency decision required by Founder 
 **Engineering recommendation (subject to legal review):** Choose an EU region (Ireland `eu-west-1`) as the production region because: (a) Supabase's EU region is mature; (b) Nigerian NDPR recognizes countries with adequate data protection; (c) latency to Nigeria via undersea cables is workable; (d) backups remain within EU. We will verify Cape Town availability and re-evaluate.
 
 **Action items before go-live:**
+
 - [ ] Confirm Supabase region availability for shortlist.
 - [ ] Run latency tests from Nigerian networks (pilot school location) to each region.
 - [ ] Review Supabase Data Processing Agreement (DPA) for NDPR compatibility.
@@ -55,14 +58,14 @@ Documented after selection.
 
 ## IV. Sub-processors (Initial List, to be Maintained)
 
-| Processor | Purpose | Location |
-|---|---|---|
-| Supabase (selected region) | Database, Auth, Storage | Selected region |
-| Vercel | Application hosting, CDN | Global edge; primary region to be selected (likely `iad1` or `fra1` based on DB region proximity) |
-| Paystack | Online payment processing | Nigeria (Paystack is Nigeria-founded; card data never touches our systems) |
-| Resend | Transactional email | US/EU (documented at provisioning time) |
-| Sentry | Error tracking | EU or US; PII-scrubbed |
-| GitHub | Source code hosting | US; repository does not contain production data or secrets |
+| Processor                  | Purpose                   | Location                                                                                          |
+| -------------------------- | ------------------------- | ------------------------------------------------------------------------------------------------- |
+| Supabase (selected region) | Database, Auth, Storage   | Selected region                                                                                   |
+| Vercel                     | Application hosting, CDN  | Global edge; primary region to be selected (likely `iad1` or `fra1` based on DB region proximity) |
+| Paystack                   | Online payment processing | Nigeria (Paystack is Nigeria-founded; card data never touches our systems)                        |
+| Resend                     | Transactional email       | US/EU (documented at provisioning time)                                                           |
+| Sentry                     | Error tracking            | EU or US; PII-scrubbed                                                                            |
+| GitHub                     | Source code hosting       | US; repository does not contain production data or secrets                                        |
 
 ## V. Data Residency Considerations (International Transfer)
 
@@ -98,6 +101,7 @@ Legal review will confirm alignment with Nigerian Companies and Allied Matters A
 ## VIII. NDPR Considerations
 
 SCOLAIRA will comply with NDPR obligations for processors:
+
 - Act only on documented instructions from the school (controller) as described in the DPA and terms of service.
 - Implement appropriate technical and organizational security measures (documented in `/docs/SECURITY.md`).
 - Assist controllers in responding to data subject rights requests (access, rectification, erasure, restriction, portability, objection) via in-app tooling.
@@ -109,6 +113,7 @@ SCOLAIRA will comply with NDPR obligations for processors:
 ## IX. School (Controller) Responsibilities
 
 Each school as controller is responsible for:
+
 - Having a lawful basis for processing student/guardian data (typically consent and/or legitimate interest/contract for operating the school).
 - Providing appropriate privacy notice to parents/guardians (SCOLAIRA will provide a template).
 - Honoring data-subject requests from parents.
@@ -142,4 +147,4 @@ Each school as controller is responsible for:
 
 ---
 
-*Until this document is finalized and approved, development and scaffolding may proceed using Supabase default region, but NO real student/guardian data will be entered until this gate is passed. Test/seed data may use fictional students.*
+_Until this document is finalized and approved, development and scaffolding may proceed using Supabase default region, but NO real student/guardian data will be entered until this gate is passed. Test/seed data may use fictional students._

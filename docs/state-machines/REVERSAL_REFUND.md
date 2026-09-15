@@ -7,6 +7,7 @@ Entities: `reversals` (append-only)
 Reversals and Refunds are **append-only records** — they do not have meaningful lifecycle states once created (they are RECORDED and that is their permanent state). Any "cancellation" of a reversal is a new corrective entry (e.g., a new payment) rather than an undo.
 
 ## Types
+
 - `REVERSAL` — internal correction (e.g., payment recorded in error, wrong student, duplicate resolved by removing). May be full or partial.
 - `REFUND` — money returned to payer (e.g., Paystack refund initiated, cash handed back). Requires an external settlement action tracked separately.
 - `CORRECTION` — accounting correction (rare; used to fix an allocation error without implying money movement).
@@ -24,6 +25,7 @@ Reversals and Refunds are **append-only records** — they do not have meaningfu
 ## Database Effects
 
 On insert (transactional):
+
 1. Insert reversals row.
 2. If reversing specific allocations: mark those allocations reversed (link to reversal).
 3. If reversing entire payment: mark all ACTIVE allocations for the payment reversed; set payment status to REVERSED or REFUNDED.
@@ -32,6 +34,7 @@ On insert (transactional):
 6. Void any receipts that are now invalid; audit.
 
 ## Audit Events
+
 - `payment.reversed` / `payment.refunded`
 - `allocation.reversed`
 - `receipt.voided` (if triggered by reversal)

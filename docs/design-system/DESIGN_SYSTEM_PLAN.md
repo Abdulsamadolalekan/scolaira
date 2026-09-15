@@ -151,7 +151,7 @@ All money values use `font-variant-numeric: tabular-nums;` (and `font-feature-se
 Before any feature screen:
 
 1. **Button**
-   - Variants: primary (forest), secondary (white + border), tertiary (text-link), destructive (red-outline or red-fill *only* on confirmation), ghost.
+   - Variants: primary (forest), secondary (white + border), tertiary (text-link), destructive (red-outline or red-fill _only_ on confirmation), ghost.
    - Sizes: sm (32px), md (40px — default), lg (48px — for parent Pay button).
    - States: default, hover, active, focus (visible ring), disabled, loading (spinner), destructive confirmation.
    - Icons allowed left/right; icon-only buttons always have aria-label.
@@ -230,6 +230,7 @@ Before building screens, establish three page templates:
 ## V. Print Styles
 
 Receipts, invoices, and statements must print cleanly. A dedicated print stylesheet:
+
 - Hides navigation, chrome, buttons.
 - Uses white background, black/green text.
 - Ensures page breaks at sensible boundaries (no page break in middle of a receipt).
@@ -247,6 +248,7 @@ Receipts, invoices, and statements must print cleanly. A dedicated print stylesh
 ## VII. Brand Review Gate
 
 Before launch (not pre-scaffolding), a formal brand review:
+
 - Final palette approved/finalized.
 - Typography confirmed.
 - Logo/wordmark in place.

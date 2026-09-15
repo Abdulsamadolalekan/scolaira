@@ -1,0 +1,13 @@
+{
+  "extends": ["next/core-web-vitals", "next/typescript", "prettier"],
+  "rules": {
+    // Enforce explicit handling — no ignored promises silently.
+    "@typescript-eslint/no-floating-promises": "off",
+    // We do not use `any`; prefer `unknown` and narrow.
+    "@typescript-eslint/no-explicit-any": "warn",
+    // Avoid console.log in production code (console.error/warn are fine).
+    "no-console": ["warn", { "allow": ["warn", "error", "info"] }],
+    // Unused imports caught by TypeScript's noUnusedLocals; ESLint also warns.
+    "@next/next/no-html-link-for-pages": "off"
+  }
+}

@@ -3,6 +3,7 @@
 Entity: `communication_events`
 
 ## Valid States
+
 - `PENDING` — queued for sending.
 - `SENT` — dispatched to provider; awaiting delivery confirmation.
 - `DELIVERED` — provider confirmed delivery (where supported).
@@ -10,15 +11,15 @@ Entity: `communication_events`
 
 ## Allowed Transitions
 
-| From | To | Actor | Trigger |
-|---|---|---|---|
-| (none) | PENDING | OWNER, SCHOOL_ADMIN, FINANCE_OFFICER, system (e.g., automated reminder) | User sends or system queues communication |
-| PENDING | SENT | system | Provider accepted message |
-| PENDING | FAILED | system | Provider rejected immediately (e.g., invalid phone, insufficient credit) |
-| SENT | DELIVERED | system | Delivery receipt received (WhatsApp/some SMS) |
-| SENT | FAILED | system | Timeout or permanent failure after SENT |
-| FAILED | PENDING | system or user | Retry (manual or automatic with backoff) |
-| DELIVERED | (terminal) | — | Delivered is final (read/response tracking out of scope for pilot) |
+| From      | To         | Actor                                                                   | Trigger                                                                  |
+| --------- | ---------- | ----------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| (none)    | PENDING    | OWNER, SCHOOL_ADMIN, FINANCE_OFFICER, system (e.g., automated reminder) | User sends or system queues communication                                |
+| PENDING   | SENT       | system                                                                  | Provider accepted message                                                |
+| PENDING   | FAILED     | system                                                                  | Provider rejected immediately (e.g., invalid phone, insufficient credit) |
+| SENT      | DELIVERED  | system                                                                  | Delivery receipt received (WhatsApp/some SMS)                            |
+| SENT      | FAILED     | system                                                                  | Timeout or permanent failure after SENT                                  |
+| FAILED    | PENDING    | system or user                                                          | Retry (manual or automatic with backoff)                                 |
+| DELIVERED | (terminal) | —                                                                       | Delivered is final (read/response tracking out of scope for pilot)       |
 
 ## Database Changes Per Transition
 
@@ -28,6 +29,7 @@ Entity: `communication_events`
 - → FAILED: UPDATE status; set error message; increment retry_count; schedule retry if retries remaining.
 
 ## Audit Events
+
 - `communication.queued`
 - `communication.sent`
 - `communication.delivered`

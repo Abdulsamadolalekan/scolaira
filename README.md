@@ -1,7 +1,7 @@
 # SCOLAIRA
 
 **The Financial Operating System for Nigerian Private Schools.**
-Brand promise: *Every term, fully funded.*
+Brand promise: _Every term, fully funded._
 
 > Spelling is sacred: **S-C-O-L-A-I-R-A** (Schola + Naira).
 
@@ -9,117 +9,152 @@ Brand promise: *Every term, fully funded.*
 
 ## Current Status
 
-**Phase 0 — Revised Approval Gate (STOP).**
+**Milestone M0 — Project Skeleton (complete).**
+Documentation foundation established, GitHub remote verified, application skeleton bootstrapped. See `/docs/` for the full architecture, financial, security, and UX specifications.
 
-Greenfield repository. No application code yet — per pre-code gate (D2 hard gate, §67/§71, Founder Correction 2). All architecture, product, financial, security, UX, and discovery documentation is complete and revised per founder corrections. Awaiting approval of the revised gate and GitHub remote setup before scaffolding begins.
+Development progresses per the approved implementation sequence (see `/docs/IMPLEMENTATION_SEQUENCE.md`):
 
-## Complexity underneath. Clarity on top.
+- ~~M0 — Project Skeleton~~ (current)
+- M1 — Design System Foundation
+- M2 — Database & Migrations
+- M3 — Authentication
+- M4 — Tenant Context & Authorization
+- Slices 1–7 (Phase 1: Financial Truth)
 
-> "I do not want SCOLAIRA to be the most technically complicated school-fee product. I want it to be the most TRUSTWORTHY, CLEAR, OPERATIONALLY USEFUL and FINANCIALLY CORRECT system a Nigerian private-school proprietor can use." — Founder
+**No financial logic is implemented yet.** Money utility foundations (integer kobo / naira strings) are in place to enforce future invariants.
 
-## Documentation
+---
 
-### Foundation
-| Document | Purpose |
-|---|---|
-| [docs/SCOLAIRA_SPEC.md](docs/SCOLAIRA_SPEC.md) | Product spec, identity, modules, roles, parent experience, phasing |
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | **Revised v2** — Target architecture, stack, domain, security, deployment, decisions |
-| [docs/FINANCIAL_INVARIANTS.md](docs/FINANCIAL_INVARIANTS.md) | 15 financial invariants, state machines, kobo/naira boundary, allocation rules |
-| [docs/FINANCIAL_TRUTH_MODEL.md](docs/FINANCIAL_TRUTH_MODEL.md) | **NEW** — Authoritative ledger vs derived/presentation data distinction |
-| [docs/DATABASE.md](docs/DATABASE.md) | Postgres schema design, tables, indexes, RLS, migrations |
-| [docs/SECURITY.md](docs/SECURITY.md) | Threat model, auth, RBAC, tenant isolation, webhooks, NDPR posture |
-| [docs/AUDIT_MODEL.md](docs/AUDIT_MODEL.md) | **NEW** — Audit event types, record shape, integrity, 7 questions |
-| [docs/CONCURRENCY_DESIGN.md](docs/CONCURRENCY_DESIGN.md) | **NEW** — Concrete behavior for 7 race conditions (A–G) |
+## Architecture
 
-### Product & Discovery
-| Document | Purpose |
-|---|---|
-| [docs/PRODUCT_ROADMAP.md](docs/PRODUCT_ROADMAP.md) | 10-phase roadmap |
-| [docs/discovery/PRODUCT_DISCOVERY_BACKLOG.md](docs/discovery/PRODUCT_DISCOVERY_BACKLOG.md) | **NEW** — VALIDATED / ASSUMED / UNKNOWN items |
-| [docs/discovery/REAL_WORLD_DISCOVERY_PLAN.md](docs/discovery/REAL_WORLD_DISCOVERY_PLAN.md) | **NEW** — Finance-workflow discovery before finalizing Reconciliation |
-| [docs/UX_PRINCIPLES.md](docs/UX_PRINCIPLES.md) | Visual language, hierarchy, accessibility, mobile |
-| [docs/design-system/DESIGN_SYSTEM_PLAN.md](docs/design-system/DESIGN_SYSTEM_PLAN.md) | **NEW** — Tokens, primitives, page templates, process |
+See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md). Summary:
 
-### State Machines
-See [docs/state-machines/](docs/state-machines/) — **NEW** — Lifecycle for every core entity:
-- [STUDENT](docs/state-machines/STUDENT.md)
-- [INVOICE](docs/state-machines/INVOICE.md)
-- [PAYMENT](docs/state-machines/PAYMENT.md)
-- [PAYMENT_ALLOCATION](docs/state-machines/PAYMENT_ALLOCATION.md)
-- [RECEIPT](docs/state-machines/RECEIPT.md)
-- [REVERSAL_REFUND](docs/state-machines/REVERSAL_REFUND.md)
-- [PAYMENT_LINK](docs/state-machines/PAYMENT_LINK.md)
-- [COMMUNICATION](docs/state-machines/COMMUNICATION.md)
-- [TERM](docs/state-machines/TERM.md)
-- [FEE_ASSIGNMENT](docs/state-machines/FEE_ASSIGNMENT.md)
+- **Framework:** Next.js 15 + React 18 + TypeScript
+- **Styling:** Tailwind CSS v3 (with design tokens introduced in M1)
+- **Database:** PostgreSQL via Drizzle ORM (schema & migrations in M2)
+- **Testing:** Vitest (unit) + Playwright (E2E)
+- **Validation:** Zod (used by all API endpoints in future slices)
+- **Auth:** Supabase Auth (M3)
+- **Payments:** Paystack webhook integration (Phase 2)
+- **Hosting:** Vercel + Supabase (founder-owned)
 
-### Delivery
-| Document | Purpose |
-|---|---|
-| [docs/API_CONTRACTS.md](docs/API_CONTRACTS.md) | API endpoint catalogue, error codes, idempotency, conventions |
-| [docs/TESTING.md](docs/TESTING.md) | Test pyramid, 32-case financial matrix, 15-case security matrix, concurrency cases |
-| [docs/IMPLEMENTATION_SEQUENCE.md](docs/IMPLEMENTATION_SEQUENCE.md) | **NEW** — Pre-code checklist + milestone sequence (M0–M4 + Phase 1 slices) |
+### Non-negotiable product principles
 
-### Operations & Trust
-| Document | Purpose |
-|---|---|
-| [docs/OPERATIONS.md](docs/OPERATIONS.md) | Environments, observability, alerting, support, cost discipline |
-| [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | Deployment pipeline, env vars, DNS, rollback, CI/CD |
-| [docs/DISASTER_RECOVERY.md](docs/DISASTER_RECOVERY.md) | RPO/RTO, backups, restore procedures, cadence |
-| [docs/DATA_PRIVACY.md](docs/DATA_PRIVACY.md) | NDPR alignment, minimization, retention, sub-processors, breach response |
-| [docs/DATA_RESIDENCY_AND_PRIVACY.md](docs/DATA_RESIDENCY_AND_PRIVACY.md) | **NEW (DRAFT)** — Region, subprocessors, transfer, legal review gate |
+1. Financial truth first — invoices/payments/allocations/reversals are authoritative.
+2. Payment-method agnostic — cash, transfer, POS, online all first-class.
+3. No destructive financial history — reversals and corrections, not deletes.
+4. Concurrency-safe — duplicate/race protection on every financial mutation.
+5. Defence-in-depth tenant isolation.
+6. Server-side RBAC; never trust the UI.
+7. Auditable — WHO / WHAT / WHEN / TO WHICH / BEFORE / AFTER / WHY.
+8. Built for Nigerian schools — real workflows, cheap Android, cash, bank transfers.
+9. Premium private-bank aesthetic via semantic design tokens (M1).
+10. Real functionality over appearance — no placeholders, no fake numbers.
 
-### Governance
-| Document | Purpose |
-|---|---|
-| [docs/DECISIONS.md](docs/DECISIONS.md) | **REVISED v2** — Architecture decision record (28 logged) |
-| [docs/RISK_REGISTER.md](docs/RISK_REGISTER.md) | **REVISED** — 28 risks with priority and mitigations |
-| [docs/ASSUMPTIONS.md](docs/ASSUMPTIONS.md) | Log of assumptions requiring validation |
+## Development Setup
 
-## Stack (Founder-Approved Architecture)
+### Prerequisites
 
-- **Frontend/Backend:** Next.js + TypeScript (exact versions selected at scaffold from current stable, production-supported releases; D-011)
-- **UI:** Tailwind CSS + shadcn/ui + SCOLAIRA design tokens (D-015)
-- **Database:** PostgreSQL (Supabase managed)
-- **ORM:** Drizzle ORM
-- **Auth:** Supabase Auth
-- **Payments:** Paystack (webhook-driven)
-- **Hosting:** Vercel + Supabase (founder-owned; D-013)
-- **Email:** Resend
-- **Monitoring:** Sentry + Vercel logs + `/health`
-- **Testing:** Vitest + Playwright
+- Node.js 20+ (v20.x recommended, to match production)
+- npm 10+
+- Git
+- Local PostgreSQL 15+ (needed at M2; M0 does not require a database yet)
 
-## Domains (Long-term, Pilot Approach)
-- Public: `scolaira.com`
-- App: `app.scolaira.com`
-- Parent: `app.scolaira.com/pay/:token` (pilot), future `pay.scolaira.com`
-- Platform admin: isolated `/admin` (pilot), future `admin.scolaira.com`
+### Install
 
-## Ten Inviolable Principles (Founder-Aligned)
+```bash
+npm install
+```
 
-1. **Trustworthiness & financial correctness come first.** Integer kobo internally; naira strings externally. No floats.
-2. **Payment-method agnosticism is non-negotiable.** Cash, transfer, POS, online are all first-class. The value is the unified record, not the payment link.
-3. **Confirmed payments never disappear.** Reversals, corrections, voids — never destructive deletes.
-4. **Defense-in-depth tenant isolation.** App scoping + Postgres RLS + tests.
-5. **Every financial mutation is audited.** Who, what, when, to which record, before, after, why.
-6. **The ledger is authoritative.** Reports/dashboards derive from it, never the other way around. No cached dashboard state that drifts.
-7. **Parents don't need accounts.** Signed, expiring, mobile-first transactional pages.
-8. **The proprietor's first question is "where is my money?"** Every screen is judged against this. UX priority: owner → finance officer → parent.
-9. **Deterministic, explainable intelligence — no fake AI.** Every priority shows WHY.
-10. **Build for the first school. Architect for thousands.** No premature microservices, no AI gimmicks, no feature-count vanity.
+### Run locally
 
-## Three Priority Journeys
+```bash
+npm run dev
+# Open http://localhost:3000
+```
 
-1. **OWNER:** Command Center → financial truth → action.
-2. **FINANCE OFFICER:** Payment → allocation → reconciliation → receipt.
-3. **PARENT:** View obligation → understand amount → pay / know how to pay → confirmation.
+### Scripts
 
-## What Happens Next
+| Script                     | Purpose                                                                           |
+| -------------------------- | --------------------------------------------------------------------------------- |
+| `npm run dev`              | Start the Next.js dev server                                                      |
+| `npm run build`            | Production build                                                                  |
+| `npm run start`            | Serve production build                                                            |
+| `npm run lint`             | ESLint                                                                            |
+| `npm run typecheck`        | TypeScript type check (`tsc --noEmit`)                                            |
+| `npm run format:check`     | Check Prettier formatting                                                         |
+| `npm run format`           | Write Prettier formatting                                                         |
+| `npm test`                 | Run Vitest unit tests                                                             |
+| `npm run test:e2e`         | Run Playwright E2E tests (requires `npm run build` first or a running dev server) |
+| `npm run test:e2e:install` | Install Playwright Chromium                                                       |
+| `npm run db:generate`      | Generate Drizzle migrations (M2+)                                                 |
+| `npm run db:migrate`       | Run migrations (M2+)                                                              |
+| `npm run db:studio`        | Open Drizzle Studio (M2+)                                                         |
 
-1. Founder approves the revised gate (see Approval Checklist in the Executive Review).
-2. GitHub remote is set up (PC-01 through PC-07).
-3. Initial commit is pushed and remote verified.
-4. Milestones proceed in order: M0 (skeleton) → M1 (design system) → M2 (DB) → M3 (auth) → M4 (tenant/authz) → Phase 1 slices (onboarding → students → fees → billing → payments/reconciliation → command center → audit).
-5. Each milestone: designed → implemented → tested → security-reviewed → visually-inspected → documented → committed → pushed → remote-verified.
+### Environment variables
 
-Per §71 (revised): **we STOP here for approval before scaffolding.**
+Copy `.env.example` to `.env.local` and fill values. M0 only requires `NEXT_PUBLIC_APP_URL`; later milestones add DB, Supabase, Paystack, Resend.
+
+**Never commit `.env.local` or real secrets.**
+
+### Project structure (M0)
+
+```
+.
+├── app/                  # Next.js App Router
+│   ├── api/health/       # Health endpoint
+│   ├── error.tsx         # Global error boundary
+│   ├── not-found.tsx     # 404 page
+│   ├── layout.tsx        # Root layout
+│   ├── page.tsx          # Landing/status page (M0 minimal)
+│   └── globals.css       # Tailwind + base styles
+├── components/           # UI components (populated in M1)
+├── docs/                 # Architecture, specs, decisions, plans
+├── e2e/                  # Playwright E2E tests
+├── lib/
+│   ├── audit/            # Audit logger (stub in M0, real in M2+)
+│   ├── db/               # DB client (stub in M0; real in M2)
+│   ├── errors/           # Standard API error model
+│   ├── idempotency/      # Idempotency key validation
+│   ├── money/            # kobo/naira utilities (foundational, tested)
+│   ├── security/         # Server-only/env helpers
+│   └── utils/            # cn (className merger)
+├── tests/                # Vitest setup
+├── middleware.ts         # Next.js middleware (M0 passthrough; grows in M3/M4)
+├── instrumentation.ts    # Next.js startup hook
+├── drizzle.config.ts     # Drizzle-kit config
+├── next.config.ts        # Next.js config + security headers
+├── tailwind.config.ts    # Tailwind configuration (M0 structural; tokens in M1)
+├── vitest.config.mts     # Vitest configuration
+├── playwright.config.ts  # Playwright configuration
+├── tsconfig.json
+├── postcss.config.mjs
+├── prettier.config.mjs
+├── .eslintrc.json
+└── .github/workflows/ci.yml
+```
+
+## Governance
+
+- [`docs/DECISIONS.md`](docs/DECISIONS.md) — Architecture Decision Record
+- [`docs/RISK_REGISTER.md`](docs/RISK_REGISTER.md)
+- [`docs/ASSUMPTIONS.md`](docs/ASSUMPTIONS.md)
+- [`docs/IMPLEMENTATION_SEQUENCE.md`](docs/IMPLEMENTATION_SEQUENCE.md)
+
+## Commit discipline
+
+At every major milestone:
+
+1. `npm run lint` passes
+2. `npm run typecheck` passes
+3. `npm test` passes
+4. `npm run build` succeeds
+5. Review for secrets
+6. `git commit` → `git push` → `git ls-remote` → confirm remote matches local
+7. Report commit SHA
+
+---
+
+_This repository is documentation and foundation only until later milestones.
+No production financial data should be entered into the application until security,
+multi-tenancy, and reconciliation are implemented and audited._

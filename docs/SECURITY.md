@@ -6,23 +6,23 @@
 
 ## I. Threat Model (Top Risks)
 
-| # | Threat | Impact | Mitigation summary |
-|---|---|---|---|
-| T1 | Cross-tenant data access (IDOR / broken ACL) | Catastrophic — financial leak, regulatory breach | App-layer org scoping + Postgres RLS + foreign-key org columns + cross-tenant test matrix |
-| T2 | Financial record tampering | Catastrophic — trust destruction | Server-side authorization, append-only audit, no destructive deletes, state-machine enforcement, DB triggers |
-| T3 | Authentication / session theft | High — account takeover | Secure cookies, CSRF, session expiry, password hashing (argon2id via Supabase), rate limiting, future 2FA |
-| T4 | Webhook forgery / replay from Paystack | High — false payments, fake balances | HMAC signature verification, idempotency key table, timestamp replay window, out-of-order handling |
-| T5 | Malicious CSV import (injection, formula, bad data) | High — data corruption, XSS in export, financial drift | Strict server-side validation, CSV formula escaping on export, dry-run preview, size limits, type checks |
-| T6 | Privilege escalation (staff → finance officer → owner) | High — unauthorized money actions | RBAC with explicit per-action permission matrix, server-side enforcement, no UI-hiding as security |
-| T7 | SQL injection | High — data exfiltration, corruption | Parameterized queries via Drizzle; no raw SQL without identifiers reviewed; DB least-privilege role |
-| T8 | XSS (e.g., via imported names, communication messages) | Medium-high — session theft, phishing | React auto-escape + CSP headers + sanitization of any user-originated HTML (we disallow HTML in free text; WhatsApp/SMS is plaintext) |
-| T9 | CSRF | Medium — state-changing actions from another origin | SameSite=Lax cookies + anti-CSRF token on mutating requests + origin/referer checks |
-| T10 | Sensitive data in logs/errors | Medium — PII/secret leak | Structured logging with allowlist fields; no auth tokens, no full payment references in logs; error messages sanitized |
-| T11 | Insecure direct object reference on parent payment links | Medium — unauthorized invoice viewing | Signed, single-use, expiring tokens; minimal data exposed; links tied to a specific obligation; brute-force resistant (256-bit random) |
-| T12 | Rate abuse / brute force on login/payment links | Medium — credential stuffing, enumeration | Per-IP + per-account rate limits; exponential backoff; failed-login auditing |
-| T13 | Insecure file uploads / exports | Medium | Supabase Storage with signed URLs; server-side MIME validation; no executable content; CSV exports BOM-prefix to prevent formula execution in Excel |
-| T14 | Platform admin (SCOLAIRA internal) overreach | Medium-high | Separate /admin surface, separate role, all mutations audited, purpose-specific privileges, no broad "superuser" in school context |
-| T15 | NDPR / privacy breach (student/guardian PII) | Regulatory + reputational | Data minimization, encryption in transit (TLS) and at rest (Supabase-managed), access logs, retention policy, no unnecessary PII collection |
+| #   | Threat                                                   | Impact                                                 | Mitigation summary                                                                                                                                  |
+| --- | -------------------------------------------------------- | ------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| T1  | Cross-tenant data access (IDOR / broken ACL)             | Catastrophic — financial leak, regulatory breach       | App-layer org scoping + Postgres RLS + foreign-key org columns + cross-tenant test matrix                                                           |
+| T2  | Financial record tampering                               | Catastrophic — trust destruction                       | Server-side authorization, append-only audit, no destructive deletes, state-machine enforcement, DB triggers                                        |
+| T3  | Authentication / session theft                           | High — account takeover                                | Secure cookies, CSRF, session expiry, password hashing (argon2id via Supabase), rate limiting, future 2FA                                           |
+| T4  | Webhook forgery / replay from Paystack                   | High — false payments, fake balances                   | HMAC signature verification, idempotency key table, timestamp replay window, out-of-order handling                                                  |
+| T5  | Malicious CSV import (injection, formula, bad data)      | High — data corruption, XSS in export, financial drift | Strict server-side validation, CSV formula escaping on export, dry-run preview, size limits, type checks                                            |
+| T6  | Privilege escalation (staff → finance officer → owner)   | High — unauthorized money actions                      | RBAC with explicit per-action permission matrix, server-side enforcement, no UI-hiding as security                                                  |
+| T7  | SQL injection                                            | High — data exfiltration, corruption                   | Parameterized queries via Drizzle; no raw SQL without identifiers reviewed; DB least-privilege role                                                 |
+| T8  | XSS (e.g., via imported names, communication messages)   | Medium-high — session theft, phishing                  | React auto-escape + CSP headers + sanitization of any user-originated HTML (we disallow HTML in free text; WhatsApp/SMS is plaintext)               |
+| T9  | CSRF                                                     | Medium — state-changing actions from another origin    | SameSite=Lax cookies + anti-CSRF token on mutating requests + origin/referer checks                                                                 |
+| T10 | Sensitive data in logs/errors                            | Medium — PII/secret leak                               | Structured logging with allowlist fields; no auth tokens, no full payment references in logs; error messages sanitized                              |
+| T11 | Insecure direct object reference on parent payment links | Medium — unauthorized invoice viewing                  | Signed, single-use, expiring tokens; minimal data exposed; links tied to a specific obligation; brute-force resistant (256-bit random)              |
+| T12 | Rate abuse / brute force on login/payment links          | Medium — credential stuffing, enumeration              | Per-IP + per-account rate limits; exponential backoff; failed-login auditing                                                                        |
+| T13 | Insecure file uploads / exports                          | Medium                                                 | Supabase Storage with signed URLs; server-side MIME validation; no executable content; CSV exports BOM-prefix to prevent formula execution in Excel |
+| T14 | Platform admin (SCOLAIRA internal) overreach             | Medium-high                                            | Separate /admin surface, separate role, all mutations audited, purpose-specific privileges, no broad "superuser" in school context                  |
+| T15 | NDPR / privacy breach (student/guardian PII)             | Regulatory + reputational                              | Data minimization, encryption in transit (TLS) and at rest (Supabase-managed), access logs, retention policy, no unnecessary PII collection         |
 
 ## II. Authentication
 
@@ -48,39 +48,39 @@
 
 ### III.1 Roles
 
-| Role | Scope |
-|---|---|
-| `OWNER` | Full control over their organization; cannot delete audit log; can transfer ownership via audited flow. |
-| `SCHOOL_ADMIN` | Operational management: students, classes, billing setup, staff management (except OWNER role assignment), reports. Cannot: change owner, delete organization, view/edit platform settings. |
-| `FINANCE_OFFICER` | Record/edit payments (within constraints), reconciliation, receipts, billing operations, invoices, reports. Cannot: delete financial history, manage owners/admins, adjust subscription. |
-| `STAFF` | Only explicitly granted capabilities (e.g., view class roster, view own students' balances for follow-up). Never access to cross-class data by default. |
-| `PLATFORM_ADMIN` | SCOLAIRA internal staff for support/operations. Cannot log into a school as a user without audited "impersonate" flow; purpose-specific granular permissions. Never has silent access to school financial data. |
+| Role              | Scope                                                                                                                                                                                                           |
+| ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `OWNER`           | Full control over their organization; cannot delete audit log; can transfer ownership via audited flow.                                                                                                         |
+| `SCHOOL_ADMIN`    | Operational management: students, classes, billing setup, staff management (except OWNER role assignment), reports. Cannot: change owner, delete organization, view/edit platform settings.                     |
+| `FINANCE_OFFICER` | Record/edit payments (within constraints), reconciliation, receipts, billing operations, invoices, reports. Cannot: delete financial history, manage owners/admins, adjust subscription.                        |
+| `STAFF`           | Only explicitly granted capabilities (e.g., view class roster, view own students' balances for follow-up). Never access to cross-class data by default.                                                         |
+| `PLATFORM_ADMIN`  | SCOLAIRA internal staff for support/operations. Cannot log into a school as a user without audited "impersonate" flow; purpose-specific granular permissions. Never has silent access to school financial data. |
 
 ### III.2 Permission Matrix (Phase 1)
 
 Legend: ✅ = allowed, ❌ = denied, 🟡 = owner-configurable
 
-| Action | OWNER | SCHOOL_ADMIN | FINANCE_OFFICER | STAFF | PLATFORM_ADMIN |
-|---|---|---|---|---|---|
-| Organization settings (name, logo, etc.) | ✅ | 🟡 | ❌ | ❌ | ❌ |
-| Transfer ownership | ✅ (with confirmation) | ❌ | ❌ | ❌ | ❌ |
-| Manage staff & roles | ✅ | ✅ (except OWNER) | ❌ | ❌ | ❌ |
-| View command center | ✅ | ✅ | ✅ | 🟡 (limited) | ✅ (audited) |
-| Create / edit fee catalog | ✅ | ✅ | 🟡 | ❌ | ❌ |
-| Create / edit terms & sessions | ✅ | ✅ | 🟡 | ❌ | ❌ |
-| Issue / void invoices | ✅ | ✅ | ✅ | ❌ | ❌ |
-| Record cash/transfer/POS payments | ✅ | ✅ | ✅ | ❌ | ❌ |
-| Confirm / reconcile pending payments | ✅ | ✅ | ✅ | ❌ | ❌ |
-| Reverse / refund payments (with reason) | ✅ | 🟡 | 🟡 | ❌ | ❌ |
-| Allocate / reallocate payments | ✅ | ✅ | ✅ | ❌ | ❌ |
-| Issue receipts | ✅ | ✅ | ✅ | ❌ | ❌ |
-| Send payment reminders / comms | ✅ | ✅ | ✅ | 🟡 | ❌ |
-| View reports (all) | ✅ | ✅ | ✅ | 🟡 | ✅ (audited) |
-| Export student / financial data | ✅ | 🟡 | 🟡 | ❌ | 🟡 (audited, support only) |
-| Import students (CSV) | ✅ | ✅ | 🟡 | ❌ | ❌ |
-| View audit history | ✅ | 🟡 | ❌ | ❌ | ✅ (audited) |
-| Access /admin platform | ❌ | ❌ | ❌ | ❌ | ✅ |
-| Impersonate school user | ❌ | ❌ | ❌ | ❌ | 🟡 (audited, only support) |
+| Action                                   | OWNER                  | SCHOOL_ADMIN      | FINANCE_OFFICER | STAFF        | PLATFORM_ADMIN             |
+| ---------------------------------------- | ---------------------- | ----------------- | --------------- | ------------ | -------------------------- |
+| Organization settings (name, logo, etc.) | ✅                     | 🟡                | ❌              | ❌           | ❌                         |
+| Transfer ownership                       | ✅ (with confirmation) | ❌                | ❌              | ❌           | ❌                         |
+| Manage staff & roles                     | ✅                     | ✅ (except OWNER) | ❌              | ❌           | ❌                         |
+| View command center                      | ✅                     | ✅                | ✅              | 🟡 (limited) | ✅ (audited)               |
+| Create / edit fee catalog                | ✅                     | ✅                | 🟡              | ❌           | ❌                         |
+| Create / edit terms & sessions           | ✅                     | ✅                | 🟡              | ❌           | ❌                         |
+| Issue / void invoices                    | ✅                     | ✅                | ✅              | ❌           | ❌                         |
+| Record cash/transfer/POS payments        | ✅                     | ✅                | ✅              | ❌           | ❌                         |
+| Confirm / reconcile pending payments     | ✅                     | ✅                | ✅              | ❌           | ❌                         |
+| Reverse / refund payments (with reason)  | ✅                     | 🟡                | 🟡              | ❌           | ❌                         |
+| Allocate / reallocate payments           | ✅                     | ✅                | ✅              | ❌           | ❌                         |
+| Issue receipts                           | ✅                     | ✅                | ✅              | ❌           | ❌                         |
+| Send payment reminders / comms           | ✅                     | ✅                | ✅              | 🟡           | ❌                         |
+| View reports (all)                       | ✅                     | ✅                | ✅              | 🟡           | ✅ (audited)               |
+| Export student / financial data          | ✅                     | 🟡                | 🟡              | ❌           | 🟡 (audited, support only) |
+| Import students (CSV)                    | ✅                     | ✅                | 🟡              | ❌           | ❌                         |
+| View audit history                       | ✅                     | 🟡                | ❌              | ❌           | ✅ (audited)               |
+| Access /admin platform                   | ❌                     | ❌                | ❌              | ❌           | ✅                         |
+| Impersonate school user                  | ❌                     | ❌                | ❌              | ❌           | 🟡 (audited, only support) |
 
 ### III.3 Enforcement
 
@@ -166,6 +166,7 @@ Set on all responses:
 ## XII. Logging & Monitoring
 
 See `/docs/OPERATIONS.md`. Specific to security:
+
 - All auth events (login success/failure, password reset, session invalidation) logged.
 - All permission denials logged.
 - All financial mutations audit-logged.
@@ -174,6 +175,7 @@ See `/docs/OPERATIONS.md`. Specific to security:
 ## XIII. Incident Response (Summary)
 
 Documented runbooks for:
+
 1. Suspected account takeover → force-logout, password reset, audit review, notify proprietor.
 2. Suspected data leak → revoke leaked credentials, audit scope, notify affected schools per NDPR timeline.
 3. Webhook flood / payment fraud → disable affected provider endpoint in maintenance mode, audit state, reconcile manually.
@@ -208,4 +210,4 @@ See `/docs/TESTING.md`. The following are mandatory and must be automated or man
 
 ---
 
-*Security is continuous, not a checkbox. This document evolves as the system grows; changes are recorded in /docs/DECISIONS.md.*
+_Security is continuous, not a checkbox. This document evolves as the system grows; changes are recorded in /docs/DECISIONS.md._

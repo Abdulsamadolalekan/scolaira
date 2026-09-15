@@ -7,6 +7,7 @@
 ## I. Core Feel
 
 SCOLAIRA must feel:
+
 - **Authoritative** — a proprietor trusts it with financial truth.
 - **Calm** — no panic, no flash, no marketing noise.
 - **Premium** — precise, restrained, like a good financial institution.
@@ -18,6 +19,7 @@ SCOLAIRA must feel:
 - **Operational** — built for daily use by finance officers, not admired once on a landing page.
 
 It must NOT feel:
+
 - Childish · crypto-like · flashy · generic SaaS · AI-gimmick · game-like · glassmorphic · neon · decorative-dashboard.
 
 Premium does not mean decoration. Premium means precision, restraint, consistency, hierarchy, confidence.
@@ -26,30 +28,31 @@ Premium does not mean decoration. Premium means precision, restraint, consistenc
 
 ### A. Palette (Interim, Pending Final Brand — D8)
 
-| Token | Hex | Use |
-|---|---|---|
-| `emerald-900` | `#044E29` | Deepest accents, headings (sparingly) |
-| `emerald-700` | `#046A38` | Primary brand, primary buttons, key KPIs |
-| `emerald-500` | `#2F8F5C` | Active states, links, secondary accents |
-| `emerald-50` | `#EAF4EE` | Selected rows, success backgrounds, subtle highlights |
-| `gold-600` | `#C9A961` | Accent: premium markers, key highlights, "featured" states — SPARINGLY |
-| `gold-100` | `#F5EEDC` | Subtle premium surfaces (rarely) |
-| `ink-900` | `#0B1F16` | Primary text, near-black with green undertone |
-| `ink-700` | `#25372D` | Secondary text |
-| `ink-500` | `#5C6B64` | Tertiary text, labels, placeholders |
-| `ink-300` | `#B7C0BB` | Dividers, borders |
-| `ink-100` | `#E6EAE7` | Hairlines, faint borders |
-| `paper` | `#F7F3EC` | Page background (warm off-white, not stark white) |
-| `white` | `#FFFFFF` | Cards, surfaces |
-| `red-600` | `#B42318` | Destructive actions, errors, overdue (not neon red) |
-| `red-50` | `#FDECEC` | Error backgrounds |
-| `amber-500` | `#D98E04` | Warnings, "needs attention" |
-| `amber-50` | `#FEF4E1` | Warning backgrounds |
-| `blue-600` | `#1E5A8B` | Info, links (sparingly) |
+| Token         | Hex       | Use                                                                    |
+| ------------- | --------- | ---------------------------------------------------------------------- |
+| `emerald-900` | `#044E29` | Deepest accents, headings (sparingly)                                  |
+| `emerald-700` | `#046A38` | Primary brand, primary buttons, key KPIs                               |
+| `emerald-500` | `#2F8F5C` | Active states, links, secondary accents                                |
+| `emerald-50`  | `#EAF4EE` | Selected rows, success backgrounds, subtle highlights                  |
+| `gold-600`    | `#C9A961` | Accent: premium markers, key highlights, "featured" states — SPARINGLY |
+| `gold-100`    | `#F5EEDC` | Subtle premium surfaces (rarely)                                       |
+| `ink-900`     | `#0B1F16` | Primary text, near-black with green undertone                          |
+| `ink-700`     | `#25372D` | Secondary text                                                         |
+| `ink-500`     | `#5C6B64` | Tertiary text, labels, placeholders                                    |
+| `ink-300`     | `#B7C0BB` | Dividers, borders                                                      |
+| `ink-100`     | `#E6EAE7` | Hairlines, faint borders                                               |
+| `paper`       | `#F7F3EC` | Page background (warm off-white, not stark white)                      |
+| `white`       | `#FFFFFF` | Cards, surfaces                                                        |
+| `red-600`     | `#B42318` | Destructive actions, errors, overdue (not neon red)                    |
+| `red-50`      | `#FDECEC` | Error backgrounds                                                      |
+| `amber-500`   | `#D98E04` | Warnings, "needs attention"                                            |
+| `amber-50`    | `#FEF4E1` | Warning backgrounds                                                    |
+| `blue-600`    | `#1E5A8B` | Info, links (sparingly)                                                |
 
 **Gold is an accent, not the interface.** It marks what is exceptional — not everything.
 
 ### B. What to Avoid
+
 - Gradients that span whole pages.
 - Heavy drop shadows; shadows are tight and purposeful (elevation = 1–2 levels, never 6).
 - Rounded corners > 8px; most controls use 4–6px; cards 8px. Avoid 24px pill buttons.
@@ -60,6 +63,7 @@ Premium does not mean decoration. Premium means precision, restraint, consistenc
 - Emojis in the product UI.
 
 ### C. Typography
+
 - **Primary:** Inter (highly legible, neutral, modern, widely available).
 - **Numeric:** Use Inter's tabular-nums feature (`font-variant-numeric: tabular-nums`) for all monetary figures so columns align perfectly.
 - Hierarchy:
@@ -71,6 +75,7 @@ Premium does not mean decoration. Premium means precision, restraint, consistenc
 - Density: comfortable for 8-hour finance-officer use; not sprawling. Line-height ~1.5 for body, ~1.2 for headings.
 
 ### D. Spacing & Density
+
 - 4px grid.
 - Cards: 20–24px internal padding.
 - Table cells: 10–12px vertical, 16px horizontal.
@@ -119,6 +124,7 @@ Copy sounds like an experienced financial institution.
 - Dates in Nigerian format (DD MMM YYYY), e.g. `15 Sep 2026`.
 
 **Examples:**
+
 - Good: "₦43.4M remains outstanding."
 - Good: "9 payments require review."
 - Good: "₦1.2M was collected this week."
@@ -206,6 +212,7 @@ No charts unless they answer a specific decision question. Avoid pie charts (har
 A finance officer opens SCOLAIRA on a Monday morning.
 
 Within 10 seconds they know:
+
 - ₦43.4M was billed this term.
 - ₦28.7M collected; ₦14.7M outstanding.
 - ₦5.2M is overdue; ₦890K is unreconciled.
@@ -215,6 +222,7 @@ Within 10 seconds they know:
 A proprietor opens SCOLAIRA on their phone after church.
 
 Within 5 seconds they know:
+
 - Where the school is on collections this week.
 - Whether anything is wrong.
 - What the finance team should be doing.

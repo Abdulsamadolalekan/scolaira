@@ -3,6 +3,7 @@
 Entity: `students`
 
 ## Valid States
+
 - `ACTIVE` — enrolled and participating in current term billing.
 - `ARCHIVED` — historical record; student no longer actively attending but records retained.
 - `GRADUATED` — completed full program (subset of archived for reporting).
@@ -12,15 +13,15 @@ Entity: `students`
 
 ## Allowed Transitions
 
-| From | To | Actor | Trigger |
-|---|---|---|---|
-| (none) | ACTIVE | OWNER, SCHOOL_ADMIN | Create student |
-| ACTIVE | ARCHIVED | OWNER, SCHOOL_ADMIN | Archive (reason required) |
-| ACTIVE | WITHDRAWN | OWNER, SCHOOL_ADMIN | Withdraw (reason required + date; balance handling per policy) |
-| ACTIVE | GRADUATED | OWNER, SCHOOL_ADMIN | Mark graduated (end of session) |
-| ARCHIVED | ACTIVE | OWNER | Re-admit (new enrollment; financial history preserved) |
-| WITHDRAWN | ACTIVE | OWNER | Re-admit |
-| GRADUATED | ACTIVE | OWNER | Re-enroll (rare, e.g., re-taking) |
+| From      | To        | Actor               | Trigger                                                        |
+| --------- | --------- | ------------------- | -------------------------------------------------------------- |
+| (none)    | ACTIVE    | OWNER, SCHOOL_ADMIN | Create student                                                 |
+| ACTIVE    | ARCHIVED  | OWNER, SCHOOL_ADMIN | Archive (reason required)                                      |
+| ACTIVE    | WITHDRAWN | OWNER, SCHOOL_ADMIN | Withdraw (reason required + date; balance handling per policy) |
+| ACTIVE    | GRADUATED | OWNER, SCHOOL_ADMIN | Mark graduated (end of session)                                |
+| ARCHIVED  | ACTIVE    | OWNER               | Re-admit (new enrollment; financial history preserved)         |
+| WITHDRAWN | ACTIVE    | OWNER               | Re-admit                                                       |
+| GRADUATED | ACTIVE    | OWNER               | Re-enroll (rare, e.g., re-taking)                              |
 
 ## Database Changes Per Transition
 

@@ -14,23 +14,27 @@
 ## II. Environments Setup
 
 ### Local Development
+
 - Install Node.js 20+.
 - Run local Postgres (Docker command documented in `/apps/web/README.md` to be written at scaffolding time).
 - Copy `.env.example` to `.env.local` and fill in local Supabase/Postgres values.
 - `npm install` (or pnpm) → `npm run db:migrate` → `npm run db:seed` → `npm run dev`.
 
 ### Preview (PR)
+
 - Automatic on Vercel for every PR.
 - Uses Supabase staging project (shared) with isolated org data seeded per test.
 - No production data; no Paystack live keys; uses Paystack test mode and Resend test mode.
 
 ### Staging
+
 - Deployed automatically on merge to `main`.
 - Uses Supabase staging project with semi-realistic data volume (seeded + pilot school test data before go-live).
 - Connected to Paystack test mode.
 - Runs full E2E suite post-deploy.
 
 ### Production
+
 - Manual promotion from staging (Vercel "Promote to Production").
 - Uses Supabase production project with PITR enabled.
 - Connected to Paystack live keys only after explicit go-live.
@@ -49,22 +53,22 @@
 
 Required env vars (all environments):
 
-| Name | Description |
-|---|---|
-| `NEXT_PUBLIC_APP_URL` | Canonical app base URL (e.g. `https://app.scolaira.app`) |
-| `NEXT_PUBLIC_PAY_URL` | Parent payment base URL (e.g. `https://pay.scolaira.app` or same origin) |
-| `DATABASE_URL` | Postgres connection string (server-side only) |
-| `SUPABASE_URL` | Supabase project URL |
-| `SUPABASE_ANON_KEY` | Supabase anon public key (client-safe) |
-| `SUPABASE_SERVICE_ROLE_KEY` | Supabase service role (server-side only; never to client) |
-| `PAYSTACK_SECRET_KEY` | Paystack secret key (server-side) |
-| `PAYSTACK_PUBLIC_KEY` | Paystack public key (client-safe, for inline pay) |
-| `PAYSTACK_WEBHOOK_SECRET` | Paystack webhook signature secret |
-| `RESEND_API_KEY` | Email provider API key (server-side) |
-| `FROM_EMAIL_ADDRESS` | Transactional sender (e.g. `receipts@scolaira.app`) |
-| `SESSION_SECRET` | Secret for signing any additional cookies outside Supabase (if any) |
-| `SENTRY_DSN` | (optional) Error reporting DSN |
-| `NODE_ENV` | `development` / `production` / `test` |
+| Name                        | Description                                                              |
+| --------------------------- | ------------------------------------------------------------------------ |
+| `NEXT_PUBLIC_APP_URL`       | Canonical app base URL (e.g. `https://app.scolaira.app`)                 |
+| `NEXT_PUBLIC_PAY_URL`       | Parent payment base URL (e.g. `https://pay.scolaira.app` or same origin) |
+| `DATABASE_URL`              | Postgres connection string (server-side only)                            |
+| `SUPABASE_URL`              | Supabase project URL                                                     |
+| `SUPABASE_ANON_KEY`         | Supabase anon public key (client-safe)                                   |
+| `SUPABASE_SERVICE_ROLE_KEY` | Supabase service role (server-side only; never to client)                |
+| `PAYSTACK_SECRET_KEY`       | Paystack secret key (server-side)                                        |
+| `PAYSTACK_PUBLIC_KEY`       | Paystack public key (client-safe, for inline pay)                        |
+| `PAYSTACK_WEBHOOK_SECRET`   | Paystack webhook signature secret                                        |
+| `RESEND_API_KEY`            | Email provider API key (server-side)                                     |
+| `FROM_EMAIL_ADDRESS`        | Transactional sender (e.g. `receipts@scolaira.app`)                      |
+| `SESSION_SECRET`            | Secret for signing any additional cookies outside Supabase (if any)      |
+| `SENTRY_DSN`                | (optional) Error reporting DSN                                           |
+| `NODE_ENV`                  | `development` / `production` / `test`                                    |
 
 `.env.example` is committed with placeholder values and comments.
 
@@ -92,6 +96,7 @@ Awaiting D4 approval. Initial recommendation:
 ## VIII. Deploy Process Checklist
 
 For each production deploy:
+
 1. CI green on `main`.
 2. Staging smoke tests pass (auth, record payment, reconcile, view Command Center).
 3. Database migrations reviewed and confirmed reversible or low-risk.

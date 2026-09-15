@@ -10,7 +10,7 @@ This plan covers the workflows and edge cases called out by the founder (items 8
 ## I. Goals
 
 1. Observe at least one pilot school finance officer through at least one full billing cycle.
-2. Document the *actual* flow of cash, transfers, POS, online payments, receipts, and reconciliations.
+2. Document the _actual_ flow of cash, transfers, POS, online payments, receipts, and reconciliations.
 3. Identify edge cases that our current model misses or mis-models.
 4. Validate or invalidate each assumption in `/docs/ASSUMPTIONS.md` that touches financial workflow.
 5. Produce a validated blueprint for Reconciliation (Phase 3) before building it.
@@ -19,12 +19,12 @@ This plan covers the workflows and edge cases called out by the founder (items 8
 
 We need access to:
 
-| Role | Why |
-|---|---|
-| Proprietor (decision-maker) | Understand what they *need* to know about money; what they do with Command Center information |
-| Finance officer / bursar | Primary daily user; records payments, reconciles, issues receipts |
-| School admin | May handle parent follow-ups, invoice sending, class lists |
-| 3–5 parents (optional, but ideal) | Understand how they pay, what receipts they expect, what communication works |
+| Role                              | Why                                                                                           |
+| --------------------------------- | --------------------------------------------------------------------------------------------- |
+| Proprietor (decision-maker)       | Understand what they _need_ to know about money; what they do with Command Center information |
+| Finance officer / bursar          | Primary daily user; records payments, reconciles, issues receipts                             |
+| School admin                      | May handle parent follow-ups, invoice sending, class lists                                    |
+| 3–5 parents (optional, but ideal) | Understand how they pay, what receipts they expect, what communication works                  |
 
 Minimum viable: one school, one finance officer, one proprietor. Two schools is better.
 
@@ -60,6 +60,7 @@ Minimum viable: one school, one finance officer, one proprietor. Two schools is 
 ## IV. Workflow Domains to Investigate
 
 For each item below we will document:
+
 - How common it is (all the time / often / rare / never seen)
 - How they handle it today (paper/spreadsheet/verbal)
 - What the "ground truth" indicator is (teller? alert? parent's word?)
@@ -69,12 +70,14 @@ For each item below we will document:
 - How SCOLAIRA should handle it
 
 ### A. Payment methods
+
 - Cash collection — denominations? cash drawer? who counts? who issues receipts?
 - Bank transfers — which banks? how do they match alerts to students? what info is on the alert? is there a dedicated school account?
 - POS — terminal at school? who operates? how are POS slips matched to student/child? do they settle same day?
 - Online payments (Paystack/Flutterwave) — who sets up? any friction?
 
 ### B. Transaction edge cases
+
 - One payment covering multiple students (siblings) — how often? how is it split today? who decides split?
 - One payment covering multiple invoices (current + prior term)
 - Previous-term debt — how tracked? is it bundled with current bill?
@@ -87,6 +90,7 @@ For each item below we will document:
 - Reversals (corrections for error — when do they happen?)
 
 ### C. Discounts / Adjustments
+
 - Discounts (sibling discount, early-payment discount, staff discount)
 - Scholarships (full/partial, by term?)
 - Fee waivers (e.g., hardship, proprietor discretion)
@@ -94,24 +98,28 @@ For each item below we will document:
 - How these are authorized (proprietor sign-off? verbal?)
 
 ### D. Receipts & evidence
+
 - Manual receipt books in use? format?
 - How parent proves payment (paper receipt, SMS alert, WhatsApp screenshot?)
 - What happens if a parent says "I paid but you have no record"?
 - Do parents ever forge/alter receipts?
 
 ### E. Bank statement reconciliation
+
 - How often do they compare bank statements to their own records?
 - What tools do they use (bank app, paper statement, spreadsheet)?
 - How long does it take?
 - Common discrepancies (bank charges, reversals, unidentified lodgments)?
 
 ### F. Finance-officer daily workflow
+
 - Start-of-day / end-of-day routine
 - How they organize the collection queue (overdue list? class list?)
 - Communication with class teachers / form masters about defaulters
 - What the proprietor asks for and how often
 
 ### G. Proprietor review workflow
+
 - Frequency of check-ins (daily? weekly? at will?)
 - Key questions they ask
 - Which reports they currently produce (if any)

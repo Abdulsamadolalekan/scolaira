@@ -5,11 +5,13 @@ Entities: `sessions`, `terms`
 ## Sessions (Academic Year, e.g., "2025/2026")
 
 ### Valid States
+
 - `PLANNED` — session created, not current yet.
 - `ACTIVE` — session in progress (the current academic year).
 - `CLOSED` — session ended; archived for historical reference.
 
 ### Transitions
+
 - Create → PLANNED.
 - PLANNED → ACTIVE (OWNER/SCHOOL_ADMIN): "start session"; any previous ACTIVE session becomes CLOSED (only one current session per organization).
 - ACTIVE → CLOSED (OWNER): "end session" — typically after all terms are finalized; can only close if all its terms are themselves closed.
@@ -18,12 +20,14 @@ Entities: `sessions`, `terms`
 ## Terms (First/Second/Third term within a session)
 
 ### Valid States
+
 - `PLANNED` — set up but not billed.
 - `ACTIVE` — current billing term; billing runs possible; parents receiving invoices.
 - `BILLED` — billing has been executed (all students billed); invoices ISSUED.
 - `CLOSED` — term financially closed; prior-term balances carried forward; no further mutations except corrections (reversals/refunds still possible with OWNER approval and audit).
 
 ### Transitions
+
 - Create → PLANNED.
 - PLANNED → ACTIVE (OWNER/SCHOOL_ADMIN): "set as current term."
 - ACTIVE → BILLED (system/OWNER): after billing run executed for all students in the term; manually triggered to avoid surprise.
@@ -36,6 +40,7 @@ Entities: `sessions`, `terms`
 - "Carry forward" is a reporting concept, not a new invoice; outstanding invoices keep their original term_id and show up in prior-term-exposure on the Command Center.
 
 ## Audit Events
+
 - `session.created`, `session.started`, `session.closed`, `session.reopened`
 - `term.created`, `term.activated`, `term.billed`, `term.closed`, `term.reopened`
 

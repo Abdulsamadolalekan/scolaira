@@ -3,6 +3,7 @@
 Entity: `payments`
 
 ## Valid States
+
 - `PENDING` — recorded but not confirmed. For online payments: webhook received but not yet signature-verified or bank-side confirmed. For manual payments: finance officer may mark PENDING while awaiting cash handover / bank confirmation.
 - `CONFIRMED` — verified as received; eligible for allocation; counts toward COLLECTED.
 - `DUPLICATE_SUSPECT` — suspected duplicate of an existing payment (same external reference and/or same amount+student+window); held for review; NOT allocated until resolved.
@@ -13,22 +14,22 @@ Entity: `payments`
 
 ## Allowed Transitions
 
-| From | To | Actor | Trigger |
-|---|---|---|---|
-| (none) | CONFIRMED | OWNER, SCHOOL_ADMIN, FINANCE_OFFICER | Record payment (cash/transfer/POS/manual) — default path because officer is confirming at entry |
-| (none) | PENDING | system / finance officer | Online payment initiated; or manual entry marked as provisional (e.g., "parent says they transferred but we haven't seen alert") |
-| (none) | FAILED | system | Webhook confirms charge failure |
-| PENDING | CONFIRMED | system (webhook) or finance officer | Webhook confirms success; or officer verifies bank/cash |
-| PENDING | FAILED | system (webhook) | Charge failed; timeout with no success event |
-| PENDING | DUPLICATE_SUSPECT | system / finance officer | Duplicate detection fires during verification |
-| CONFIRMED | REVERSED | OWNER, SCHOOL_ADMIN, FINANCE_OFFICER (with permission) | Full reversal with reason |
-| CONFIRMED | REFUNDED | OWNER, SCHOOL_ADMIN (with permission) | Refund processed (Paystack refund or cash refund); reason required |
-| CONFIRMED | DUPLICATE_SUSPECT | OWNER, FINANCE_OFFICER | User manually flags as possible duplicate (rare after initial confirm) |
-| DUPLICATE_SUSPECT | CONFIRMED | OWNER, FINANCE_OFFICER | After review: confirmed legitimate (e.g., different siblings/same ref) |
-| DUPLICATE_SUSPECT | REJECTED | OWNER, FINANCE_OFFICER | After review: confirmed duplicate/unwanted |
-| DUPLICATE_SUSPECT | REVERSED | OWNER, FINANCE_OFFICER | After review: duplicate and money needs reversal/refund |
-| PENDING | REJECTED | OWNER, FINANCE_OFFICER | Unmatched / unowned payment rejected (e.g., wrong school) |
-| REVERSED/REFUNDED/FAILED/REJECTED | (terminal) | — | Corrections done via new payment records, not by reopening (to preserve history) |
+| From                              | To                | Actor                                                  | Trigger                                                                                                                          |
+| --------------------------------- | ----------------- | ------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------- |
+| (none)                            | CONFIRMED         | OWNER, SCHOOL_ADMIN, FINANCE_OFFICER                   | Record payment (cash/transfer/POS/manual) — default path because officer is confirming at entry                                  |
+| (none)                            | PENDING           | system / finance officer                               | Online payment initiated; or manual entry marked as provisional (e.g., "parent says they transferred but we haven't seen alert") |
+| (none)                            | FAILED            | system                                                 | Webhook confirms charge failure                                                                                                  |
+| PENDING                           | CONFIRMED         | system (webhook) or finance officer                    | Webhook confirms success; or officer verifies bank/cash                                                                          |
+| PENDING                           | FAILED            | system (webhook)                                       | Charge failed; timeout with no success event                                                                                     |
+| PENDING                           | DUPLICATE_SUSPECT | system / finance officer                               | Duplicate detection fires during verification                                                                                    |
+| CONFIRMED                         | REVERSED          | OWNER, SCHOOL_ADMIN, FINANCE_OFFICER (with permission) | Full reversal with reason                                                                                                        |
+| CONFIRMED                         | REFUNDED          | OWNER, SCHOOL_ADMIN (with permission)                  | Refund processed (Paystack refund or cash refund); reason required                                                               |
+| CONFIRMED                         | DUPLICATE_SUSPECT | OWNER, FINANCE_OFFICER                                 | User manually flags as possible duplicate (rare after initial confirm)                                                           |
+| DUPLICATE_SUSPECT                 | CONFIRMED         | OWNER, FINANCE_OFFICER                                 | After review: confirmed legitimate (e.g., different siblings/same ref)                                                           |
+| DUPLICATE_SUSPECT                 | REJECTED          | OWNER, FINANCE_OFFICER                                 | After review: confirmed duplicate/unwanted                                                                                       |
+| DUPLICATE_SUSPECT                 | REVERSED          | OWNER, FINANCE_OFFICER                                 | After review: duplicate and money needs reversal/refund                                                                          |
+| PENDING                           | REJECTED          | OWNER, FINANCE_OFFICER                                 | Unmatched / unowned payment rejected (e.g., wrong school)                                                                        |
+| REVERSED/REFUNDED/FAILED/REJECTED | (terminal)        | —                                                      | Corrections done via new payment records, not by reopening (to preserve history)                                                 |
 
 **Note:** Overpayments/underpayments do NOT create new payment states; they are allocation outcomes (surplus becomes `unallocated_kobo` on the payment; shortfall leaves invoice outstanding).
 
@@ -42,6 +43,7 @@ Entity: `payments`
 - All state changes happen inside a transaction; if any allocation/invoice update fails, the payment state does not change.
 
 ## Audit Events
+
 - `payment.created` (with initial status, method, amount_kobo, actor)
 - `payment.confirmed`
 - `payment.flagged_duplicate` (with matching payment id(s))

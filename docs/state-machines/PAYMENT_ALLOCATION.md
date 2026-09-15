@@ -3,14 +3,15 @@
 Entity: `payment_allocations`
 
 ## Valid States
+
 - `ACTIVE` — current allocation; contributes to invoice's paid_kobo; reduces outstanding.
 - `REVERSED` — allocation undone by a reversal; no longer contributes to paid_kobo; history preserved.
 
 ## Allowed Transitions
 
-| From | To | Actor | Trigger |
-|---|---|---|---|
-| (none) | ACTIVE | system (auto) or finance officer (manual) | Allocation created (either at payment confirm or manually) |
+| From   | To       | Actor                                                  | Trigger                                                                     |
+| ------ | -------- | ------------------------------------------------------ | --------------------------------------------------------------------------- |
+| (none) | ACTIVE   | system (auto) or finance officer (manual)              | Allocation created (either at payment confirm or manually)                  |
 | ACTIVE | REVERSED | OWNER, SCHOOL_ADMIN, FINANCE_OFFICER (with permission) | Reversal of allocation (reason required); or full payment reversal cascades |
 
 ## Database Changes Per Transition
@@ -26,6 +27,7 @@ Entity: `payment_allocations`
 - ACTIVE → REVERSED: INSERT reversals record; UPDATE allocation.reversed_by_id to point to reversal; UPDATE invoice.paid_kobo via trigger; recompute invoice state.
 
 ## Audit Events
+
 - `allocation.created`
 - `allocation.reversed` (with reason)
 

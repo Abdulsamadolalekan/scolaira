@@ -1,0 +1,60 @@
+/*
+ * SCOLAIRA — Global styles (M0 foundation).
+ *
+ * M0 establishes Tailwind layers and a small CSS reset.
+ * M1 (Design System Foundation) will populate semantic design tokens here:
+ * --color-forest-*, --color-gold-*, --color-ivory, --color-ink-*, etc.
+ * No component hard-codes hex values.
+ */
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Structural tokens — background / foreground defaults (neutral, placeholder). */
+    --background: 0 0% 100%;
+    --foreground: 220 20% 10%;
+
+    /* M1 will override these with the SCOLAIRA palette:
+       --color-forest-deepest, --color-forest-primary, --color-gold-rich,
+       --color-ivory, --color-ink-deepest, semantic status colors, etc. */
+  }
+
+  html,
+  body {
+    height: 100%;
+  }
+
+  body {
+    @apply bg-white text-neutral-900 antialiased;
+    font-feature-settings:
+      'rlig' 1,
+      'calt' 1;
+  }
+
+  /* All money values should use tabular numerics by default. Components rendering
+     financial values will also add font-variant-numeric explicitly. */
+  .tabular-nums {
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Focus ring used consistently across interactive elements. M1 will color
+     this to the brand primary. */
+  :focus-visible {
+    @apply outline-none ring-2 ring-neutral-900 ring-offset-2 ring-offset-white;
+  }
+
+  /* Respect user preference for reduced motion. */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}

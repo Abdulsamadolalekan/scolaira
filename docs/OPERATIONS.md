@@ -6,26 +6,26 @@
 
 ## I. Environments
 
-| Environment | Purpose | URL (preliminary) | Deploy trigger |
-|---|---|---|---|
-| `local` | Developer machine | `http://localhost:3000` | Manual |
-| `preview` | PR review | Per-PR Vercel preview URL | Every PR push |
-| `staging` | Pre-production validation | `staging.scolaira.app` (or Vercel auto) | Merge to `main` |
-| `production` | Live schools | `app.scolaira.app` | Manual approval after staging smoke |
+| Environment  | Purpose                   | URL (preliminary)                       | Deploy trigger                      |
+| ------------ | ------------------------- | --------------------------------------- | ----------------------------------- |
+| `local`      | Developer machine         | `http://localhost:3000`                 | Manual                              |
+| `preview`    | PR review                 | Per-PR Vercel preview URL               | Every PR push                       |
+| `staging`    | Pre-production validation | `staging.scolaira.app` (or Vercel auto) | Merge to `main`                     |
+| `production` | Live schools              | `app.scolaira.app`                      | Manual approval after staging smoke |
 
 All environments run the same Next.js build. Environment-specific configuration via env vars.
 
 ## II. Observability Stack (Pilot)
 
-| Need | Tool |
-|---|---|
-| Error tracking | Sentry (free/cheap tier) — server + client |
-| Logs | Vercel build/runtime logs; Supabase logs; structured JSON logs from application |
-| Metrics | Vercel Analytics + simple in-app counters for invariants/rate-limit hits; proper Prometheus/Grafana deferred to Phase 9 |
-| Uptime checks | External (e.g., Better Uptime or UptimeRobot free tier) for `/api/health` and public `/pay/` page |
-| Audit | In-app `audit_events` table (owned by SCOLAIRA; never deleted by app) |
-| Webhook monitoring | In-app `webhook_events` table; alert on > N failures/hour |
-| Backup monitoring | Supabase dashboard alerts; weekly manual check script |
+| Need               | Tool                                                                                                                    |
+| ------------------ | ----------------------------------------------------------------------------------------------------------------------- |
+| Error tracking     | Sentry (free/cheap tier) — server + client                                                                              |
+| Logs               | Vercel build/runtime logs; Supabase logs; structured JSON logs from application                                         |
+| Metrics            | Vercel Analytics + simple in-app counters for invariants/rate-limit hits; proper Prometheus/Grafana deferred to Phase 9 |
+| Uptime checks      | External (e.g., Better Uptime or UptimeRobot free tier) for `/api/health` and public `/pay/` page                       |
+| Audit              | In-app `audit_events` table (owned by SCOLAIRA; never deleted by app)                                                   |
+| Webhook monitoring | In-app `webhook_events` table; alert on > N failures/hour                                                               |
+| Backup monitoring  | Supabase dashboard alerts; weekly manual check script                                                                   |
 
 ## III. Health Check
 
@@ -61,6 +61,7 @@ Authenticated `GET /api/health/ready` (platform admin only) adds deeper checks (
 ## V. Alerting
 
 Critical alerts (wake-up worthy):
+
 - `/api/health` reports `down` for > 2 minutes.
 - `FINANCIAL_INVARIANT_VIOLATION` error at any time.
 - Database backup failure (daily check).
@@ -69,6 +70,7 @@ Critical alerts (wake-up worthy):
 - Detection of possible tenant-isolation breach (security event).
 
 Warnings:
+
 - Webhook failure rate > 5%.
 - Email/SMS send failure rate > 10%.
 - CSV import error rate > 50% (suggests user confusion or bug).
@@ -77,6 +79,7 @@ Warnings:
 ## VI. Support
 
 Pilot model (Phase 1–2):
+
 - Founder/engineering runs support directly via WhatsApp/phone.
 - In-app support can begin as a simple `support@scolaira.app` mailto; full help center deferred.
 - Every support incident is logged and reviewed weekly to identify product fixes.
@@ -124,15 +127,15 @@ Detailed runbooks will be added as the system matures, starting from the pilot p
 
 Target pilot monthly spend: under ₦150,000 (≈ under $100 USD equivalent).
 
-| Line | Expected cost (monthly) |
-|---|---|
-| Vercel Pro (or Free during pilot) | $0–$20 |
-| Supabase Pro (production) | $25 |
-| Sentry | $0–$26 |
-| Email (Resend) | $0 (free tier enough for pilot) |
-| SMS (Phase 7) | Usage-based, budget per term |
-| Domain | ~$12/year |
-| Uptime monitor | $0 |
-| GitHub | Free for private repos |
+| Line                              | Expected cost (monthly)         |
+| --------------------------------- | ------------------------------- |
+| Vercel Pro (or Free during pilot) | $0–$20                          |
+| Supabase Pro (production)         | $25                             |
+| Sentry                            | $0–$26                          |
+| Email (Resend)                    | $0 (free tier enough for pilot) |
+| SMS (Phase 7)                     | Usage-based, budget per term    |
+| Domain                            | ~$12/year                       |
+| Uptime monitor                    | $0                              |
+| GitHub                            | Free for private repos          |
 
 Re-evaluate spend after first paying school. Never add a SaaS subscription without a trial + a clear need. Prefer building simple in-house functionality over buying a tool for a small feature.

@@ -17,18 +17,22 @@ A Data Processing Agreement (DPA) between SCOLAIRA and each school will be in pl
 ## II. Data Minimization
 
 ### A. Student data
+
 Collected: name, gender (optional DOB), class enrollment history, admission/student code, dates of enrollment/withdrawal/archive.
 NOT collected without explicit optional consent: religion, tribe, state of origin (unless required by school for regulatory reporting — in which case it's an optional field with clear purpose), photos (deferred), biometric data (never in pilot).
 
 ### B. Guardian data
+
 Collected: name, relationship, primary phone (required for receipts/reminders), optional secondary phone, optional email.
 NOT collected: BVN, bank account numbers, NIN, government IDs (unless a school chooses to record in free-text notes — flagged as non-standard in the UI and encrypted-at-rest along with other fields; we recommend against it).
 
 ### C. Financial data
+
 Collected: invoices, payments (method, amount, date, reference, recorded-by), allocations, receipts, reversals. All required for financial truth.
 Payment references (e.g., Paystack transaction IDs, bank transfer references) are stored; card numbers or bank credentials are NEVER stored (Paystack tokenizes/handles cards; cash/POS/transfers require no card storage).
 
 ### D. Staff data
+
 Collected: name, email, role, login/audit events.
 
 ## III. Lawful Basis & Consent
@@ -40,6 +44,7 @@ Collected: name, email, role, login/audit events.
 ## IV. Data Subject Rights
 
 SCOLAIRA will provide the school (controller) with tools to respond to:
+
 1. **Right to access** — export of all data held about a student/guardian.
 2. **Right to rectification** — correction of inaccurate data (with audit).
 3. **Right to erasure** — subject to financial-record retention requirements (financial data cannot be deleted on demand; it is retained for legal/audit periods and then erased per policy).
@@ -49,22 +54,23 @@ SCOLAIRA will provide the school (controller) with tools to respond to:
 
 ## V. Retention Policy
 
-| Data | Retention period |
-|---|---|
+| Data                                                                                   | Retention period                                                                                                                           |
+| -------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
 | Financial records (invoices, payments, allocations, receipts, reversals, audit events) | Minimum 7 years (aligned with Nigerian financial record-keeping best practice; schools should confirm against their auditor requirements). |
-| Student records (active) | Duration of enrollment + 7 years after withdrawal/graduation. |
-| Guardian PII linked to a student | Same as student records. |
-| Communication events | Duration of enrollment + 7 years. |
-| Webhook raw payloads | 1 year (for reconciliation/dispute support); then archived/deleted. |
-| Idempotency records | 1 year (for webhooks) / 30 days (for API). |
-| Server logs (non-audit) | 30 days. |
-| Deleted org data (post-churn) | Retained per financial requirements; then securely erased. |
+| Student records (active)                                                               | Duration of enrollment + 7 years after withdrawal/graduation.                                                                              |
+| Guardian PII linked to a student                                                       | Same as student records.                                                                                                                   |
+| Communication events                                                                   | Duration of enrollment + 7 years.                                                                                                          |
+| Webhook raw payloads                                                                   | 1 year (for reconciliation/dispute support); then archived/deleted.                                                                        |
+| Idempotency records                                                                    | 1 year (for webhooks) / 30 days (for API).                                                                                                 |
+| Server logs (non-audit)                                                                | 30 days.                                                                                                                                   |
+| Deleted org data (post-churn)                                                          | Retained per financial requirements; then securely erased.                                                                                 |
 
 Destruction at end-of-life is performed via secure DB delete (or for backups: cryptographic erasure of keys if volume-level, or overwriting logical records on next backup cycle).
 
 ## VI. Security Controls
 
 See `/docs/SECURITY.md`. Specific to privacy:
+
 - Encryption in transit: TLS 1.2+ for all traffic.
 - Encryption at rest: Supabase-managed volume encryption; backups encrypted.
 - Access control: role-based access + RLS; staff see only what they're authorized to.
@@ -74,19 +80,20 @@ See `/docs/SECURITY.md`. Specific to privacy:
 
 ## VII. Third-Party Sub-Processors
 
-| Sub-processor | Purpose | Location |
-|---|---|---|
-| Supabase | Database, Auth, Storage | Supabase regions (D12 — chosen with NDPR DPA awareness) |
-| Vercel | Hosting/CDN | Global edge; primary region chosen to minimize data residency risk |
-| Paystack | Online payment processing (card/bank) | Nigeria (Paystack is Nigeria-founded; ensures domestic processing) |
-| Resend/Postmark | Transactional email | US/EU; with DPA; no sensitive financial detail in email beyond amounts |
-| Sentry | Error tracking | EU/US; configured without PII scrubbing |
+| Sub-processor   | Purpose                               | Location                                                               |
+| --------------- | ------------------------------------- | ---------------------------------------------------------------------- |
+| Supabase        | Database, Auth, Storage               | Supabase regions (D12 — chosen with NDPR DPA awareness)                |
+| Vercel          | Hosting/CDN                           | Global edge; primary region chosen to minimize data residency risk     |
+| Paystack        | Online payment processing (card/bank) | Nigeria (Paystack is Nigeria-founded; ensures domestic processing)     |
+| Resend/Postmark | Transactional email                   | US/EU; with DPA; no sensitive financial detail in email beyond amounts |
+| Sentry          | Error tracking                        | EU/US; configured without PII scrubbing                                |
 
 A current sub-processor list will be maintained in this doc and on the SCOLAIRA website post-launch.
 
 ## VIII. Data Breach Response
 
 In the event of a personal data breach:
+
 1. Assess scope (what data, how many subjects, risk).
 2. Notify the school (controller) without undue delay (target: within 24 hours of confirmation).
 3. School (controller) is responsible for notifying NITDA and affected data subjects as required by NDPR within statutory timelines; SCOLAIRA provides all available information to support this.

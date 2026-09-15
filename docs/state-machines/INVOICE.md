@@ -3,6 +3,7 @@
 Entity: `invoices`
 
 ## Valid States
+
 - `DRAFT` — being built; editable; does not contribute to BILLED totals.
 - `ISSUED` — finalized, sent/visible; contributes to BILLED; lines are effectively frozen (corrections go through credit/adjustment lines or reversal).
 - `PARTIALLY_PAID` — at least one non-reversed allocation exists; outstanding > 0.
@@ -11,18 +12,18 @@ Entity: `invoices`
 
 ## Allowed Transitions
 
-| From | To | Actor | Trigger |
-|---|---|---|---|
-| (none) | DRAFT | OWNER, SCHOOL_ADMIN, FINANCE_OFFICER | Billing run creates draft, or manual create |
-| DRAFT | ISSUED | OWNER, SCHOOL_ADMIN, FINANCE_OFFICER | "Issue invoice" action (sends or finalizes) |
-| DRAFT | VOID | OWNER, SCHOOL_ADMIN | "Discard draft" (before issuing) — reason required in UI but always safe since not billed |
-| ISSUED | PARTIALLY_PAID | system (on allocation) | First allocation applied to invoice |
-| ISSUED | PAID | system (on allocation) | Single allocation fully pays invoice |
-| ISSUED | VOID | OWNER | Void issued invoice (only permitted if NO non-reversed allocations exist; otherwise credit-note/reversal path must be used) — reason required |
-| PARTIALLY_PAID | PAID | system (on allocation) | Final allocation brings outstanding to 0 |
-| PARTIALLY_PAID | ISSUED | system (on allocation reversal) | Full reversal of allocations returns to ISSUED state (issued but no paid amount) |
-| PAID | PARTIALLY_PAID | system (on reversal) | A full/partial reversal reopens outstanding |
-| VOID | (terminal) | — | Cannot transition out of VOID; create a new invoice if needed |
+| From           | To             | Actor                                | Trigger                                                                                                                                       |
+| -------------- | -------------- | ------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| (none)         | DRAFT          | OWNER, SCHOOL_ADMIN, FINANCE_OFFICER | Billing run creates draft, or manual create                                                                                                   |
+| DRAFT          | ISSUED         | OWNER, SCHOOL_ADMIN, FINANCE_OFFICER | "Issue invoice" action (sends or finalizes)                                                                                                   |
+| DRAFT          | VOID           | OWNER, SCHOOL_ADMIN                  | "Discard draft" (before issuing) — reason required in UI but always safe since not billed                                                     |
+| ISSUED         | PARTIALLY_PAID | system (on allocation)               | First allocation applied to invoice                                                                                                           |
+| ISSUED         | PAID           | system (on allocation)               | Single allocation fully pays invoice                                                                                                          |
+| ISSUED         | VOID           | OWNER                                | Void issued invoice (only permitted if NO non-reversed allocations exist; otherwise credit-note/reversal path must be used) — reason required |
+| PARTIALLY_PAID | PAID           | system (on allocation)               | Final allocation brings outstanding to 0                                                                                                      |
+| PARTIALLY_PAID | ISSUED         | system (on allocation reversal)      | Full reversal of allocations returns to ISSUED state (issued but no paid amount)                                                              |
+| PAID           | PARTIALLY_PAID | system (on reversal)                 | A full/partial reversal reopens outstanding                                                                                                   |
+| VOID           | (terminal)     | —                                    | Cannot transition out of VOID; create a new invoice if needed                                                                                 |
 
 **Note:** Transitions between ISSUED/PARTIALLY_PAID/PAID are SYSTEM-DRIVEN (derived from allocations). Users do not manually set these states. Only DRAFT→ISSUED and →VOID are user-initiated state changes.
 
@@ -35,6 +36,7 @@ Entity: `invoices`
 - ISSUED → VOID: UPDATE status, set voided_at/voided_reason; create audit; VOID invoices do not contribute to BILLED aggregations. Trigger blocks VOID on invoices with non-reversed allocations.
 
 ## Audit Events
+
 - `invoice.created` (DRAFT)
 - `invoice.issued`
 - `invoice.voided` (with reason)

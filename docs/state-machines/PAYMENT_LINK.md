@@ -3,6 +3,7 @@
 Entity: `payment_links`
 
 ## Valid States
+
 - `ACTIVE` — link can be viewed and used for payment.
 - `PAID` — link has been used to complete a payment (terminal for the link; receipt shown).
 - `EXPIRED` — link passed its expiry timestamp without payment; shows expired page.
@@ -10,14 +11,14 @@ Entity: `payment_links`
 
 ## Allowed Transitions
 
-| From | To | Actor | Trigger |
-|---|---|---|---|
-| (none) | ACTIVE | OWNER, SCHOOL_ADMIN, FINANCE_OFFICER | Create payment link (for an invoice or a student) |
-| ACTIVE | PAID | system | Payment successfully recorded for this link (Paystack success webhook matched OR cash/transfer confirmed against link) |
-| ACTIVE | EXPIRED | system (cron/on-access check) | expires_at < now() and not PAID |
-| ACTIVE | REVOKED | OWNER, SCHOOL_ADMIN, FINANCE_OFFICER | Manual revoke (e.g., invoice voided, parent requested new link) |
-| EXPIRED | ACTIVE | OWNER, SCHOOL_ADMIN, FINANCE_OFFICER | Resend/extend (creates a new link? or reactivates? RECOMMENDATION: create a new link with new token to avoid confusion; old link stays EXPIRED. Decision: new link.) |
-| REVOKED/PAID | (terminal) | — | New link must be created; never reuse a paid/revoked token |
+| From         | To         | Actor                                | Trigger                                                                                                                                                              |
+| ------------ | ---------- | ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| (none)       | ACTIVE     | OWNER, SCHOOL_ADMIN, FINANCE_OFFICER | Create payment link (for an invoice or a student)                                                                                                                    |
+| ACTIVE       | PAID       | system                               | Payment successfully recorded for this link (Paystack success webhook matched OR cash/transfer confirmed against link)                                               |
+| ACTIVE       | EXPIRED    | system (cron/on-access check)        | expires_at < now() and not PAID                                                                                                                                      |
+| ACTIVE       | REVOKED    | OWNER, SCHOOL_ADMIN, FINANCE_OFFICER | Manual revoke (e.g., invoice voided, parent requested new link)                                                                                                      |
+| EXPIRED      | ACTIVE     | OWNER, SCHOOL_ADMIN, FINANCE_OFFICER | Resend/extend (creates a new link? or reactivates? RECOMMENDATION: create a new link with new token to avoid confusion; old link stays EXPIRED. Decision: new link.) |
+| REVOKED/PAID | (terminal) | —                                    | New link must be created; never reuse a paid/revoked token                                                                                                           |
 
 ## Database Changes Per Transition
 
@@ -27,6 +28,7 @@ Entity: `payment_links`
 - ACTIVE → REVOKED: UPDATE status; audit event; any future access returns 410 GONE page.
 
 ## Audit Events
+
 - `payment_link.created`
 - `payment_link.paid` (system)
 - `payment_link.expired` (system; debug-level; not always surfaced to user)

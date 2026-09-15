@@ -11,6 +11,7 @@
 SCOLAIRA is a multi-tenant financial SaaS for proprietor-owned Nigerian private schools. It owns the fee financial chain — bill → collect → allocate → reconcile → report — across every payment method a school uses (cash, transfer, POS, online). Parents never need a conventional account.
 
 The architecture must deliver, in priority order:
+
 1. **Trustworthiness & financial correctness** (integer-kobo ledger, transactional mutations, immutable audit history).
 2. **Clarity** for the proprietor ("where is my money?" answered within seconds), for the finance officer ("what do I record/reconcile/follow up?"), and for the parent ("how much do I owe and how do I pay?").
 3. **Operational usefulness** for daily finance work in real Nigerian schools.
@@ -23,6 +24,7 @@ The goal is NOT to be the most technically complicated school-fee product. It is
 ## B. Founder Mandates Reflected In This Revision
 
 This architecture reflects 17 founder corrections applied on 2026-09-15:
+
 1. **Stack versioning** — framework versions are not hard-coded; we select current stable production versions at scaffolding time and record them.
 2. **GitHub is a pre-code hard gate** — D2 must be verified complete (repo created, remote configured, docs pushed, remote verified, `main` branch established) before any application code.
 3. **Founder ownership** — all critical infrastructure (GitHub, domain, Vercel, Supabase, Paystack, Resend, monitoring, messaging) is founder/company-owned. Arena is an engineering environment only.
@@ -43,16 +45,16 @@ This architecture reflects 17 founder corrections applied on 2026-09-15:
 
 ## C. Current State
 
-| Area | Status |
-|---|---|
-| Repository | Local git at `/home/user/scolaira/`, branch `main`, commits verified (current: updated commit after this revision). |
-| Remote (GitHub) | **NOT YET CONFIGURED — HARD GATE (D2).** No application code will be written until remote is configured, initial docs pushed, and remote verified. |
-| Application code | None — per pre-code gate. |
-| Framework versions | Not pinned yet; will be selected at scaffolding per D1 (corrected). |
-| Infrastructure (Vercel/Supabase/Paystack/Resend) | Not provisioned; to be created under founder-owned accounts (D3). |
-| Documentation | Complete revised set, including this document. |
-| Domain | `scolaira.com` (recommended per D4); DNS not configured. |
-| Pilot school | Not yet identified (D7); not blocking foundation engineering. |
+| Area                                             | Status                                                                                                                                             |
+| ------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Repository                                       | Local git at `/home/user/scolaira/`, branch `main`, commits verified (current: updated commit after this revision).                                |
+| Remote (GitHub)                                  | **NOT YET CONFIGURED — HARD GATE (D2).** No application code will be written until remote is configured, initial docs pushed, and remote verified. |
+| Application code                                 | None — per pre-code gate.                                                                                                                          |
+| Framework versions                               | Not pinned yet; will be selected at scaffolding per D1 (corrected).                                                                                |
+| Infrastructure (Vercel/Supabase/Paystack/Resend) | Not provisioned; to be created under founder-owned accounts (D3).                                                                                  |
+| Documentation                                    | Complete revised set, including this document.                                                                                                     |
+| Domain                                           | `scolaira.com` (recommended per D4); DNS not configured.                                                                                           |
+| Pilot school                                     | Not yet identified (D7); not blocking foundation engineering.                                                                                      |
 
 ## D. Target Architecture (Pilot Phase 1–3)
 
@@ -60,20 +62,20 @@ This architecture reflects 17 founder corrections applied on 2026-09-15:
 
 > Exact versions will be selected at scaffolding time based on current stable, production-supported releases, compatibility and security. They will be recorded in the repository (README + `package.json` lockfile).
 
-| Layer | Choice (architectural) | Notes |
-|---|---|---|
-| **Frontend framework** | Next.js + TypeScript | App Router pattern preferred; SSR/CSR hybrid; exact Next.js major version chosen at scaffold time. |
-| **UI** | Tailwind CSS + shadcn/ui + SCOLAIRA design tokens | Centralized token system (color, typography, spacing, radii, shadows) per D8/D15; no hard-coded palette in components. |
-| **Backend** | Next.js Route Handlers + Server Actions (for privileged mutations) + domain service layer | Modular monolith; same language across stack. |
-| **Database** | PostgreSQL (Supabase managed) | Production-grade, RLS, backups, PITR. |
-| **ORM / Query** | Drizzle ORM | Type-safe, SQL-aligned, explicit migrations, lightweight. |
-| **Auth** | Supabase Auth (email/password; 2FA roadmap) | Secure sessions; integrates with RLS. |
-| **Online Payments** | Paystack (webhook-driven) | Test mode for development; settlement to school's own account. |
-| **Hosting** | Vercel (app) + Supabase (DB/auth) | Zero-ops for pilot; founder-owned accounts. |
-| **File Storage** | Supabase Storage (or S3-compatible) | Receipts, CSV imports, exports; server-side validation. |
-| **Email** | Resend (transactional) | Receipts, password reset, login alerts; founder-owned account. |
-| **Observability** | Vercel logs + Sentry (errors) + Supabase logs + `/health` endpoint | Lean; upgrade post-pilot. |
-| **Testing** | Vitest (unit/integration/financial/security) + Playwright (E2E/visual/a11y) | Exact versions selected at scaffold. |
+| Layer                  | Choice (architectural)                                                                    | Notes                                                                                                                  |
+| ---------------------- | ----------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| **Frontend framework** | Next.js + TypeScript                                                                      | App Router pattern preferred; SSR/CSR hybrid; exact Next.js major version chosen at scaffold time.                     |
+| **UI**                 | Tailwind CSS + shadcn/ui + SCOLAIRA design tokens                                         | Centralized token system (color, typography, spacing, radii, shadows) per D8/D15; no hard-coded palette in components. |
+| **Backend**            | Next.js Route Handlers + Server Actions (for privileged mutations) + domain service layer | Modular monolith; same language across stack.                                                                          |
+| **Database**           | PostgreSQL (Supabase managed)                                                             | Production-grade, RLS, backups, PITR.                                                                                  |
+| **ORM / Query**        | Drizzle ORM                                                                               | Type-safe, SQL-aligned, explicit migrations, lightweight.                                                              |
+| **Auth**               | Supabase Auth (email/password; 2FA roadmap)                                               | Secure sessions; integrates with RLS.                                                                                  |
+| **Online Payments**    | Paystack (webhook-driven)                                                                 | Test mode for development; settlement to school's own account.                                                         |
+| **Hosting**            | Vercel (app) + Supabase (DB/auth)                                                         | Zero-ops for pilot; founder-owned accounts.                                                                            |
+| **File Storage**       | Supabase Storage (or S3-compatible)                                                       | Receipts, CSV imports, exports; server-side validation.                                                                |
+| **Email**              | Resend (transactional)                                                                    | Receipts, password reset, login alerts; founder-owned account.                                                         |
+| **Observability**      | Vercel logs + Sentry (errors) + Supabase logs + `/health` endpoint                        | Lean; upgrade post-pilot.                                                                                              |
+| **Testing**            | Vitest (unit/integration/financial/security) + Playwright (E2E/visual/a11y)               | Exact versions selected at scaffold.                                                                                   |
 
 **No microservices. No AI gimmicks. No premature distributed architecture.**
 
@@ -221,6 +223,7 @@ Each state machine document specifies: valid states, allowed transitions, who ma
 Per founder item 10, documented in `/docs/FINANCIAL_TRUTH_MODEL.md`. Summary:
 
 **AUTHORITATIVE FINANCIAL TRUTH (the ledger):**
+
 - invoices + invoice_lines
 - payments
 - payment_allocations
@@ -228,6 +231,7 @@ Per founder item 10, documented in `/docs/FINANCIAL_TRUTH_MODEL.md`. Summary:
 - receipts (as issued evidence; derived from allocations/payments but never back-influences them)
 
 **DERIVED / OPERATIONAL / PRESENTATION:**
+
 - Outstanding balances (computed: total − paid + reversals)
 - Collection rate (computed)
 - Overdue status (computed from due_date + outstanding)
@@ -249,6 +253,7 @@ See `/docs/FINANCIAL_INVARIANTS.md`. 15 invariants (F1–F15) unchanged in princ
 Concrete transaction behavior for the 7 specified race cases is documented in `/docs/CONCURRENCY_DESIGN.md`.
 
 Summary:
+
 - Pessimistic locking (`SELECT … FOR UPDATE`) on payment and invoice rows during allocation.
 - Unique constraints on idempotency keys, webhook event IDs, and external references.
 - Strict state-machine transition checks inside every transaction.
@@ -265,6 +270,7 @@ The `audit_events` table is append-only; the application DB role has INSERT-only
 ## K. Security Model
 
 See `/docs/SECURITY.md`. Unchanged in structure; updated to reflect:
+
 - Separate platform admin surface (`admin.scolaira.com` future; `/admin` on app domain during pilot with strict role gate and isolated middleware).
 - Founder-owned infrastructure means credential/ownership is outside the engineering environment; rotation/recovery is founder-controlled.
 - Data residency decision is deferred to a specific document (see `/docs/DATA_RESIDENCY_AND_PRIVACY.md`) required BEFORE production student data is introduced.
@@ -327,6 +333,7 @@ Reconciliation is NOT finalized until discovery is completed with at least one r
 ## Q. Testing Strategy (Revised)
 
 See `/docs/TESTING.md`. Summary unchanged in structure; now also includes:
+
 - Explicit concurrency tests for each of the 7 named cases (A–G).
 - Tests for every state-machine transition (valid + invalid).
 - Tests verifying that derived/presentation views always match authoritative ledger (invariant F14 expanded).
@@ -363,6 +370,7 @@ See `/docs/DISASTER_RECOVERY.md`. Backups (Supabase PITR + daily + weekly off-si
 ## X. Business Risks (Top, Revised)
 
 See `/docs/RISK_REGISTER.md` for full updated register. Key changes:
+
 - Added R-021 **Building reconciliation around unvalidated assumptions** (P1) — mitigated by Real-World Discovery Plan and manual-reconciliation-first Phase 1.
 - Added R-022 **Pre-code GitHub/ownership not established** (P0) — mitigated by D2 hard gate.
 - Added R-023 **Design drift from hard-coded colors/spacing** (P2) — mitigated by design tokens.
@@ -379,6 +387,7 @@ See `/docs/RISK_REGISTER.md` for full updated register. Key changes:
 Per founder item 17 and I (Implementation Sequence):
 
 **Before ANY application code, ALL of these must be true:**
+
 1. Founder creates a private GitHub repository under company ownership (D2).
 2. Founder provides a method for engineering to push (PAT or via pairing); initial documentation commit is pushed.
 3. Remote repository verified: `git ls-remote` succeeds; GitHub shows the README and docs.
@@ -420,4 +429,4 @@ The original D1–D15 with founder corrections incorporated and now presented as
 
 ---
 
-*This document supersedes the v1 architecture on the points addressed by founder corrections. Unchanged principles (invariants, kobo money, defense-in-depth, etc.) remain as specified in v1 and in their respective documents.*
+_This document supersedes the v1 architecture on the points addressed by founder corrections. Unchanged principles (invariants, kobo money, defense-in-depth, etc.) remain as specified in v1 and in their respective documents._

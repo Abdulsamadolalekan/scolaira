@@ -3,16 +3,17 @@
 Entity: `receipts`
 
 ## Valid States
+
 - `ISSUED` — receipt issued and available to parent/school.
 - `VOID` — receipt voided (e.g., because payment was reversed); does NOT mean payment itself is invalid — it means this particular receipt document is no longer authoritative. A new receipt for corrected state can be issued.
 
 ## Allowed Transitions
 
-| From | To | Actor | Trigger |
-|---|---|---|---|
-| (none) | ISSUED | system (on payment confirm/allocation) or finance officer (manual reissue) | Receipt generated with unique receipt number |
-| ISSUED | VOID | OWNER, SCHOOL_ADMIN, FINANCE_OFFICER | Void receipt (reason required); typically triggered automatically when the underlying payment is fully reversed |
-| VOID | (terminal) | — | Re-issue creates a new ISSUED receipt; never edit-revive a voided receipt |
+| From   | To         | Actor                                                                      | Trigger                                                                                                         |
+| ------ | ---------- | -------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| (none) | ISSUED     | system (on payment confirm/allocation) or finance officer (manual reissue) | Receipt generated with unique receipt number                                                                    |
+| ISSUED | VOID       | OWNER, SCHOOL_ADMIN, FINANCE_OFFICER                                       | Void receipt (reason required); typically triggered automatically when the underlying payment is fully reversed |
+| VOID   | (terminal) | —                                                                          | Re-issue creates a new ISSUED receipt; never edit-revive a voided receipt                                       |
 
 ## Database Changes Per Transition
 
@@ -20,6 +21,7 @@ Entity: `receipts`
 - VOID: UPDATE status, set voided_at; audit event.
 
 ## Audit Events
+
 - `receipt.issued` (channel: PRINT/EMAIL/WHATSAPP/SMS_LINK)
 - `receipt.voided` (with reason)
 

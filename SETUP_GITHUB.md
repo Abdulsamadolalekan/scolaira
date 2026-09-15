@@ -28,10 +28,12 @@ The repository currently exists only in this sandbox. Before application code, i
 ## Option B — Founder pairs with engineering via `gh` CLI
 
 If `gh` is installed and authenticated in this environment, engineering can run:
+
 ```bash
 gh auth login
 gh repo create scolaira/scolaira --private --source=. --remote=origin --push
 ```
+
 But `gh` is not installed in this sandbox and we lack sudo to install it, so Option A is the straightforward path.
 
 ## Option C — Founder pushes from their own machine
@@ -47,6 +49,7 @@ git push -u origin main
 ## After Remote Is Verified
 
 Engineering will confirm:
+
 - `git remote -v` shows the GitHub URL.
 - `git ls-remote origin` returns the current commit `4b55e69`.
 - https://github.com/<OWNER>/<REPO> shows README.md and docs/ folder in the web UI.
