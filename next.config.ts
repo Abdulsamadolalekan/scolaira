@@ -40,7 +40,9 @@ const nextConfig: NextConfig = {
             key: 'Content-Security-Policy',
             value: [
               "default-src 'self'",
-              "script-src 'self' 'unsafe-eval'",
+              // Next.js App Router uses inline scripts for RSC flight bootstrap
+              // and hydration. Nonce-based tightening is planned in M3 hardening.
+              "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
               // unsafe-inline will be tightened when nonce-based CSP is added
               "style-src 'self' 'unsafe-inline'",
               "img-src 'self' data: blob:",

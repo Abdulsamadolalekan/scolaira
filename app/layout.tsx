@@ -1,11 +1,14 @@
 import type { Metadata } from 'next';
 import './globals.css';
+import { ToastContainer } from '@/components/ui/toast';
+import { TooltipProvider } from '@/components/ui/tooltip';
 
 /**
- * Root layout — M0 minimal shell.
+ * Root layout.
  *
- * This is intentionally unstyled beyond the HTML document scaffolding.
- * The design system (typography, color, navigation shell) is introduced in M1.
+ * M1 adds: design-system tokens loaded via globals.css → tokens.css, plus the
+ * Toast container (mounted at root for toasts from anywhere in the tree) and
+ * TooltipProvider for consistent hover/focus delay.
  */
 export const metadata: Metadata = {
   title: {
@@ -24,7 +27,17 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className="min-h-screen bg-white text-neutral-900">{children}</body>
+      <body>
+        <a
+          href="#main-content"
+          className="focus:bg-forest sr-only focus:not-sr-only focus:fixed focus:left-3 focus:top-3 focus:z-50 focus:rounded-md focus:px-4 focus:py-2 focus:text-white focus:shadow-lg"
+        >
+          Skip to main content
+        </a>
+        <TooltipProvider delayDuration={200}>
+          <ToastContainer>{children}</ToastContainer>
+        </TooltipProvider>
+      </body>
     </html>
   );
 }

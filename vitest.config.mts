@@ -15,7 +15,11 @@ export default defineConfig({
     environment: 'jsdom',
     globals: true,
     setupFiles: ['./tests/setup.ts'],
-    include: ['tests/**/*.test.{ts,tsx}', 'lib/**/*.test.{ts,tsx}'],
+    include: [
+      'tests/**/*.test.{ts,tsx}',
+      'lib/**/*.test.{ts,tsx}',
+      'components/**/*.test.{ts,tsx}',
+    ],
     exclude: ['node_modules', '.next', 'e2e', 'test-results', 'playwright-report'],
     coverage: {
       provider: 'v8',

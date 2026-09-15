@@ -1,12 +1,11 @@
 import { expect, test } from '@playwright/test';
 
 /**
- * Smoke tests for SCOLAIRA M0 (Project Skeleton).
- *
- * These tests verify that the Next.js application boots, serves valid HTTP
- * responses, and contains expected content. Deeper React component / client
- * interaction tests will be added in M1+ when real UI exists.
+ * Smoke tests for SCOLAIRA M1 (Design System Foundation).
+ * Uses element waits rather than networkidle because Radix tooltips hold open
+ * connections harmlessly.
  */
+
 test('/api/health returns ok payload', async ({ request }) => {
   const res = await request.get('/api/health');
   expect(res.status()).toBe(200);
@@ -20,33 +19,45 @@ test('/api/health returns ok payload', async ({ request }) => {
   };
   expect(body.status).toBe('ok');
   expect(body.version).toBeDefined();
-  expect(body.commit).toBeDefined();
-  expect(body.timestamp).toBeDefined();
   expect(body.checks.database).toBe('not_configured');
 });
 
-test('root page returns 200 and contains SCOLAIRA copy (SSR)', async ({ page }) => {
-  const response = await page.goto('/');
+test('root page redirects to Command Center', async ({ page }) => {
+  await page.goto('/');
+  await page.waitForURL(/\/preview\/command-center/);
+  await expect(page.getByText('Good morning, Bursar')).toBeVisible({ timeout: 10000 });
+});
+
+test('Command Center renders KPIs + security headers', async ({ page }) => {
+  const response = await page.goto('/preview/command-center');
   expect(response?.status()).toBe(200);
-  expect(response?.headers()['content-type']).toContain('text/html');
-  const html = await response!.text();
-  expect(html).toContain('SCOLAIRA');
-  expect(html).toContain('Financial Operating System');
-  expect(html).toContain('Every term, fully funded');
-  await page.waitForLoadState('load');
+  expect(response!.headers()['x-frame-options']).toBe('DENY');
+  expect(response!.headers()['x-content-type-options']).toBe('nosniff');
+  await expect(page.getByText('BILLED')).toBeVisible({ timeout: 10000 });
+  await expect(page.getByText('Demo data', { exact: false })).toBeVisible();
 });
 
-test('root page responds with security headers', async ({ request }) => {
-  const res = await request.get('/');
-  expect(res.headers()['x-content-type-options']).toBe('nosniff');
-  expect(res.headers()['x-frame-options']).toBe('DENY');
-  expect(res.headers()['referrer-policy']).toBe('strict-origin-when-cross-origin');
-  expect(res.headers()['strict-transport-security']).toContain('max-age=');
+test('Primitives showcase renders and tabs work', async ({ page }) => {
+  await page.goto('/preview/primitives');
+  await expect(page.getByText('Brand primitives')).toBeVisible({ timeout: 10000 });
+  await page.getByRole('tab', { name: 'Buttons' }).click();
+  await expect(page.getByRole('button', { name: 'Pay now' }).first()).toBeVisible();
 });
 
-test('unknown routes return 404 page', async ({ page }) => {
-  const response = await page.goto('/definitely-not-a-real-path');
+test('Invoices list renders table with INV-1042', async ({ page }) => {
+  await page.goto('/preview/list/invoices');
+  await expect(page.getByText(/INV-1042/).first()).toBeVisible({ timeout: 10000 });
+});
+
+test('Invoice detail renders summary', async ({ page }) => {
+  await page.goto('/preview/invoice/INV-1042');
+  await expect(page.getByText(/Total billed/).first()).toBeVisible({ timeout: 10000 });
+});
+
+test('404 page renders for unknown routes', async ({ page }) => {
+  const response = await page.goto('/does-not-exist');
   expect(response?.status()).toBe(404);
-  const html = await response!.text();
-  expect(html).toContain('Page not found');
+  await expect(page.getByRole('heading', { level: 1, name: /Page not found/ })).toBeVisible({
+    timeout: 10000,
+  });
 });

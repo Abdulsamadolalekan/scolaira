@@ -9,19 +9,17 @@ Brand promise: _Every term, fully funded._
 
 ## Current Status
 
-**Milestone M0 — Project Skeleton (complete).**
-Documentation foundation established, GitHub remote verified, application skeleton bootstrapped. See `/docs/` for the full architecture, financial, security, and UX specifications.
+**Milestone M1 — Design System Foundation (complete).**
+Semantic design tokens, 19 core UI primitives, navigation shell, page templates (Command Center / List / Detail), responsive behavior across desktop/tablet/mobile, print stylesheet, and accessibility states are in place. Visual QA screenshots captured at 3 viewports for every key screen.
 
-Development progresses per the approved implementation sequence (see `/docs/IMPLEMENTATION_SEQUENCE.md`):
-
-- ~~M0 — Project Skeleton~~ (current)
-- M1 — Design System Foundation
+- ~~M0 — Project Skeleton~~
+- ~~M1 — Design System Foundation~~ (current)
 - M2 — Database & Migrations
 - M3 — Authentication
 - M4 — Tenant Context & Authorization
 - Slices 1–7 (Phase 1: Financial Truth)
 
-**No financial logic is implemented yet.** Money utility foundations (integer kobo / naira strings) are in place to enforce future invariants.
+**No business logic, database, auth, payments, or real financial data exist yet.** Money utilities (integer kobo / naira strings) plus a presentational `<Money />` component enforce the internal/external contract; all screens use explicit demo placeholders.
 
 ---
 

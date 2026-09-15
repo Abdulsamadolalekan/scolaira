@@ -1,60 +1,241 @@
-/*
- * SCOLAIRA — Global styles (M0 foundation).
- *
- * M0 establishes Tailwind layers and a small CSS reset.
- * M1 (Design System Foundation) will populate semantic design tokens here:
- * --color-forest-*, --color-gold-*, --color-ivory, --color-ink-*, etc.
- * No component hard-codes hex values.
- */
+@import './tokens.css';
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
+/* ---------------------------------------------------------------------------
+ * SCOLAIRA Global Styles
+ *
+ * Base layer sets typography defaults, resets, print and reduced-motion
+ * handling. All visual language flows through tokens defined in tokens.css.
+ * ------------------------------------------------------------------------- */
+
 @layer base {
-  :root {
-    /* Structural tokens — background / foreground defaults (neutral, placeholder). */
-    --background: 0 0% 100%;
-    --foreground: 220 20% 10%;
-
-    /* M1 will override these with the SCOLAIRA palette:
-       --color-forest-deepest, --color-forest-primary, --color-gold-rich,
-       --color-ivory, --color-ink-deepest, semantic status colors, etc. */
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+    border-color: var(--color-border);
   }
 
-  html,
-  body {
-    height: 100%;
+  html {
+    -webkit-text-size-adjust: 100%;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+    font-feature-settings: 'cv11', 'ss01';
+    scroll-behavior: smooth;
   }
 
-  body {
-    @apply bg-white text-neutral-900 antialiased;
-    font-feature-settings:
-      'rlig' 1,
-      'calt' 1;
-  }
-
-  /* All money values should use tabular numerics by default. Components rendering
-     financial values will also add font-variant-numeric explicitly. */
-  .tabular-nums {
-    font-variant-numeric: tabular-nums;
-  }
-
-  /* Focus ring used consistently across interactive elements. M1 will color
-     this to the brand primary. */
-  :focus-visible {
-    @apply outline-none ring-2 ring-neutral-900 ring-offset-2 ring-offset-white;
-  }
-
-  /* Respect user preference for reduced motion. */
   @media (prefers-reduced-motion: reduce) {
+    html {
+      scroll-behavior: auto;
+    }
     *,
     *::before,
     *::after {
       animation-duration: 0.01ms !important;
       animation-iteration-count: 1 !important;
       transition-duration: 0.01ms !important;
-      scroll-behavior: auto !important;
     }
+  }
+
+  body {
+    margin: 0;
+    background-color: var(--color-bg-page);
+    color: var(--color-text-primary);
+    font-family: var(--font-sans);
+    font-size: var(--text-base-size);
+    line-height: var(--text-base-line);
+    font-weight: var(--font-normal);
+    min-height: 100vh;
+  }
+
+  /* Selection color */
+  ::selection {
+    background-color: var(--color-forest-tint);
+    color: var(--color-forest-deepest);
+  }
+
+  /* Focus: global visible focus ring for keyboard users */
+  :where(a, button, input, select, textarea, [role='button'], [tabindex]):focus-visible {
+    outline: none;
+    box-shadow: var(--border-focus-ring);
+    border-radius: var(--radius-md);
+  }
+
+  /* Heading defaults */
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    color: var(--color-text-primary);
+    font-weight: var(--font-semibold);
+    letter-spacing: -0.01em;
+  }
+  h1 {
+    font-size: var(--text-2xl-size);
+    line-height: var(--text-2xl-line);
+  }
+  h2 {
+    font-size: var(--text-lg-size);
+    line-height: var(--text-lg-line);
+  }
+  h3 {
+    font-size: var(--text-md-size);
+    line-height: var(--text-md-line);
+  }
+  h4 {
+    font-size: var(--text-base-size);
+    line-height: var(--text-base-line);
+    font-weight: var(--font-medium);
+  }
+
+  p {
+    color: var(--color-text-secondary);
+    margin: 0;
+  }
+
+  small {
+    font-size: var(--text-sm-size);
+    color: var(--color-text-muted);
+  }
+
+  a {
+    color: var(--color-accent-primary);
+    text-decoration: none;
+  }
+  a:hover {
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+
+  hr {
+    border: 0;
+    border-top: var(--border-thin);
+    margin: var(--space-4) 0;
+  }
+
+  /* Form resets */
+  input,
+  select,
+  textarea,
+  button {
+    font-family: inherit;
+    font-size: inherit;
+    color: inherit;
+  }
+
+  /* Numeric/money: tabular-nums globally so any numeric field aligns;
+     non-numeric text can opt out with `font-variant-numeric: normal`. */
+  .tabular-nums,
+  [data-money],
+  .kpi-value {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: 'tnum' 1;
+  }
+
+  /* Scrollbar — thin, on brand */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--color-ink-faint);
+    border-radius: var(--radius-md);
+    border: 2px solid transparent;
+    background-clip: content-box;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--color-ink-subtle);
+    background-clip: content-box;
+    border: 2px solid transparent;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * Print styles (receipts / invoices)
+ * ------------------------------------------------------------------------- */
+
+@media print {
+  @page {
+    margin: 16mm;
+  }
+
+  html,
+  body {
+    background: #fff !important;
+    color: #000 !important;
+    font-size: 11pt;
+  }
+
+  .no-print,
+  [data-ui='chrome'],
+  nav,
+  aside,
+  header.topbar,
+  button,
+  [role='dialog'],
+  .drawer {
+    display: none !important;
+  }
+
+  main,
+  .print-area {
+    margin: 0 !important;
+    padding: 0 !important;
+    max-width: none !important;
+    width: 100% !important;
+    box-shadow: none !important;
+  }
+
+  a {
+    color: #000;
+    text-decoration: none;
+  }
+  .tabular-nums {
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* School header strip (print-only) */
+  .print-header {
+    display: block !important;
+  }
+  .page-break {
+    page-break-before: always;
+  }
+  tr,
+  .avoid-break {
+    page-break-inside: avoid;
+  }
+}
+
+.print-header {
+  display: none;
+}
+
+/* ---- Reduced motion ----
+   Zero out transitions/animations for users who prefer it. We override our
+   custom motion tokens so any component that consumes --motion-duration-*
+   automatically degrades. */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --motion-duration-fast: 0ms;
+    --motion-duration-base: 0ms;
+    --motion-duration-slow: 0ms;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
   }
 }
