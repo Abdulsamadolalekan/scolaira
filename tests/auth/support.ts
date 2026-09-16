@@ -111,9 +111,16 @@ export async function call(
 
   // Place a SAVEPOINT so any SQL error thrown inside the handler rolls back
   // to this point rather than aborting the outer per-test BEGIN transaction.
+  // Without this, the first failed login attempt in a test would poison the
+  // transaction and every subsequent call would see "current transaction is
+  // aborted" — not because production has that bug, but because the test
+  // harness reuses one connection across requests (unlike real HTTP requests
+  // which each have their own connection/transaction).
   const sql = getSql();
   const spName = 'sp_' + Math.random().toString(36).slice(2, 10);
-  await sql.unsafe(`SAVEPOINT ${spName}`).catch(() => {});
+  // postgres.js does not allow parameterized identifiers for SAVEPOINT, so we
+  // generate the name ourselves (20 chars from [a-z0-9_], safe).
+  try { await sql.unsafe(`SAVEPOINT ${spName}`); } catch { /* not in a txn */ }
 
   const headers = new Headers(init.headers ?? {});
   headers.set('content-type', 'application/json');
@@ -135,7 +142,7 @@ export async function call(
   });
   try {
     const res = await handler(req);
-    await sql.unsafe(`RELEASE SAVEPOINT ${spName}`).catch(() => {});
+    try { await sql.unsafe(`RELEASE SAVEPOINT ${spName}`); } catch { /* ignore */ }
     if (typeof res.headers.getSetCookie === 'function') {
       for (const v of res.headers.getSetCookie()) jar.setFromSetCookie(v);
     } else {
@@ -146,7 +153,7 @@ export async function call(
     try { data = text ? JSON.parse(text) : null; } catch { data = text; }
     return { status: res.status, data, response: res };
   } catch (e) {
-    await sql.unsafe(`ROLLBACK TO SAVEPOINT ${spName}`).catch(() => {});
+    try { await sql.unsafe(`ROLLBACK TO SAVEPOINT ${spName}`); } catch { /* ignore */ }
     throw e;
   } finally {
     __setCookieStoreForTest(null);

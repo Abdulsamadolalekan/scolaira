@@ -5,12 +5,12 @@ import { register, AuthError } from '@/lib/auth';
 export const runtime = 'nodejs';
 
 const bodySchema = z.object({
-  email: z.string().email().max(255),
+  email: z.string().trim().toLowerCase().email().max(255),
   password: z.string().min(10).max(128),
-  firstName: z.string().min(1).max(120),
-  lastName: z.string().min(1).max(120),
-  organizationName: z.string().min(2).max(160),
-  organizationSlug: z.string().min(2).max(64).regex(/^[a-z0-9][a-z0-9-]*[a-z0-9]$/),
+  firstName: z.string().trim().min(1).max(120),
+  lastName: z.string().trim().min(1).max(120),
+  organizationName: z.string().trim().min(2).max(160),
+  organizationSlug: z.string().trim().toLowerCase().min(2).max(64).regex(/^[a-z0-9][a-z0-9-]*[a-z0-9]$/),
 });
 
 export async function POST(request: Request) {

@@ -76,8 +76,13 @@ type CookiesLike = {
  *  Next's `cookies()` async store; tests can inject a compatible store. */
 let _injectedCookies: CookiesLike | null = null;
 
-/** Inject a cookie store for testing (DO NOT use in production routes). */
+/** Inject a cookie store for testing (DO NOT use in production routes).
+ *  Throws unconditionally if NODE_ENV === 'production' to prevent any
+ *  production code path from swapping the cookie store. */
 export function __setCookieStoreForTest(store: CookiesLike | null): void {
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('__setCookieStoreForTest is disabled in production');
+  }
   _injectedCookies = store;
 }
 
@@ -154,6 +159,19 @@ async function setTenantFor(organizationId: UUID, userId: UUID): Promise<void> {
   await sql`SELECT set_tenant_context(${organizationId}::uuid, ${userId}::uuid)`;
 }
 
+/**
+ * Set connection to "system" context used by M2 migrations/seeds. This sets
+ * app.organization_id/user_id to empty and is_platform_admin=1, which is the
+ * documented way to bypass tenant RLS for bootstrap operations (user/org/
+ * membership creation during registration, session lookup during login that
+ * happens before we know the tenant, reset token writes, etc.).
+ *
+ * Callers MUST transition to a scoped tenant context via setTenantFor()
+ * before performing any tenant-bound operation, and MUST call clearContext()
+ * in a finally block. setTenantFor() re-validates membership and resets
+ * is_platform_admin=0, so there is no window where a request runs as
+ * platform admin against tenant data.
+ */
 async function setSystemContext(): Promise<void> {
   const sql = getSql();
   await sql`SELECT set_tenant_context_for_system(NULL, NULL)`;
@@ -361,7 +379,7 @@ async function createSessionForUser(
   meta?: { userAgent?: string | null; ip?: string | null },
 ): Promise<void> {
   await setSystemContext();
-  const { rawId, dbHash: _dbHash, csrfToken } = generateSessionIds();
+  const { rawId, csrfToken } = generateSessionIds();
   const { expiresAt } = await insertSession(
     userId,
     rawId,

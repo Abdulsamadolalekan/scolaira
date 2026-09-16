@@ -190,12 +190,13 @@ describe('M3 — Authentication security red-team', () => {
     const reqR = await call(resetReqPost, new CookieJar(), { method: 'POST', body: { email } });
     expect(reqR.status).toBe(200);
     expect(reqR.data.ok).toBe(true);
-    const token: string = reqR.data.token;
+    const token = reqR.data.token as string | null;
+    expect(token).toBeTruthy();
     expect(typeof token).toBe('string');
-    expect(token.length).toBeGreaterThan(30);
+    expect((token as string).length).toBeGreaterThan(30);
     // Pre-consume: old session still works
     expect((await call(meGet, jar, { method: 'GET', path: '/api/auth/me' })).status).toBe(200);
-    const confirm = await call(resetConfirmPost, new CookieJar(), { method: 'POST', body: { token, password: 'NewResetPass-42!' } });
+    const confirm = await call(resetConfirmPost, new CookieJar(), { method: 'POST', body: { token: token as string, password: 'NewResetPass-42!' } });
     expect(confirm.status).toBe(200);
     // All previous sessions revoked
     expect((await call(meGet, jar, { method: 'GET', path: '/api/auth/me' })).status).toBe(401);
@@ -208,7 +209,7 @@ describe('M3 — Authentication security red-team', () => {
     const oldLogin = await call(loginPost, new CookieJar(), { method: 'POST', body: { email, password } });
     expect(oldLogin.status).toBe(401);
     // Replay of token fails (single-use)
-    const replay = await call(resetConfirmPost, new CookieJar(), { method: 'POST', body: { token, password: 'NewResetPass-99!' } });
+    const replay = await call(resetConfirmPost, new CookieJar(), { method: 'POST', body: { token: token as string, password: 'NewResetPass-99!' } });
     expect(replay.status).toBe(400);
     expect(replay.data.error.code).toBe('RESET_INVALID');
   });
@@ -285,6 +286,82 @@ describe('M3 — Authentication security red-team', () => {
     expect(r.status).toBe(429);
     expect(r.data.error.code).toBe('RATE_LIMITED');
   }, 30_000);
+
+  it('expired session cookie is rejected even with valid HMAC', async () => {
+    const { jar } = await registerAndLogin();
+    // Force-expire the session row in DB.
+    const sql = getSql();
+    await sql`UPDATE sessions SET expires_at = now() - interval '1 minute', revoked_at = NULL`;
+    // Cookie signature is still valid because we don't change it; DB check must reject.
+    const r = await call(meGet, jar, { method: 'GET', path: '/api/auth/me' });
+    expect(r.status).toBe(401);
+  });
+
+  it('email normalization: uppercase + whitespace login succeeds with lowercase match', async () => {
+    const email = uniqueEmail('norm');
+    const password = 'Normalize-1!';
+    const { jar: regJar } = await registerAndLogin({ email, password });
+    // Log out first
+    expect((await call(logoutPost, regJar, { method: 'POST', path: '/api/auth/logout' })).status).toBe(200);
+    // Attempt login with "  USER@Example.COM  " (uppercase + surrounding spaces)
+    // to exercise trim + lowercase + NFKC normalization on the server.
+    const jar = new CookieJar();
+    const r = await call(loginPost, jar, { method: 'POST', body: { email: '  ' + email.toUpperCase() + '  ', password } });
+    expect(r.status).toBe(200);
+    const me = await call(meGet, jar, { method: 'GET', path: '/api/auth/me' });
+    expect(me.status).toBe(200);
+    expect(me.data.user.email).toBe(email); // stored lowercase
+  });
+
+  it('auth bootstrap transitions cleanly to tenant context and clears GUCs', async () => {
+    // The documented contract: after any auth call, clearContext() runs and
+    // leaves the connection without user/org/admin/bypass. We verify by
+    // making an anonymous call then reading GUCs.
+    await call(meGet, new CookieJar(), { method: 'GET', path: '/api/auth/me' });
+    const sql = getSql();
+    const rows = await sql<{org: string; usr: string; adm: string; byp: string}[]>`
+      SELECT coalesce(current_setting('app.organization_id', true), '') as org,
+             coalesce(current_setting('app.user_id', true), '') as usr,
+             coalesce(current_setting('app.is_platform_admin', true), '0') as adm,
+             coalesce(current_setting('app.bypass_financial_triggers', true), '0') as byp
+    `;
+    expect(rows[0]!.org).toBe('');
+    expect(rows[0]!.usr).toBe('');
+    expect(rows[0]!.adm).toBe('0');
+    expect(rows[0]!.byp).toBe('0');
+  });
+
+  it('login failure response does not leak whether email exists or any hash', async () => {
+    const jar = new CookieJar();
+    const r = await call(loginPost, jar, { method: 'POST', body: { email: 'nope-' + Date.now() + '@x.com', password: 'whatever12345' } });
+    const body = JSON.stringify(r.data);
+    expect(r.status).toBe(401);
+    expect(body).not.toContain('$argon2');
+    expect(body).not.toMatch(/[a-f0-9]{64}/);
+    expect(body).not.toContain('exist'); // no "user does not exist"
+  });
+
+  it('session cookie options enforce HttpOnly + SameSite=Lax + Secure(prod)', async () => {
+    // Unit-level verification of the cookie-options helper (the single source
+    // of truth for what goes into Set-Cookie). Also confirms CSRF cookie is
+    // NOT HttpOnly so JS can read it for double-submit.
+    const { sessionCookieOptions, csrfCookieOptions } = await import('@/lib/auth/cookies');
+    const { IS_PRODUCTION } = await import('@/lib/auth/config');
+    const sess = sessionCookieOptions(new Date(Date.now() + 3600_000));
+    expect(sess.httpOnly).toBe(true);
+    expect(sess.sameSite).toBe('lax');
+    expect(sess.path).toBe('/');
+    // Secure flag must be true in production
+    expect(sess.secure).toBe(IS_PRODUCTION);
+    const csrf = csrfCookieOptions(new Date(Date.now() + 3600_000));
+    expect(csrf.httpOnly).toBe(false); // readable by JS for CSRF
+    expect(csrf.sameSite).toBe('lax');
+    // Functional smoke: after register, both cookies exist in the jar.
+    const { jar } = await registerAndLogin({ email: uniqueEmail('ck'), slug: uniqueSlug('ck') });
+    expect(jar.get('sc_session')).toBeTruthy();
+    expect(jar.get('sc_csrf')).toBeTruthy();
+    expect(jar.get('sc_session')!.split('.')).toHaveLength(3); // rawId.expSig.hmac
+  });
 
 });
 
