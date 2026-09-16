@@ -74,44 +74,16 @@ export const organizationMembers = pgTable(
   ],
 );
 
-// ---------- Sessions (auth) ----------
-// Minimal cookie session record. Replaced/augmented by Supabase in M3; present
-// so session_id FKs remain valid.
-
-export const sessions = pgTable('sessions', {
-  id: pk(),
-    // token is the raw session id (opaque) — a separate hashed-token column is
-    // added if/when we roll our own sessions pre-Supabase (deferred).
-  token: varchar('token', { length: 128 }).notNull().unique(),
-  userId: uuid('user_id')
-    .notNull()
-    .references(() => users.id, { onDelete: 'cascade' }),
-  organizationId: uuid('organization_id').references(() => organizations.id, {
-    onDelete: 'set null',
-  }),
-  userAgent: text('user_agent'),
-  ipAddress: varchar('ip_address', { length: 64 }),
-  expiresAt: timestamp('expires_at', { withTimezone: true, mode: 'date' }).notNull(),
-  revokedAt: timestamp('revoked_at', { withTimezone: true, mode: 'date' }),
-  createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
-    .notNull()
-    .defaultNow(),
-}, (t) => [
-  uniqueIndex('sessions_token_idx').on(t.token),
-  index('sessions_user_idx').on(t.userId),
-  index('sessions_expires_idx').on(t.expiresAt),
-]);
-
 // ---------- Relations (Drizzle query helper — not enforced at SQL level) ----------
+// NOTE: sessions table is defined in schema/auth.ts (M3 hardened); re-exported
+// via the schema index for cross-table relations.
 
 export const organizationsRelations = relations(organizations, ({ many }) => ({
   members: many(organizationMembers),
-  sessions: many(sessions),
 }));
 
 export const usersRelations = relations(users, ({ many }) => ({
   memberships: many(organizationMembers),
-  sessions: many(sessions),
 }));
 
 export const organizationMembersRelations = relations(organizationMembers, ({ one }) => ({

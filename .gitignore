@@ -52,3 +52,4 @@ next-env.d.ts.bak
 # Drizzle meta (generated, not committed)
 # lib/db/migrations/meta/_journal.json is committed by us; ignore temp files only.
 e2e/screenshots/
+.env.test

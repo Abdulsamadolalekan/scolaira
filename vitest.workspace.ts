@@ -38,7 +38,7 @@ export default defineWorkspace([
       globals: true,
       globalSetup: ['./tests/global-setup-db.ts'],
       setupFiles: ['./tests/setup-db.ts'],
-      include: ['tests/db/**/*.test.{ts,tsx}'],
+      include: ['tests/db/**/*.test.{ts,tsx}', 'tests/auth/**/*.test.{ts,tsx}'],
       exclude: ['node_modules', '.next'],
       poolOptions: { forks: { singleFork: true } },
     },

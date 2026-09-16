@@ -6,6 +6,7 @@
  */
 export * from './enums';
 export * from './tenancy';
+export * from './auth';
 export * from './academic';
 export * from './financials';
 export * from './platform';
