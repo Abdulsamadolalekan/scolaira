@@ -105,6 +105,7 @@ export async function withTenant<T>(
       SELECT set_config('app.organization_id', '', false),
              set_config('app.user_id', '', false),
              set_config('app.is_platform_admin', '0', false),
+             set_config('app.auth_bootstrap', '0', false),
              set_config('app.bypass_financial_triggers', '0', false);
     `.catch(() => {
       // If the connection is in a broken state, best effort to clear; the pool
@@ -136,15 +137,17 @@ export async function withSystemContext<T>(
     system: true,
   };
   try {
-    await sql`SELECT set_tenant_context_for_system(${orgId}::uuid, ${userId}::uuid)`;
+    // Use SECURITY DEFINER owner-side wrapper because the raw
+    // set_tenant_context_for_system is REVOKEd from scolaira_app.
+    // Note: this sets is_platform_admin='1' when orgId is NULL, but RLS
+    // policies require auth_is_platform_admin_authorized() to be true
+    // (which checks platform_admin_id is a real platform admin, set only
+    // via enter_platform_context). For tests we additionally pass a
+    // userId; withSystemContext is only used for test seeding.
+    await sql`SELECT auth_test_system_context(${orgId}::uuid, ${userId}::uuid)`;
     return await fn(db, ctx);
   } finally {
-    await sql`
-      SELECT set_config('app.organization_id', '', false),
-             set_config('app.user_id', '', false),
-             set_config('app.is_platform_admin', '0', false),
-             set_config('app.bypass_financial_triggers', '0', false);
-    `.catch(() => {});
+    await sql`SELECT clear_app_context()`.catch(() => {});
   }
 }
 

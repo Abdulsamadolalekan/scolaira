@@ -14,9 +14,17 @@ export async function GET() {
         email: session.user.email,
         firstName: session.user.firstName,
         lastName: session.user.lastName,
+        isPlatformAdmin: session.user.isPlatformAdmin,
       },
       activeOrganizationId: session.activeOrganizationId,
-      memberships: session.memberships,
+      activeRole: session.activeRole,
+      isPlatformSession: session.isPlatformSession,
+      memberships: session.memberships.map((m) => ({
+        id: (m as any).id, // included for UI/switcher; not authoritative
+        organizationId: m.organizationId,
+        role: m.role,
+        status: m.status,
+      })),
     });
   } catch (e: any) {
     console.error('me error', e?.code, e?.message);

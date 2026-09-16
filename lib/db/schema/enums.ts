@@ -10,12 +10,23 @@ import { pgEnum } from 'drizzle-orm/pg-core';
 
 export const orgStatusEnum = pgEnum('org_status', ['ACTIVE', 'SUSPENDED', 'CHURNED']);
 
+// Membership roles within a school organization.
+//
+// OWNER  — immutable organizational anchor (exactly one ACTIVE per org,
+//          enforced by partial unique index org_members_one_active_owner_idx).
+// SCHOOL_ADMIN — day-to-day school administrator.
+// FINANCE_OFFICER — financial operations per the M4 authorization matrix.
+// STAFF  — teachers / non-finance staff (scoped reads; no financial access).
+//
+// NOTE: PLATFORM_ADMIN is intentionally NOT a membership role. Platform-wide
+// authority is tracked separately via users.is_platform_admin and scoped
+// GUCs set by enter_platform_context(); never insert rows with role
+// PLATFORM_ADMIN into organization_members (blocked by CHECK constraint).
 export const membershipRoleEnum = pgEnum('membership_role', [
   'OWNER',
   'SCHOOL_ADMIN',
   'FINANCE_OFFICER',
   'STAFF',
-  'PLATFORM_ADMIN', // platform-wide, not school membership; used for internal ops
 ]);
 
 export const membershipStatusEnum = pgEnum('membership_status', ['ACTIVE', 'INVITED', 'DISABLED']);

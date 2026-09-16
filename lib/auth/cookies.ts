@@ -22,6 +22,7 @@ import type { ResponseCookie } from 'next/dist/compiled/@edge-runtime/cookies';
 
 const SESSION_PREFIX = Buffer.from('scolaira.session\0', 'utf-8');
 const CSRF_PREFIX = Buffer.from('scolaira.csrf\0', 'utf-8');
+const ACTIVE_ORG_PREFIX = Buffer.from('scolaira.org\0', 'utf-8');
 
 function base64url(buf: Buffer): string {
   return buf.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
@@ -152,6 +153,38 @@ export function normalizeEmail(input: string): string {
 /** Hash a raw session id for DB lookup / storage. */
 export function hashSessionId(rawId: string): Buffer {
   return crypto.createHash('sha256').update(Buffer.from(rawId, 'utf-8')).digest();
+}
+
+// --------------------------------------------------------------------------
+// Active-organization cookie (signed but readable by JS so the org switcher
+// can set it without a round trip; the server re-validates membership).
+// Format: <orgId>.<userId>.<hmac(orgId,userId)>
+// Binding the signature to userId prevents org-switching across users.
+// --------------------------------------------------------------------------
+
+export function signActiveOrgCookie(organizationId: string, userId: string): string {
+  const data = Buffer.from(`${organizationId}.${userId}`, 'utf-8');
+  const payload = Buffer.concat([ACTIVE_ORG_PREFIX, data]);
+  const sig = signWithPrimary(payload);
+  return `${organizationId}.${base64url(sig)}`;
+}
+
+/** Verify the active-org cookie and return the orgId if valid; null otherwise. */
+export function verifyActiveOrgCookie(value: string | undefined, userId: string): string | null {
+  if (!value) return null;
+  // Value format: <uuid>.<sigB64>
+  const dot = value.lastIndexOf('.');
+  if (dot < 0) return null;
+  const orgId = value.slice(0, dot);
+  const sigB64 = value.slice(dot + 1);
+  if (!/^[0-9a-f-]{36}$/i.test(orgId)) return null;
+  let sig: Buffer;
+  try { sig = unbase64url(sigB64); } catch { return null; }
+  if (sig.length !== 32) return null;
+  const data = Buffer.from(`${orgId}.${userId}`, 'utf-8');
+  const payload = Buffer.concat([ACTIVE_ORG_PREFIX, data]);
+  if (!verifyHmac(payload, sig)) return null;
+  return orgId;
 }
 
 /** Hash a reset token for DB storage. */

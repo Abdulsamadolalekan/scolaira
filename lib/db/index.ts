@@ -1,10 +1,22 @@
 /**
  * Database client.
  *
- * - Server-only (enforced via `server-only` import).
- * - Singleton across hot reloads in dev.
- * - Uses the `postgres` JS driver (fast, native types, good serverless support).
- * - Returns a Drizzle instance wired to all tables in `./schema`.
+ * Two connection strings exist for security principal separation:
+ *
+ *   DATABASE_URL
+ *     Runtime application credential. Connects as `scolaira_app` —
+ *     NOSUPERUSER, NOBYPASSRLS, least privilege. RLS IS ENFORCED against
+ *     this role. Every HTTP request runs under this principal.
+ *
+ *   DATABASE_MIGRATION_URL
+ *     Migration/bootstrap credential. Connects as `scolaira_owner` — may
+ *     create schemas, tables, functions, roles. Used ONLY by migrations
+ *     (scripts/migrate.ts, tests/global-setup-db.ts) and one-time
+ *     provisioning. NEVER used by request handlers.
+ *
+ * The onconnect hook enforces that the application runtime role has
+ * `search_path = pg_catalog, public`, resets tenant GUCs, and refuses to
+ * run if the session user somehow has BYPASSRLS or SUPERUSER.
  */
 import 'server-only';
 
@@ -13,17 +25,11 @@ import { drizzle } from 'drizzle-orm/postgres-js';
 import { serverEnv } from '@/lib/security/env';
 import * as schema from './schema';
 
-// Fail fast at import time if DATABASE_URL is not set. This prevents mysterious
-// runtime errors later; in M1 previews (which don't hit the DB) the import is
-// behind the NavShell demo routes that don't call getDb, but the module can
-// still be loaded as long as DATABASE_URL exists.
 if (!serverEnv.db.url) {
-  // Allow static-generation of non-DB routes (e.g. primitives preview) during
-  // build by only throwing when getDb() is actually called.
-  // Mark this as a lazy-fail module.
+  // Lazy-fail: throw when getDb()/getSql() is called, not at import time,
+  // so static generation of non-DB routes still works.
 }
 
-// Global singleton so Next.js HMR in dev doesn't create a new pool per request.
 const globalForDb = globalThis as unknown as {
   _scolairaSql?: postgres.Sql;
   _scolairaDb?: ReturnType<typeof createDb>;
@@ -40,21 +46,59 @@ function getOrCreateSql(): postgres.Sql {
       'DATABASE_URL is not set. Configure it in .env.local before accessing the database.',
     );
   }
-  const sql = postgres(serverEnv.db.url, {
-    max: serverEnv.nodeEnv === 'test' ? 1 : 10,
+  const isBootstrap = process.env.SCOLAIRA_BOOTSTRAP === '1';
+  const url = isBootstrap
+    ? (serverEnv.db.migrationUrl ?? serverEnv.db.url)
+    : serverEnv.db.url;
+  const sql = postgres(url, {
+    max: isBootstrap ? 1 : (serverEnv.nodeEnv === 'test' ? 1 : 10),
     idle_timeout: 20,
     connect_timeout: 10,
-    // Keep BIGINT as number (we use safe-integer kobo, never > MAX_SAFE_INTEGER).
-    // For values that could exceed 2^53-1 (e.g. aggregate counts beyond 9Q), we
-    // cast explicitly at the query. 90 trillion naira = 9 quadrillion kobo is
-    // well over; in practice SCOLAIRA never approaches this.
-    //
-    // NOTE: `postgres` v3 ships column-type defaults on the exported `postgres`
-    // namespace via `postgres.types`, not `postgres.defaults`. BIGINT is already
-    // returned as a JS number by default; we do not override the transform.
-    // Prefer prepared statements for better perf on repeat queries.
     prepare: true,
-  });
+    // `onconnect` is supported at runtime by postgres.js v3 but is not
+    // yet exposed in its published .d.ts; cast through any to keep the
+    // types happy. The hook fires once per fresh connection from the
+    // pool (verified in tests/auth/runtime-role-safety.test.ts).
+    onconnect: async (client: any) => {
+      await client.simple(`SET search_path = pg_catalog, public;`);
+      if (!isBootstrap) {
+        // DEFENSE IN DEPTH: refuse to run if the session has SUPERUSER or
+        // BYPASSRLS. This is a hard fail-fast guard, not just a config
+        // check — it prevents any future misconfiguration (bad
+        // credentials, swapped URL, superuser grant) from silently
+        // disabling RLS at runtime.
+        const res: Array<Record<string, unknown>> = await client.unsafe(`
+          SELECT rolsuper::text, rolbypassrls::text
+            FROM pg_roles
+           WHERE rolname = current_user;
+        `);
+        const row = (Array.isArray(res) ? res[0] : undefined) as { rolsuper?: unknown; rolbypassrls?: unknown } | undefined;
+        if (!row) {
+          throw new Error('DATABASE SECURITY FAILURE: could not read role attributes for current_user');
+        }
+        if (String(row.rolsuper) === 't' || String(row.rolbypassrls) === 't') {
+          throw new Error(
+            'DATABASE SECURITY FAILURE: runtime DB principal is SUPERUSER or has BYPASSRLS. ' +
+            'Tenant RLS cannot be enforced. Refusing to start. ' +
+            '(Use DATABASE_MIGRATION_URL for migrations; DATABASE_URL must be the least-privileged role.)'
+          );
+        }
+        // Reset tenant GUCs to a known-clean state so even a misbehaving
+        // prior connection cannot leak context. (The login role is already
+        // scolaira_app; no SET ROLE needed.)
+        await client.simple(`
+          SET SESSION app.organization_id = '';
+          SET SESSION app.user_id = '';
+          SET SESSION app.acting_role = '';
+          SET SESSION app.is_platform_admin = '0';
+          SET SESSION app.platform_admin_id = '';
+          SET SESSION app.auth_bootstrap = '0';
+          SET SESSION app.bypass_financial_triggers = '0';
+          SET SESSION app.tenant_token = '';
+        `);
+      }
+    },
+  } as any);
   globalForDb._scolairaSql = sql;
   globalForDb._scolairaDb = createDb(sql);
   return sql;
@@ -62,23 +106,13 @@ function getOrCreateSql(): postgres.Sql {
 
 export type Sql = postgres.Sql;
 
-/**
- * Get the raw postgres client (for migrations and hand-tuned SQL).
- * Most callers should use `getDb()` for typed queries.
- */
+/** Get the raw postgres client (for migrations and hand-tuned SQL). */
 export function getSql(): postgres.Sql {
   return getOrCreateSql();
 }
 
-/** Database type (Drizzle) — importable for repo function signatures. */
 export type Database = ReturnType<typeof createDb>;
 
-/**
- * Returns the singleton Drizzle database instance.
- *
- * Throws if DATABASE_URL is missing. Should only be called from server
- * components / route handlers / server-side services.
- */
 export function getDb(): Database {
   const sql = getOrCreateSql();
   if (!globalForDb._scolairaDb) {
@@ -87,9 +121,6 @@ export function getDb(): Database {
   return globalForDb._scolairaDb!;
 }
 
-/**
- * Close the pool (used in tests / scripts / shutdown hooks).
- */
 export async function closeDb(): Promise<void> {
   if (globalForDb._scolairaSql) {
     await globalForDb._scolairaSql.end({ timeout: 5 });

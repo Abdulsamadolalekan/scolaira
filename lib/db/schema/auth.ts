@@ -1,8 +1,16 @@
 /**
- * Auth schema (M3) — matches migration 0003_auth.sql exactly.
+ * Auth schema (M3 + M4 authorization primitives).
+ *
+ * M4 additions:
+ *   - sessions.lastSeenOrgId: tracks the most recent active organization for
+ *     the session (audit + "return to where you were" UX).
+ *   - sessions.isPlatformSession: true when the session was created via an
+ *     explicit platform-admin "enter support mode" entry point. Such sessions
+ *     are restricted per the M4 policy (read-only, audited) and cannot
+ *     mutate financial state.
  */
 import { pgTable, uuid, varchar, text, timestamp, boolean, integer, jsonb, index, uniqueIndex, char, bigserial } from 'drizzle-orm/pg-core';
-import { users } from './tenancy';
+import { users, organizations } from './tenancy';
 
 export const passwordCredentials = pgTable('password_credentials', {
   userId: uuid('user_id').primaryKey().references(() => users.id, { onDelete: 'cascade' }),
@@ -27,11 +35,15 @@ export const sessions = pgTable('sessions', {
   expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
   revokedAt: timestamp('revoked_at', { withTimezone: true }),
   revokedReason: varchar('revoked_reason', { length: 32 }),
+  // M4 additions
+  lastSeenOrgId: uuid('last_seen_org_id').references(() => organizations.id, { onDelete: 'set null' }),
+  isPlatformSession: boolean('is_platform_session').notNull().default(false),
 }, (t) => [
   uniqueIndex('sessions_token_hash_key').on(t.tokenHash),
   index('sessions_user_id_idx').on(t.userId),
   index('sessions_user_active_idx').on(t.userId),
   index('sessions_revoked_idx').on(t.revokedAt),
+  index('sessions_platform_session_idx').on(t.userId, t.isPlatformSession),
 ]);
 
 export const passwordResets = pgTable('password_resets', {

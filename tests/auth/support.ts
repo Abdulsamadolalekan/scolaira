@@ -84,10 +84,11 @@ type CallInit = {
   csrf?: boolean;
   body?: unknown;
   headers?: HeadersInit;
+  args?: unknown[]; // extra positional args forwarded to the handler (e.g. { params })
 };
 
 export async function call(
-  handler: (req: Request) => Promise<Response>,
+  handler: (req: Request, ...args: unknown[]) => Promise<Response>,
   jar: CookieJar,
   init: CallInit = {},
 ): Promise<{ status: number; data: any; response: Response }> {
@@ -141,7 +142,7 @@ export async function call(
     body: init.body !== undefined ? JSON.stringify(init.body) as BodyInit : undefined,
   });
   try {
-    const res = await handler(req);
+    const res = init.args ? await handler(req, ...init.args) : await handler(req);
     try { await sql.unsafe(`RELEASE SAVEPOINT ${spName}`); } catch { /* ignore */ }
     if (typeof res.headers.getSetCookie === 'function') {
       for (const v of res.headers.getSetCookie()) jar.setFromSetCookie(v);

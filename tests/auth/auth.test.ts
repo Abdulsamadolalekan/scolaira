@@ -28,7 +28,7 @@ const URL = process.env.DATABASE_URL ?? 'postgresql://scolaira:scolaira@localhos
 // Ensure system context in this connection
 beforeAll(async () => {
   const sql = getSql();
-  await sql`SELECT set_tenant_context_for_system(NULL, NULL)`;
+  await sql`SELECT auth_test_system_context(NULL, NULL)`;
 });
 
 afterEach(async () => {
@@ -81,7 +81,7 @@ describe('M3 — Authentication security red-team', () => {
     expect(me.data.user.email).toBe(email);
     expect(me.data.activeOrganizationId).toBe(orgId);
     expect(me.data.memberships).toHaveLength(1);
-    expect(me.data.memberships[0].role).toBe('SCHOOL_ADMIN');
+    expect(me.data.memberships[0].role).toBe('OWNER'); // founding user is the org owner (M4)
     expect(me.data.memberships[0].status).toBe('ACTIVE');
   });
 
@@ -239,6 +239,9 @@ describe('M3 — Authentication security red-team', () => {
 
   it('DB stores argon2id hash, not plaintext/bcrypt', async () => {
     const { email } = await registerAndLogin({ password: 'Test-Pass-Argon2-1!' });
+    // Enter system context to bypass tenant RLS for direct DB inspection.
+    const sql = getSql();
+    await sql`SELECT auth_enter_system_context()`;
     const db = getDb();
     const [u] = await db.select().from(users).where(eq(users.email, email)).limit(1);
     expect(u).toBeTruthy();
@@ -246,8 +249,8 @@ describe('M3 — Authentication security red-team', () => {
     expect(c).toBeTruthy();
     expect(c!.passwordHash.startsWith('$argon2id$')).toBe(true);
     expect(c!.algorithm).toBe('argon2id');
-    // Plaintext password must NOT be stored
     expect(c!.passwordHash).not.toContain('Test-Pass-Argon2-1!');
+    await sql`SELECT clear_app_context()`.catch(()=>{});
   });
 
   it('sessions table stores sha256(rawId) hex — raw id never persisted', async () => {
@@ -255,8 +258,11 @@ describe('M3 — Authentication security red-team', () => {
     const cookie = jar.get('sc_session')!;
     const rawId = cookie.split('.')[0]!;
     expect(rawId.length).toBe(43);
+    const sql = getSql();
+    await sql`SELECT auth_enter_system_context()`;
     const db = getDb();
     const all = await db.select().from(sessionsTable);
+    await sql`SELECT clear_app_context()`.catch(()=>{});
     expect(all.length).toBeGreaterThanOrEqual(1);
     for (const s of all) {
       expect(s.tokenHash).toMatch(/^[a-f0-9]{64}$/);
@@ -289,10 +295,12 @@ describe('M3 — Authentication security red-team', () => {
 
   it('expired session cookie is rejected even with valid HMAC', async () => {
     const { jar } = await registerAndLogin();
-    // Force-expire the session row in DB.
+    // Force-expire the session row in DB via system context (RLS blocks
+    // direct writes to sessions from tenant scope).
     const sql = getSql();
+    await sql`SELECT auth_enter_system_context()`;
     await sql`UPDATE sessions SET expires_at = now() - interval '1 minute', revoked_at = NULL`;
-    // Cookie signature is still valid because we don't change it; DB check must reject.
+    await sql`SELECT clear_app_context()`.catch(()=>{});
     const r = await call(meGet, jar, { method: 'GET', path: '/api/auth/me' });
     expect(r.status).toBe(401);
   });
@@ -373,7 +381,7 @@ describe('M3 — Auth concurrency (real PG sessions)', () => {
     return new Promise<T>(async (resolve, reject) => {
       const sql = postgres(URL, { max: 1 });
       try {
-        await sql`SELECT set_tenant_context_for_system(NULL, NULL)`;
+        await sql`SELECT auth_test_system_context(NULL, NULL)`;
         resolve(await fn(sql));
       } catch (e) { reject(e); }
       finally {

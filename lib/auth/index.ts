@@ -51,10 +51,12 @@ import {
   normalizeEmail,
   sessionCookieOptions,
   csrfCookieOptions,
+  verifyActiveOrgCookie,
 } from './cookies';
 import {
   SESSION_COOKIE_NAME,
   CSRF_COOKIE_NAME,
+  ACTIVE_ORG_COOKIE_NAME,
   SESSION_TTL_MS,
   SESSION_ABSOLUTE_MAX_MS,
   PASSWORD_RESET_TTL_MS,
@@ -63,8 +65,9 @@ import {
 } from './config';
 import type { UUID, TenantCtx } from '../db/repo/_context';
 
-// Re-export verifySessionCookie for route handlers.
+// Re-exports for route handlers.
 export { verifySessionCookie } from './cookies';
+export { cookieStore };
 
 type CookiesLike = {
   get(name: string): { value: string } | undefined;
@@ -108,17 +111,24 @@ export interface AuthUser {
   isPlatformAdmin: boolean;
 }
 
+export type AuthRole = 'OWNER' | 'SCHOOL_ADMIN' | 'FINANCE_OFFICER' | 'STAFF';
+
 export interface AuthMembership {
+  id: UUID;
   organizationId: UUID;
-  role: string;
-  status: string;
+  role: AuthRole;
+  status: 'ACTIVE' | 'INVITED' | 'DISABLED';
 }
 
 export interface AuthSession {
   user: AuthUser;
   memberships: AuthMembership[];
   activeOrganizationId: UUID;
+  /** Role of the ACTIVE resolved membership in the active organization. */
+  activeRole: AuthRole;
   sessionId: UUID;
+  /** True only when this session was created via enterPlatformSupport. */
+  isPlatformSession: boolean;
 }
 
 export class AuthError extends Error {
@@ -174,18 +184,13 @@ async function setTenantFor(organizationId: UUID, userId: UUID): Promise<void> {
  */
 async function setSystemContext(): Promise<void> {
   const sql = getSql();
-  await sql`SELECT set_tenant_context_for_system(NULL, NULL)`;
+  await sql`SELECT auth_enter_system_context()`;
 }
 
-/** Reset GUCs. Must be called in finally. */
+/** Reset GUCs to neutral. Must be called in finally. */
 export async function clearContext(): Promise<void> {
   const sql = getSql();
-  await sql`
-    SELECT set_config('app.organization_id', '', false),
-           set_config('app.user_id', '', false),
-           set_config('app.is_platform_admin', '0', false),
-           set_config('app.bypass_financial_triggers', '0', false)
-  `.catch(() => {});
+  await sql`SELECT clear_app_context()`.catch(() => {});
 }
 
 // ---------------------- Session read (the trust gate) ----------------------
@@ -194,13 +199,13 @@ export async function clearContext(): Promise<void> {
 export async function getSession(cookiesInst?: CookiesLike): Promise<AuthSession | null> {
   const c = cookiesInst ?? await cookieStore();
   const raw = c.get(SESSION_COOKIE_NAME)?.value;
-  const parsed = verifySessionCookie(raw);
-  if (!parsed) return null;
+  const cookie = verifySessionCookie(raw);
+  if (!cookie) return null;
 
   await setSystemContext();
 
   const db = getDb();
-  const tokenHashHex = hashSessionId(parsed.sessionId).toString('hex');
+  const tokenHashHex = hashSessionId(cookie.sessionId).toString('hex');
 
   const rows = await db
     .select({ session: sessionsTable, user: users })
@@ -240,16 +245,27 @@ export async function getSession(cookiesInst?: CookiesLike): Promise<AuthSession
     return null;
   }
 
-  // Resolve active organization: sc_org cookie if membership exists, else first.
-  const requested = c.get('sc_org')?.value;
-  const member =
-    memberships.find((m) => m.organizationId === requested) ?? memberships[0]!;
+  // Resolve active organization: signed sc_active_org cookie if the user has
+  // an ACTIVE membership for it; else fall back to session.lastSeenOrgId; else
+  // first ACTIVE membership. We never trust an unsigned client value.
+  const cookieVal = c.get(ACTIVE_ORG_COOKIE_NAME)?.value;
+  const requestedOrg = verifyActiveOrgCookie(cookieVal, user.id);
+  let member: typeof memberships[number] | undefined;
+  if (requestedOrg) {
+    member = memberships.find((m) => m.organizationId === requestedOrg && m.status === 'ACTIVE');
+  }
+  if (!member && session.lastSeenOrgId) {
+    member = memberships.find((m) => m.organizationId === session.lastSeenOrgId && m.status === 'ACTIVE');
+  }
+  if (!member) {
+    member = memberships[0]!;
+  }
 
   await setTenantFor(member.organizationId, user.id);
 
-  // Touch last_seen (fire-and-forget).
+  // Touch last_seen and last_seen_org_id (fire-and-forget).
   db.update(sessionsTable)
-    .set({ lastSeenAt: new Date() })
+    .set({ lastSeenAt: new Date(), lastSeenOrgId: member.organizationId })
     .where(eq(sessionsTable.id, session.id))
     .catch(() => {});
 
@@ -262,12 +278,15 @@ export async function getSession(cookiesInst?: CookiesLike): Promise<AuthSession
       isPlatformAdmin: user.isPlatformAdmin,
     },
     memberships: memberships.map((m) => ({
+      id: m.id as UUID,
       organizationId: m.organizationId,
-      role: m.role,
-      status: m.status,
+      role: m.role as AuthRole,
+      status: m.status as AuthMembership['status'],
     })),
     activeOrganizationId: member.organizationId,
+    activeRole: member.role as AuthRole,
     sessionId: session.id,
+    isPlatformSession: session.isPlatformSession ?? false,
   };
 }
 
@@ -343,7 +362,7 @@ async function writeSessionCookies(
 function clearSessionCookies(c: CookiesLike): void {
   c.delete(SESSION_COOKIE_NAME);
   c.delete(CSRF_COOKIE_NAME);
-  c.delete('sc_org');
+  c.delete(ACTIVE_ORG_COOKIE_NAME);
 }
 
 // ---------------------- Session lifecycle ----------------------
@@ -470,7 +489,7 @@ export async function register(
     await db.insert(organizationMembers).values({
       organizationId: orgId,
       userId,
-      role: 'SCHOOL_ADMIN',
+      role: 'OWNER',
       status: 'ACTIVE',
       joinedAt: now,
       createdAt: now,
@@ -570,10 +589,9 @@ export async function login(input: {
   }
 
   // Audit the attempt. We DO NOT record password or session identifiers.
-  await sql`
-    INSERT INTO login_attempts (email, ip_address, success)
-    VALUES (${email}, ${input.ip ?? null}, ${ok})
-  `.catch(() => {});
+  // Use SECURITY DEFINER helper because login_attempts has RLS and the
+  // runtime role has no direct INSERT (pre-auth, no tenant context).
+  await sql`SELECT auth_record_login_attempt(${email}, ${input.ip ?? null}, ${ok})`.catch(() => {});
 
   if (!ok) {
     await clearContext();

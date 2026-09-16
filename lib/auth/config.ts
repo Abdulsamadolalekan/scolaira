@@ -39,6 +39,17 @@ export const SESSION_COOKIE_NAME = 'sc_session';
 /** Cookie name for CSRF double-submit token. */
 export const CSRF_COOKIE_NAME = 'sc_csrf';
 
+/**
+ * Cookie name for the active-organization selection.
+ *
+ * This cookie is SIGNED (HMAC-SHA256) with the session secret so it cannot be
+ * forged to switch the user into an org they don't belong to, but it is NOT
+ * HttpOnly (we set it from JS when the user switches orgs). The server
+ * re-validates membership on every request regardless of what this cookie
+ * says — it is a preference, not an authority source.
+ */
+export const ACTIVE_ORG_COOKIE_NAME = 'sc_org';
+
 /** Session lifetime: 12 hours since last_seen (sliding). */
 export const SESSION_TTL_MS = 12 * 60 * 60 * 1000;
 

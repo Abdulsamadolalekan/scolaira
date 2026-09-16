@@ -47,24 +47,33 @@ export async function seedTwoOrgs(sql: postgres.Sql): Promise<SeededIds> {
     classBId: randomUUID() as UUID,
   };
 
-  // Cross-tenant metadata needs system context (NULL org = no RLS filtering).
-  await sql`SELECT set_tenant_context_for_system(NULL, NULL)`;
+  // Bootstrap mode + is_platform_admin flag (with empty platform_admin_id —
+  // the SECURITY DEFINER validator auth_is_platform_admin_authorized() will
+  // return false for this state, so RLS visibility stays narrow). We set the
+  // platform flag only so the trg_set_org_from_context trigger accepts
+  // explicit organization_ids during cross-tenant seeding.
+  await sql`SELECT auth_enter_system_context()`;
+  await sql`SELECT set_config('app.is_platform_admin','1',false), set_config('app.platform_admin_id','',false)`;
 
   await sql`
     INSERT INTO organizations (id, name, slug) VALUES
       (${ids.orgId}::uuid, 'Demo School', 'demo-school'),
       (${ids.orgBId}::uuid, 'Rival School', 'rival-school')
+      ON CONFLICT (id) DO NOTHING
   `;
   await sql`
     INSERT INTO users (id, email, first_name, last_name) VALUES
       (${ids.aliceId}::uuid, 'alice@demo.school', 'Alice', 'Demo'),
       (${ids.bobId}::uuid, 'bob@rival.school', 'Bob', 'Rival')
+      ON CONFLICT (id) DO NOTHING
   `;
   await sql`
-    INSERT INTO organization_members (organization_id, user_id, role, status) VALUES
-      (${ids.orgId}::uuid, ${ids.aliceId}::uuid, 'FINANCE_OFFICER', 'ACTIVE'),
-      (${ids.orgBId}::uuid, ${ids.bobId}::uuid, 'FINANCE_OFFICER', 'ACTIVE')
+    INSERT INTO organization_members (organization_id, user_id, role, status, joined_at, created_at, updated_at) VALUES
+      (${ids.orgId}::uuid, ${ids.aliceId}::uuid, 'FINANCE_OFFICER', 'ACTIVE', now(), now(), now()),
+      (${ids.orgBId}::uuid, ${ids.bobId}::uuid, 'FINANCE_OFFICER', 'ACTIVE', now(), now(), now())
+      ON CONFLICT DO NOTHING
   `;
+  await sql`SELECT clear_app_context()`;
 
   // Org A: session, term, class, one student
   await sql`SELECT set_tenant_context(${ids.orgId}::uuid, ${ids.aliceId}::uuid)`;

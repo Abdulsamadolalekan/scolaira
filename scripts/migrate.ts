@@ -1,20 +1,13 @@
 /**
- * Standalone migration runner (Node + tsx, no Next.js dependency).
+ * Standalone migration runner.
  *
- * Usage: npx tsx scripts/migrate.ts
- *
- * Used by CI/CD and production deploys. Shares the same migrations folder and
- * the same drizzle journal table as `lib/db/migrate.ts` — the two runners are
- * entry points to one authoritative migration path.
- * See `lib/db/migrate.ts` for architecture details.
+ * Runs as the OWNER role via DATABASE_MIGRATION_URL.
  */
 import { resolve } from 'node:path';
 import { readFileSync } from 'node:fs';
 import postgres from 'postgres';
-import { drizzle } from 'drizzle-orm/postgres-js';
-import { migrate } from 'drizzle-orm/postgres-js/migrator';
+import { applyAllMigrations } from './apply-migrations';
 
-// Minimal .env/.env.local loader (no dotenv dependency)
 for (const file of ['.env', '.env.local']) {
   try {
     const body = readFileSync(resolve(process.cwd(), file), 'utf8');
@@ -25,43 +18,43 @@ for (const file of ['.env', '.env.local']) {
       if (eq === -1) continue;
       const key = line.slice(0, eq).trim();
       let val = line.slice(eq + 1).trim();
-      if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
-        val = val.slice(1, -1);
-      }
+      if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) val = val.slice(1, -1);
       if (process.env[key] === undefined) process.env[key] = val;
     }
-  } catch {
-    // file not present — ok
-  }
+  } catch { /* ok */ }
 }
 
-// Use DATABASE_MIGRATION_URL if set; otherwise DATABASE_URL.
 const url: string = (process.env.DATABASE_MIGRATION_URL ?? process.env.DATABASE_URL) as string;
-if (!url) {
-  console.error('Set DATABASE_URL or DATABASE_MIGRATION_URL before running migrations.');
-  process.exit(1);
-}
-
-const folder = resolve(process.cwd(), 'lib/db/migrations');
+if (!url) { console.error('Set DATABASE_MIGRATION_URL.'); process.exit(1); }
+process.env.SCOLAIRA_BOOTSTRAP = '1';
 
 async function run() {
-  const sql = postgres(url, { max: 1 });
+  const sql = postgres(url, {
+    max: 1,
+    onconnect: async (client: any) => {
+      await client.simple(`SET search_path = pg_catalog, public;`);
+    },
+  } as any);
   try {
-    const db = drizzle(sql);
-    const before = await sql<{ c: number }[]>`SELECT COUNT(*)::int AS c FROM drizzle.__drizzle_migrations`.catch(
-      () => [{ c: 0 }],
-    );
-    const beforeCount = Number(before[0]?.c ?? 0);
-    await migrate(db, { migrationsFolder: folder });
-    const after = await sql<{ c: number }[]>`SELECT COUNT(*)::int AS c FROM drizzle.__drizzle_migrations`;
-    const afterCount = Number(after[0]?.c ?? 0);
-    console.info(`[db] migrations applied. new=${afterCount - beforeCount} total=${afterCount}`);
+    const result = await applyAllMigrations(sql, resolve(process.cwd(), 'lib/db/migrations'));
+    await sql`GRANT USAGE ON SCHEMA public TO scolaira_app`;
+    await sql`GRANT CREATE ON SCHEMA public TO scolaira_app`;
+    await sql`GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO scolaira_app`;
+    await sql`GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO scolaira_app`;
+    // NOTE: EXECUTE on functions is NOT granted wholesale. Each SECURITY
+    // DEFINER helper GRANTs EXECUTE explicitly inside its own migration
+    // (see 0010_lockdown_secdef.sql §7 for the whitelist). Granting EXECUTE
+    // ON ALL FUNCTIONS would re-expose restricted helpers like
+    // set_tenant_context_for_system to the runtime role.
+    //
+    // Restore the conservative default-privilege baseline so future
+    // function replacements don't auto-grant EXECUTE.
+    await sql`ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC, scolaira_app`;
+    await sql`ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO scolaira_app, scolaira`;
+    await sql`ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO scolaira_app, scolaira`;
+    console.info(`[db] migrations applied. new=${result.applied} total=${result.total}`);
   } finally {
     await sql.end({ timeout: 5 }).catch(() => {});
   }
 }
-
-run().catch((err) => {
-  console.error('[db] migration failed:', err);
-  process.exit(1);
-});
+run().catch((e) => { console.error('[db] migration failed:', e); process.exit(1); });

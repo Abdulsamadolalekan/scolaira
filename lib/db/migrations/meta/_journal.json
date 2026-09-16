@@ -2,9 +2,16 @@
   "version": "7",
   "dialect": "postgresql",
   "entries": [
-    { "idx": 0, "version": "7", "when": 1789522836520, "tag": "0000_init", "breakpoints": true },
+    { "idx": 0, "version": "7", "when": 1789522836000, "tag": "0000_init", "breakpoints": true },
     { "idx": 1, "version": "7", "when": 1789523000000, "tag": "0001_integrity", "breakpoints": true },
     { "idx": 2, "version": "7", "when": 1789528000000, "tag": "0002_financial_fixes", "breakpoints": true },
-    { "idx": 3, "version": "7", "when": 1789600000000, "tag": "0003_auth", "breakpoints": true }
+    { "idx": 3, "version": "7", "when": 1789600000000, "tag": "0003_auth", "breakpoints": true },
+    { "idx": 4, "version": "7", "when": 1789680000000, "tag": "0005_authz", "breakpoints": true },
+    { "idx": 5, "version": "7", "when": 1789710000000, "tag": "0006_runtime_role", "breakpoints": true },
+    { "idx": 6, "version": "7", "when": 1789720000000, "tag": "0007_rate_limits_rls", "breakpoints": true },
+    { "idx": 7, "version": "7", "when": 1789730000000, "tag": "0008_sysctx_rls", "breakpoints": true },
+    { "idx": 8, "version": "7", "when": 1789740000000, "tag": "0009_test_helpers", "breakpoints": true },
+    { "idx": 9, "version": "7", "when": 1789750000000, "tag": "0010_lockdown_secdef", "breakpoints": true }
   ]
 }
+

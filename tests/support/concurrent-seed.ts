@@ -42,10 +42,12 @@ export async function setupConcurrencyFixtures(): Promise<ConcurrencyFixtures> {
 
   const sql = postgres(URL, { max: 1 });
   try {
-    await sql`SELECT set_tenant_context_for_system(NULL, NULL)`;
-    await sql`INSERT INTO organizations (id, name, slug) VALUES (${orgId}::uuid, 'CC-' || ${orgId}, 'cc-' || ${orgId})`;
-    await sql`INSERT INTO users (id, email, first_name, last_name) VALUES (${userId}::uuid, 'cc-' || ${userId} || '@x.y', 'Cc', 'User')`;
-    await sql`INSERT INTO organization_members (organization_id, user_id, role, status) VALUES (${orgId}::uuid, ${userId}::uuid, 'FINANCE_OFFICER', 'ACTIVE')`;
+    await sql`SELECT auth_enter_system_context()`;
+    await sql`SELECT set_config('app.is_platform_admin','1',false), set_config('app.platform_admin_id','',false)`;
+    await sql`INSERT INTO organizations (id, name, slug) VALUES (${orgId}::uuid, 'CC-' || ${orgId}, 'cc-' || ${orgId}) ON CONFLICT (id) DO NOTHING`;
+    await sql`INSERT INTO users (id, email, first_name, last_name) VALUES (${userId}::uuid, 'cc-' || ${userId} || '@x.y', 'Cc', 'User') ON CONFLICT (id) DO NOTHING`;
+    await sql`INSERT INTO organization_members (organization_id, user_id, role, status, joined_at, created_at, updated_at) VALUES (${orgId}::uuid, ${userId}::uuid, 'FINANCE_OFFICER', 'ACTIVE', now(), now(), now()) ON CONFLICT DO NOTHING`;
+    await sql`SELECT clear_app_context()`;
     await sql`SELECT set_tenant_context(${orgId}::uuid, ${userId}::uuid)`;
     await sql`INSERT INTO academic_sessions (id, name, starts_on, is_current, status) VALUES (${sessionId}::uuid, 'cc', '2026-01-01'::date, true, 'ACTIVE')`;
     await sql`INSERT INTO terms (id, session_id, name, label, starts_on, due_date, is_current, status) VALUES (${termId}::uuid, ${sessionId}::uuid, 'T', '1', '2026-01-01'::date, '2026-12-01'::date, true, 'ACTIVE')`;
