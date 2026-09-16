@@ -98,6 +98,14 @@ export type Action =
   | 'report.financial.read'
   | 'report.financial.export'
 
+  // Command center (dashboard) — lightweight summary; safe for every role
+  // because the KPIs are aggregated and surfaced through the same RLS boundary
+  // as underlying invoice/payment/student reads.
+  | 'dashboard.read'
+
+  // Payments list read (list/detail of payments & allocations)
+  | 'payment.read'
+
   // Audit
   | 'audit.read'
 
@@ -140,6 +148,7 @@ const POLICY: Record<MembershipRole, ReadonlySet<Action>> = {
     'reversal.read',
     'payment_link.create', 'payment_link.read', 'payment_link.revoke',
     'report.financial.read', 'report.financial.export',
+    'dashboard.read', 'payment.read',
     'audit.read',
     'communication.send',
   ]),
@@ -155,6 +164,7 @@ const POLICY: Record<MembershipRole, ReadonlySet<Action>> = {
     'reversal.read',
     'payment_link.create', 'payment_link.read', 'payment_link.revoke',
     'report.financial.read', 'report.financial.export',
+    'dashboard.read', 'payment.read',
     'audit.read',
     'communication.send',
   ]),
@@ -170,6 +180,7 @@ const POLICY: Record<MembershipRole, ReadonlySet<Action>> = {
     'reversal.read',
     'payment_link.create', 'payment_link.read', 'payment_link.revoke',
     'report.financial.read', 'report.financial.export',
+    'dashboard.read', 'payment.read',
     'communication.send',
     // FINANCE_OFFICER may NOT: manage staff, change org settings, archive/
     // restore students, manage academic sessions/terms/classes, read audit,
@@ -177,7 +188,9 @@ const POLICY: Record<MembershipRole, ReadonlySet<Action>> = {
   ]),
   STAFF: new Set<Action>([
     // M4 baseline STAFF: self-service only. Class-scoped student/class read
-    // will be added in M5 when class-assignment data exists.
+    // will be added in M5 when class-assignment data exists. They still land
+    // on the command center, where empty/graceful permission states apply.
+    'dashboard.read',
   ]),
 };
 
@@ -214,10 +227,12 @@ const PLATFORM_SUPPORT_ACTIONS: ReadonlySet<Action> = new Set<Action>([
   'student.read',
   'class.read',
   'invoice.read',
+  'payment.read',
   'receipt.read',
   'reversal.read',
   'payment_link.read',
   'report.financial.read',
+  'dashboard.read',
   'audit.read',
   // NO mutations in support mode.
 ]);
