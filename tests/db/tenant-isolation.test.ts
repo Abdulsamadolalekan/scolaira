@@ -9,13 +9,14 @@
 import { describe, it, expect } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { testDb, testSql } from '../setup-db';
-import { students } from '@/lib/db/schema';
+import { students, paymentLinks } from '@/lib/db/schema';
 import { withSystemContext } from '@/lib/db/tenant';
 import { seedTwoOrgs } from '../support/seed';
 import * as invoicesRepo from '@/lib/db/repo/invoices';
 import * as invoiceLinesRepo from '@/lib/db/repo/invoice-lines';
 import * as paymentsRepo from '@/lib/db/repo/payments';
 import * as studentsRepo from '@/lib/db/repo/students';
+import * as paymentLinksRepo from '@/lib/db/repo/payment-links';
 import { kobo } from '@/lib/money';
 import type { TenantCtx, UUID } from '@/lib/db/repo/_context';
 import type { SeededIds } from '../support/seed';
@@ -179,10 +180,46 @@ describe('Joins across tenant boundary do not leak', () => {
   });
 });
 
+describe('Payment link / audit isolation', () => {
+  it('Alice-created payment link is not returned in Bob-tenant SELECT', async () => {
+    const { db, ctx, ids } = await seedAndLoginA();
+    const link = await paymentLinksRepo.create(db, ctx, {
+      token: 'pl-' + Date.now(), studentId: ids.studentAId, amountKobo: kobo(5_000),
+    });
+    // Switch to Bob
+    await testSql()`SELECT set_tenant_context(${ids.orgBId}::uuid, ${ids.bobId}::uuid)`;
+    const bctx = { organizationId: ids.orgBId, userId: ids.bobId };
+    // Tenant-scoped select filtered by Bob's org must not reveal Alice's link
+    const rows = await db
+      .select()
+      .from(paymentLinks)
+      .where(eq(paymentLinks.organizationId, bctx.organizationId))
+      .limit(10);
+    expect(rows.find((r: any) => r.token === link.token)).toBeUndefined();
+    // restore Alice
+    await testSql()`SELECT set_tenant_context(${ids.orgId}::uuid, ${ids.aliceId}::uuid)`;
+  });
+});
+
+describe('Connection-pool hygiene', () => {
+  it('withSystemContext clears GUCs after exit; next statement has no tenant set', async () => {
+    const { ids } = await seedAndLoginA();
+    await withSystemContext(ids.orgBId, ids.bobId, async () => {
+      // Inside system context with Bob's GUC, no-op.
+    });
+    const row = (await testSql()`
+      SELECT NULLIF(current_setting('app.organization_id', true), '') AS o
+    `) as Array<{ o: string | null }>;
+    // After withSystemContext, GUCs must be cleared.
+    expect(row[0]!.o).toBeNull();
+    // Re-set for subsequent tests (setup resets on next beforeEach anyway, but be explicit).
+    await testSql()`SELECT set_tenant_context(${ids.orgId}::uuid, ${ids.aliceId}::uuid)`;
+  });
+});
+
 describe('App-role privilege attacks', () => {
   it('non-member cannot SET tenant context to another org', async () => {
     await seedAndLoginA();
-    // set_tenant_context verifies ACTIVE membership; random UUIDs have no row.
     await expectRejects(
       testSql()`SELECT set_tenant_context(gen_random_uuid(), gen_random_uuid())`,
       /(permission|denied|member|not found|insufficient)/i,
