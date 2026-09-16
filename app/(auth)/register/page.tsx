@@ -63,7 +63,7 @@ export default function RegisterPage() {
         Create your school workspace
       </h2>
       <p className="text-sm mb-6" style={{ color: 'var(--color-text-muted)' }}>
-        Set up SCOLAIRA for your school. You'll be the school administrator.
+        Set up SCOLAIRA for your school. You will be the school administrator.
       </p>
 
       {error && (

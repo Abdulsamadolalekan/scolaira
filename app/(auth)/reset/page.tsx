@@ -33,7 +33,7 @@ export default function ResetRequestPage() {
         <h2 className="text-xl mb-1" style={{ color: 'var(--color-forest-deepest)', fontFamily: 'var(--font-serif)' }}>Check your email</h2>
         <p className="text-sm mb-6" style={{ color: 'var(--color-text-muted)' }}>
           If an account exists for <span className="font-medium" style={{ color: 'var(--color-text-primary)' }}>{email}</span>,
-          we've sent a password-reset link valid for one hour.
+          we have sent a password-reset link valid for one hour.
         </p>
         {devToken && (
           <div className="rounded-lg p-3 mb-4 text-xs font-mono break-all" style={{
@@ -60,7 +60,7 @@ export default function ResetRequestPage() {
     <div>
       <h2 className="text-xl mb-1" style={{ color: 'var(--color-forest-deepest)', fontFamily: 'var(--font-serif)' }}>Reset password</h2>
       <p className="text-sm mb-6" style={{ color: 'var(--color-text-muted)' }}>
-        Enter your email and we'll send you a link to choose a new password.
+        Enter your email and we will send you a link to choose a new password.
       </p>
       {error && <div className="rounded-lg px-3 py-2 mb-4 text-sm" style={{ backgroundColor: 'rgba(185,56,42,0.08)', color: 'var(--color-danger)', border: '1px solid rgba(185,56,42,0.25)' }}>{error}</div>}
       <form onSubmit={onSubmit} className="space-y-4">
