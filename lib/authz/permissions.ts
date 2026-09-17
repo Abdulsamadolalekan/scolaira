@@ -176,11 +176,12 @@ const POLICY: Record<MembershipRole, ReadonlySet<Action>> = {
     'fee_definition.manage', 'fee_assignment.manage',
     'invoice.create', 'invoice.read', 'invoice.issue', 'invoice.void',
     'payment.record', 'payment.confirm', 'payment.allocate', 'payment.reverse', 'payment.refund',
+    'payment.read',
     'receipt.issue', 'receipt.read', 'receipt.void',
     'reversal.read',
     'payment_link.create', 'payment_link.read', 'payment_link.revoke',
     'report.financial.read', 'report.financial.export',
-    'dashboard.read', 'payment.read',
+    'dashboard.read',
     'communication.send',
     // FINANCE_OFFICER may NOT: manage staff, change org settings, archive/
     // restore students, manage academic sessions/terms/classes, read audit,

@@ -32,18 +32,25 @@ export const metadata: Metadata = {
   },
 };
 
-const NAV = [
+const ALL_NAV = [
   { section: 'Operations', items: [
-    { label: 'Command Center', href: '/dashboard', icon: LayoutDashboard, matchPrefix: '/dashboard' },
-    { label: 'Invoices',     href: '/invoices',  icon: FileText,        matchPrefix: '/invoices' },
-    { label: 'Payments',     href: '/payments',  icon: Naira,           matchPrefix: '/payments' },
-    { label: 'Students',     href: '/students',  icon: Users,           matchPrefix: '/students', badge: 'soon' as const },
-    { label: 'Members',      href: '/members',   icon: Shield,          matchPrefix: '/members' },
+    { label: 'Command Center', href: '/dashboard', icon: LayoutDashboard, matchPrefix: '/dashboard', roles: null as null | string[] },
+    { label: 'Invoices',     href: '/invoices',  icon: FileText,        matchPrefix: '/invoices', roles: ['OWNER','SCHOOL_ADMIN','FINANCE_OFFICER'] },
+    { label: 'Payments',     href: '/payments',  icon: Naira,           matchPrefix: '/payments', roles: ['OWNER','SCHOOL_ADMIN','FINANCE_OFFICER'] },
+    { label: 'Students',     href: '/students',  icon: Users,           matchPrefix: '/students', roles: ['OWNER','SCHOOL_ADMIN','FINANCE_OFFICER'], badge: 'soon' as const },
+    { label: 'Members',      href: '/members',   icon: Shield,          matchPrefix: '/members',  roles: ['OWNER','SCHOOL_ADMIN'] },
   ]},
   { section: 'Institution', items: [
-    { label: 'Settings', href: '/settings', icon: Settings, matchPrefix: '/settings', badge: 'soon' as const },
+    { label: 'Settings', href: '/settings', icon: Settings, matchPrefix: '/settings', roles: ['OWNER','SCHOOL_ADMIN'], badge: 'soon' as const },
   ]},
 ];
+
+function buildNav(role: string | null | undefined) {
+  return ALL_NAV.map(section => ({
+    section: section.section,
+    items: section.items.filter(item => !item.roles || (role && item.roles.includes(role))),
+  })).filter(section => section.items.length > 0);
+}
 
 export const runtime = 'nodejs';
 
@@ -73,7 +80,7 @@ export default async function AuthedLayout({ children }: { children: React.React
         role: activeOrg?.role ?? null,
         switcherHref: null,
       }}
-      nav={NAV}
+      nav={buildNav(activeOrg?.role)}
       sessionAction="/api/auth/logout"
     >
       {/* Accessibility: a live region for future toasts/announcements. */}
@@ -84,7 +91,7 @@ export default async function AuthedLayout({ children }: { children: React.React
 }
 
 // Exported for routes to reference.
-export { NAV };
+export { buildNav as getNav };
 // Avoid unused import warnings when Search/Bell aren't in the nav yet.
 export const _unused = { Search, Bell };
 export { Link };

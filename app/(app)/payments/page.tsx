@@ -5,9 +5,6 @@
  * Unlike invoices, a payment can be unallocated, partially allocated, fully
  * allocated, or reversed. The register makes that state unmistakable at a
  * glance.
- *
- * Mobile: card layout, not a squeezed table. Each card shows amount · payer ·
- * method · allocation state in priority order.
  */
 import Link from 'next/link';
 import { headers } from 'next/headers';
@@ -17,6 +14,8 @@ import { EmptyState } from '@/components/ui/empty';
 import { Money } from '@/components/ui/money';
 import { Naira, Plus, Clock, AlertTriangle, ChevronRight, CheckCircle, XCircle } from '@/components/ui/icons';
 import type { PaymentRow } from '@/app/api/payments/route';
+import { checkPermission } from '@/components/permission-guard';
+import { AccessDenied } from '@/components/access-denied';
 
 export const runtime = 'nodejs';
 
@@ -36,16 +35,17 @@ function stats(rows: PaymentRow[]) {
   let received = 0, pending = 0, pendingCount = 0, unallocated = 0;
   for (const r of rows) {
     if (r.status === 'CONFIRMED') received += r.amountKobo;
-    if (r.status === 'PENDING' || r.status === 'DUPLICATE_SUSPECT') {
-      pending += r.amountKobo;
-      pendingCount++;
-    }
+    if (r.status === 'PENDING' || r.status === 'DUPLICATE_SUSPECT') { pending += r.amountKobo; pendingCount++; }
     if (r.status === 'CONFIRMED') unallocated += r.unallocatedKobo;
   }
   return { received, pending, pendingCount, unallocated };
 }
 
 export default async function PaymentsPage() {
+  const guard = await checkPermission('payment.read');
+  if (!guard.allowed) {
+    return <AccessDenied surface="Payments" requiredRole="Proprietor, Administrator, or Finance Officer" />;
+  }
   const rows = await loadPayments();
   const s = stats(rows);
 
@@ -61,13 +61,10 @@ export default async function PaymentsPage() {
             Cash, bank transfers, card payments — and which invoices they settle.
           </p>
         </div>
-        <div className="flex gap-2">
-          <Link
-            href="/payments/new"
-            className="inline-flex items-center gap-1.5 rounded-md bg-[color:var(--color-forest)] px-3 py-2 text-[13px] font-medium text-white hover:bg-[color:var(--color-forest-deep)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--color-gold)]">
-            <Plus size={14} /> Record payment
-          </Link>
-        </div>
+        <Link href="/payments/new"
+              className="inline-flex items-center gap-1.5 rounded-md bg-[color:var(--color-forest)] px-3 py-2 text-[13px] font-medium text-white hover:bg-[color:var(--color-forest-deep)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--color-gold)]">
+          <Plus size={14} /> Record payment
+        </Link>
       </div>
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
@@ -91,7 +88,7 @@ export default async function PaymentsPage() {
             <EmptyState
               icon={<Naira size={22} />}
               title="No payments yet"
-              description="Record a payment when money is received — we will walk you through matching it to one or more invoices so balances stay exact."
+              description="Record a payment when money is received — we walk you through matching it to invoices so balances stay exact."
             />
           </div>
         ) : (
@@ -137,9 +134,7 @@ function DesktopRow({ r }: { r: PaymentRow }) {
         {r.unallocatedKobo > 0 && r.status !== 'REVERSED' ? <Money kobo={r.unallocatedKobo} size="sm" /> : '—'}
       </td>
       <td className="px-3 py-3 align-top">
-        <span className="text-[11px]" style={{ color: 'var(--color-text-muted)' }}>
-          {r.paidAt ?? r.recordedAt ?? '—'}
-        </span>
+        <span className="text-[11px]" style={{ color: 'var(--color-text-muted)' }}>{r.paidAt ?? r.recordedAt ?? '—'}</span>
       </td>
       <td className="px-3 py-3 pr-4 align-top text-right"><ChevronRight size={14} className="inline opacity-40" /></td>
     </tr>
@@ -194,11 +189,7 @@ function PayStatus({ r }: { r: PaymentRow }) {
 }
 
 function StripCell({ label, value, tone = 'default' }: { label: string; value: React.ReactNode; tone?: 'default'|'positive'|'warning'|'danger'|'muted' }) {
-  const colors = {
-    default: 'var(--color-text-primary)', positive: 'var(--color-forest-deep)',
-    warning: 'var(--color-gold-dark, #8a6b11)', danger: 'var(--color-danger, #a82a1c)',
-    muted: 'var(--color-text-faint)',
-  } as const;
+  const colors = { default:'var(--color-text-primary)', positive:'var(--color-forest-deep)', warning:'var(--color-gold-dark, #8a6b11)', danger:'var(--color-danger, #a82a1c)', muted:'var(--color-text-faint)' } as const;
   return (
     <div className="rounded-md border px-3 py-3" style={{ borderColor: 'var(--color-border-subtle)', backgroundColor: 'var(--color-bg-page)' }}>
       <div className="text-[10px] uppercase tracking-wider font-medium" style={{ color: 'var(--color-text-faint)' }}>{label}</div>

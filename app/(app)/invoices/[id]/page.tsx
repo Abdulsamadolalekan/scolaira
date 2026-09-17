@@ -35,8 +35,25 @@ import {
   Calendar, User, Hash, Receipt,
 } from '@/components/ui/icons';
 import type { InvoiceDetail } from '@/app/api/invoices/[id]/route';
+import { checkPermission } from '@/components/permission-guard';
+import { AccessDenied } from '@/components/access-denied';
 
 export const runtime = 'nodejs';
+
+export default async function InvoiceDetailPage({ params }: { params: Promise<{ id: string }> }) {
+  const guard = await checkPermission('invoice.read');
+  if (!guard.allowed) {
+    return <AccessDenied surface="Invoice detail" requiredRole="Proprietor, Administrator, or Finance Officer" />;
+  }
+  return <InvoiceDetailInner params={params} />;
+}
+
+async function InvoiceDetailInner({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+  const inv = await loadInvoice(id);
+  if (!inv) notFound();
+  return <InvoiceDetailShell inv={inv} />;
+}
 
 async function loadInvoice(id: string): Promise<InvoiceDetail | null> {
   const h = await headers();
@@ -53,11 +70,7 @@ async function loadInvoice(id: string): Promise<InvoiceDetail | null> {
   return res.json();
 }
 
-export default async function InvoiceDetailPage({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = await params;
-  const inv = await loadInvoice(id);
-  if (!inv) notFound();
-
+async function InvoiceDetailShell({ inv }: { inv: InvoiceDetail }) {
   const paidPct = inv.totalKobo > 0 ? Math.min(100, Math.round((inv.paidKobo / inv.totalKobo) * 100)) : 0;
 
   return (

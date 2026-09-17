@@ -583,23 +583,17 @@ export async function login(input: {
       ok = false;
     }
   } else {
-    // Perform dummy argon2 work to equalize timing (anti-enumeration).
     const dummyHash = await argon2.hash('timing-dummy-placeholder', ARGON2_OPTIONS);
     await argon2.verify(dummyHash, 'timing-dummy-wrong').catch(() => {});
   }
 
-  // Audit the attempt. We DO NOT record password or session identifiers.
-  // Use SECURITY DEFINER helper because login_attempts has RLS and the
-  // runtime role has no direct INSERT (pre-auth, no tenant context).
   await sql`SELECT auth_record_login_attempt(${email}, ${input.ip ?? null}, ${ok})`.catch(() => {});
 
   if (!ok) {
     await clearContext();
-    // Generic message — do not reveal whether email existed.
     throw new AuthError('INVALID_CREDENTIALS', 'Invalid email or password.', 401);
   }
 
-  // Issue fresh session (prevents session fixation).
   await createSessionForUser(userId!, c, {
     ip: input.ip,
     userAgent: input.userAgent,

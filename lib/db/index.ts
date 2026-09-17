@@ -51,7 +51,15 @@ function getOrCreateSql(): postgres.Sql {
     ? (serverEnv.db.migrationUrl ?? serverEnv.db.url)
     : serverEnv.db.url;
   const sql = postgres(url, {
-    max: isBootstrap ? 1 : (serverEnv.nodeEnv === 'test' ? 1 : 10),
+    // Pool is constrained to a single connection because all GUC-based
+    // tenant/security context (app.organization_id, app.auth_bootstrap, …)
+    // is scoped to a connection. Until every request path obtains a
+    // reserved connection for its whole lifetime (post-M5 hardening), a
+    // pool larger than 1 risks RLS-context leakage or default-deny between
+    // setSystemContext() and the subsequent query. This is safe for SCOLAIRA
+    // because (a) Next.js already serialises request handlers per process
+    // and (b) the workload is low-concurrency school admin traffic.
+    max: 1,
     idle_timeout: 20,
     connect_timeout: 10,
     prepare: true,

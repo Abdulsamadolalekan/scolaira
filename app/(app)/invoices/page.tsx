@@ -9,6 +9,8 @@ import { EmptyState } from '@/components/ui/empty';
 import { Money } from '@/components/ui/money';
 import { FileText, Plus, AlertTriangle, ChevronRight } from '@/components/ui/icons';
 import type { InvoiceRow } from '@/app/api/invoices/route';
+import { checkPermission } from '@/components/permission-guard';
+import { AccessDenied } from '@/components/access-denied';
 
 export const runtime = 'nodejs';
 
@@ -28,8 +30,7 @@ function computeStats(rows: InvoiceRow[]) {
   let totalBilled = 0, totalPaid = 0, totalOverdue = 0;
   let overdueCount = 0, draftCount = 0;
   for (const r of rows) {
-    totalBilled += r.totalKobo;
-    totalPaid += r.paidKobo;
+    totalBilled += r.totalKobo; totalPaid += r.paidKobo;
     if (r.isOverdue) { totalOverdue += r.remainingKobo; overdueCount++; }
     if (r.status === 'DRAFT') draftCount++;
   }
@@ -37,6 +38,10 @@ function computeStats(rows: InvoiceRow[]) {
 }
 
 export default async function InvoicesPage() {
+  const guard = await checkPermission('invoice.read');
+  if (!guard.allowed) {
+    return <AccessDenied surface="Invoices" requiredRole="Proprietor, Administrator, or Finance Officer" />;
+  }
   const rows = await loadInvoices();
   const s = computeStats(rows);
 
@@ -45,44 +50,33 @@ export default async function InvoicesPage() {
       <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h1 className="text-[22px] sm:text-2xl font-semibold tracking-tight"
-              style={{ color: 'var(--color-forest-deepest)', fontFamily: 'var(--font-serif)' }}>
-            Invoices
-          </h1>
+              style={{ color: 'var(--color-forest-deepest)', fontFamily: 'var(--font-serif)' }}>Invoices</h1>
           <p className="mt-1 text-sm" style={{ color: 'var(--color-text-secondary)' }}>
             Every fee obligation owed to the school, by student and term.
           </p>
         </div>
-        <div className="flex gap-2">
-          <NewInvoiceButton />
-        </div>
+        <Link href="/invoices/new"
+              className="inline-flex items-center gap-1.5 rounded-md bg-[color:var(--color-forest)] px-3 py-2 text-[13px] font-medium text-white hover:bg-[color:var(--color-forest-deep)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--color-gold)]">
+          <Plus size={14} /> New invoice
+        </Link>
       </div>
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <StripCell label="Billed" value={<Money kobo={s.totalBilled} />} />
         <StripCell label="Collected" value={<Money kobo={s.totalPaid} />} tone="positive" />
         <StripCell label="Outstanding" value={<Money kobo={s.outstanding} />} tone={s.outstanding > 0 ? 'warning' : 'muted'} />
-        <StripCell
-          label={s.overdueCount ? `${s.overdueCount} overdue` : 'No overdue'}
-          value={<Money kobo={s.totalOverdue} />}
-          tone={s.overdueCount > 0 ? 'danger' : 'muted'}
-        />
+        <StripCell label={s.overdueCount ? `${s.overdueCount} overdue` : 'No overdue'}
+                   value={<Money kobo={s.totalOverdue} />} tone={s.overdueCount > 0 ? 'danger' : 'muted'} />
       </div>
 
       <Card className="mt-4">
-        <CardHeader
-          title={rows.length === 0 ? 'No invoices yet' : 'Invoice register'}
-          description={rows.length === 0
-            ? 'When you issue your first invoice, it will appear here.'
-            : `${rows.length} invoice${rows.length === 1 ? '' : 's'} · ${s.draftCount} draft${s.draftCount === 1 ? '' : 's'}`}
-        />
-
+        <CardHeader title={rows.length === 0 ? 'No invoices yet' : 'Invoice register'}
+                   description={rows.length === 0 ? 'When you issue your first invoice, it appears here.'
+                     : `${rows.length} invoice${rows.length === 1 ? '' : 's'} · ${s.draftCount} draft${s.draftCount === 1 ? '' : 's'}`} />
         {rows.length === 0 ? (
           <div className="p-6">
-            <EmptyState
-              icon={<FileText size={22} />}
-              title="No invoices yet"
-              description="Invoices are how you bill parents for fees. Each one tracks amount owed, payments received, and remaining balance automatically."
-            />
+            <EmptyState icon={<FileText size={22} />} title="No invoices yet"
+                        description="Invoices are how you bill parents for fees. Each tracks amount owed, payments received, and remaining balance automatically." />
           </div>
         ) : (
           <>
@@ -95,11 +89,11 @@ export default async function InvoicesPage() {
                     <th className="px-4 py-2.5 w-8"></th>
                   </tr>
                 </thead>
-                <tbody>{rows.map((r) => <DesktopRow key={r.id} r={r} />)}</tbody>
+                <tbody>{rows.map(r => <DesktopRow key={r.id} r={r} />)}</tbody>
               </table>
             </div>
             <ul className="md:hidden divide-y" style={{ borderColor: 'var(--color-border-subtle)' }}>
-              {rows.map((r) => <MobileRow key={r.id} r={r} />)}
+              {rows.map(r => <MobileRow key={r.id} r={r} />)}
             </ul>
           </>
         )}
@@ -171,11 +165,7 @@ function MobileRow({ r }: { r: InvoiceRow }) {
 }
 
 function StripCell({ label, value, tone = 'default' }: { label: string; value: React.ReactNode; tone?: 'default'|'positive'|'warning'|'danger'|'muted' }) {
-  const colors = {
-    default: 'var(--color-text-primary)', positive: 'var(--color-forest-deep)',
-    warning: 'var(--color-gold-dark, #8a6b11)', danger: 'var(--color-danger, #a82a1c)',
-    muted: 'var(--color-text-faint)',
-  } as const;
+  const colors = { default:'var(--color-text-primary)', positive:'var(--color-forest-deep)', warning:'var(--color-gold-dark, #8a6b11)', danger:'var(--color-danger, #a82a1c)', muted:'var(--color-text-faint)' } as const;
   return (
     <div className="rounded-md border px-3 py-3" style={{ borderColor: 'var(--color-border-subtle)', backgroundColor: 'var(--color-bg-page)' }}>
       <div className="text-[10px] uppercase tracking-wider font-medium" style={{ color: 'var(--color-text-faint)' }}>{label}</div>
@@ -185,11 +175,7 @@ function StripCell({ label, value, tone = 'default' }: { label: string; value: R
 }
 
 function Th({ children, className = '' }: { children?: React.ReactNode; className?: string }) {
-  return (
-    <th className={`px-3 py-2.5 text-left text-[11px] uppercase tracking-wider font-medium ${className}`} style={{ color: 'var(--color-text-faint)' }}>
-      {children}
-    </th>
-  );
+  return <th className={`px-3 py-2.5 text-left text-[11px] uppercase tracking-wider font-medium ${className}`} style={{ color: 'var(--color-text-faint)' }}>{children}</th>;
 }
 
 function StatusBadge({ r }: { r: InvoiceRow }) {
@@ -199,13 +185,4 @@ function StatusBadge({ r }: { r: InvoiceRow }) {
   if (r.isOverdue) return <Badge variant="danger">Overdue</Badge>;
   if (r.status === 'PARTIALLY_PAID') return <Badge variant="warning">Partially paid</Badge>;
   return <Badge variant="info">Awaiting payment</Badge>;
-}
-
-function NewInvoiceButton() {
-  return (
-    <Link href="/invoices/new"
-          className="inline-flex items-center gap-1.5 rounded-md bg-[color:var(--color-forest)] px-3 py-2 text-[13px] font-medium text-white hover:bg-[color:var(--color-forest-deep)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--color-gold)]">
-      <Plus size={14} /> New invoice
-    </Link>
-  );
 }
