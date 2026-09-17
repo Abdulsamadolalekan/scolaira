@@ -16,12 +16,27 @@ import * as React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils/cn';
-import { LogOut, ChevronDown } from '@/components/ui/icons';
+import {
+  LogOut, ChevronDown,
+  LayoutDashboard, FileText, Naira, Users, Settings, Shield, Bell,
+} from '@/components/ui/icons';
+
+export type IconKey = 'dashboard' | 'invoices' | 'payments' | 'students' | 'members' | 'settings' | 'bell';
+
+const ICONS: Record<IconKey, React.ComponentType<{ size?: number; className?: string }>> = {
+  dashboard: LayoutDashboard,
+  invoices: FileText,
+  payments: Naira,
+  students: Users,
+  members: Shield,
+  settings: Settings,
+  bell: Bell,
+};
 
 export interface NavItem {
   label: string;
   href: string;
-  icon: React.ComponentType<{ size?: number; className?: string }>;
+  icon: IconKey;
   matchPrefix?: string;
   badge?: string | number | 'soon';
 }
@@ -141,7 +156,7 @@ export function AppShell({ user, org, nav, sessionAction, children }: AppShellPr
               </div>
               <ul className="flex md:flex-col gap-1 overflow-x-auto md:overflow-visible">
                 {section.items.map((item) => {
-                  const Icon = item.icon;
+                  const Icon = ICONS[item.icon] ?? ICONS.dashboard;
                   const active = isActive(item);
                   return (
                     <li key={item.href} className="shrink-0 md:w-full">

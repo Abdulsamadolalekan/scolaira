@@ -14,16 +14,7 @@ import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { getSession, clearContext } from '@/lib/auth';
 import { AppShell } from '@/components/ui/app-shell';
-import {
-  LayoutDashboard,
-  FileText,
-  Naira,
-  Users,
-  Settings,
-  Bell,
-  Search,
-  Shield,
-} from '@/components/ui/icons';
+import type { IconKey } from '@/components/ui/app-shell';
 
 export const metadata: Metadata = {
   title: {
@@ -32,16 +23,25 @@ export const metadata: Metadata = {
   },
 };
 
-const ALL_NAV = [
+interface ItemDef {
+  label: string;
+  href: string;
+  icon: IconKey;
+  matchPrefix?: string;
+  roles: null | string[];
+  badge?: 'soon';
+}
+
+const ALL_NAV: { section: string; items: ItemDef[] }[] = [
   { section: 'Operations', items: [
-    { label: 'Command Center', href: '/dashboard', icon: LayoutDashboard, matchPrefix: '/dashboard', roles: null as null | string[] },
-    { label: 'Invoices',     href: '/invoices',  icon: FileText,        matchPrefix: '/invoices', roles: ['OWNER','SCHOOL_ADMIN','FINANCE_OFFICER'] },
-    { label: 'Payments',     href: '/payments',  icon: Naira,           matchPrefix: '/payments', roles: ['OWNER','SCHOOL_ADMIN','FINANCE_OFFICER'] },
-    { label: 'Students',     href: '/students',  icon: Users,           matchPrefix: '/students', roles: ['OWNER','SCHOOL_ADMIN','FINANCE_OFFICER'], badge: 'soon' as const },
-    { label: 'Members',      href: '/members',   icon: Shield,          matchPrefix: '/members',  roles: ['OWNER','SCHOOL_ADMIN'] },
+    { label: 'Command Center', href: '/dashboard', icon: 'dashboard', matchPrefix: '/dashboard', roles: null },
+    { label: 'Invoices',     href: '/invoices',  icon: 'invoices',  matchPrefix: '/invoices', roles: ['OWNER','SCHOOL_ADMIN','FINANCE_OFFICER'] },
+    { label: 'Payments',     href: '/payments',  icon: 'payments',  matchPrefix: '/payments', roles: ['OWNER','SCHOOL_ADMIN','FINANCE_OFFICER'] },
+    { label: 'Students',     href: '/students',  icon: 'students',  matchPrefix: '/students', roles: ['OWNER','SCHOOL_ADMIN','FINANCE_OFFICER'], badge: 'soon' },
+    { label: 'Members',      href: '/members',   icon: 'members',   matchPrefix: '/members',  roles: ['OWNER','SCHOOL_ADMIN'] },
   ]},
   { section: 'Institution', items: [
-    { label: 'Settings', href: '/settings', icon: Settings, matchPrefix: '/settings', roles: ['OWNER','SCHOOL_ADMIN'], badge: 'soon' as const },
+    { label: 'Settings', href: '/settings', icon: 'settings', matchPrefix: '/settings', roles: ['OWNER','SCHOOL_ADMIN'], badge: 'soon' },
   ]},
 ];
 
@@ -92,6 +92,4 @@ export default async function AuthedLayout({ children }: { children: React.React
 
 // Exported for routes to reference.
 export { buildNav as getNav };
-// Avoid unused import warnings when Search/Bell aren't in the nav yet.
-export const _unused = { Search, Bell };
 export { Link };
