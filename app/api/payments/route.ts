@@ -1,15 +1,45 @@
 /**
- * GET /api/payments — list payments (payment.read).
- *
- * Returns a deliberately curated projection: enough to understand the
- * register at a glance (method · payer · amount · unallocated · status ·
- * date), with allocation count, without drowning the list in line-item
- * detail. Drilling into /payments/:id gives full allocation visibility.
+ * /api/payments
+ *   GET  — list (payment.read).
+ *   POST — record a payment (payment.record). Transactional + idempotent.
+ *          Creates payment (CONFIRMED by default, or PENDING if initialStatus=pending),
+ *          then if allocations are supplied atomically applies them (payment.allocate)
+ *          and audits the action.
  */
 import { NextResponse } from 'next/server';
 import { and, eq, sql } from 'drizzle-orm';
-import { withAuthorizedRoute } from '@/lib/authz';
+import { z } from 'zod';
+import { withAuthorizedRoute, assertResourceInOrg, AuthzError, AuthzErrorCode } from '@/lib/authz';
 import { payments } from '@/lib/db/schema/financials';
+import * as payRepo from '@/lib/db/repo/payments';
+import * as invRepo from '@/lib/db/repo/invoices';
+import * as allocRepo from '@/lib/db/repo/payment-allocations';
+import * as auditRepo from '@/lib/db/repo/audit-events';
+import * as idemRepo from '@/lib/db/repo/idempotency-keys';
+import { RepoInvariantError } from '@/lib/db/repo/_context';
+import type { UUID } from '@/lib/db/repo/_context';
+import type { Kobo } from '@/lib/money';
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const asKobo = (n: number) => n as Kobo;
+const AllocSchema = z.object({
+  invoiceId: z.string().regex(UUID_RE),
+  amountKobo: z.number().int().positive(),
+  note: z.string().max(500).optional(),
+});
+
+const CreateSchema = z.object({
+  method: z.enum(['CASH','BANK_TRANSFER','POS','ONLINE','OTHER']),
+  amountKobo: z.number().int().positive(),
+  reference: z.string().trim().min(1).max(128).optional(),
+  payerName: z.string().trim().min(1).max(160).optional(),
+  payerPhone: z.string().max(32).optional(),
+  payerEmail: z.string().email().max(255).optional().or(z.literal('')),
+  paidAt: z.string().optional(), // ISO timestamp
+  notes: z.string().max(2000).optional(),
+  initialStatus: z.enum(['PENDING','CONFIRMED']).optional(),
+  allocations: z.array(AllocSchema).optional().default([]),
+});
 
 export type PaymentRow = {
   id: string;
@@ -90,5 +120,119 @@ export const GET = withAuthorizedRoute(
     });
 
     return NextResponse.json({ payments: result });
+  },
+);
+
+export const POST = withAuthorizedRoute(
+  { action: 'payment.record', method: 'POST', bodySchema: CreateSchema },
+  async (req, { db, ctx, requestId, body }) => {
+    const data = CreateSchema.parse(body);
+    const idemKey = req.headers.get('idempotency-key')?.trim();
+
+    return db.transaction(async (tx) => {
+      if (idemKey) {
+        const existing = await idemRepo.acquire(tx, ctx, {
+          key: idemKey, scope: 'payment.record', requestMethod: 'POST',
+          requestPath: '/api/payments', expiresAt: new Date(Date.now() + 24*60*60*1000),
+        });
+        if (existing && existing.responseStatus) {
+          try {
+            const parsed = (typeof existing.responseBody === "string" ? JSON.parse(existing.responseBody) : existing.responseBody);
+            const resp = NextResponse.json(parsed, { status: existing.responseStatus });
+            resp.headers.set('Idempotent-Replayed', 'true');
+            return resp;
+          } catch { /* fall through */ }
+        }
+      }
+
+      // Reference duplication guard: if method != CASH and reference supplied,
+      // refuse if a CONFIRMED payment already exists with same org/method/reference.
+      if (data.method !== 'CASH' && data.reference) {
+        const dup = await payRepo.findByReference(tx, ctx, data.method, data.reference);
+        if (dup && dup.status !== 'FAILED' && dup.status !== 'REJECTED') {
+          throw new AuthzError(AuthzErrorCode.CONFLICT,
+            `A ${dup.status.toLowerCase()} payment with reference ${data.reference} already exists (${dup.paymentNumber}).`, 409);
+        }
+      }
+
+      // Validate allocations' invoices exist in tenant and sum correctly.
+      const allocTotal = (data.allocations ?? []).reduce((s, a) => s + a.amountKobo, 0);
+      if (allocTotal > data.amountKobo) {
+        throw new AuthzError(AuthzErrorCode.BAD_REQUEST,
+          `Sum of allocations (${allocTotal}) exceeds payment amount (${data.amountKobo}).`, 400);
+      }
+      // Allocations only valid for CONFIRMED (default).
+      const initialStatus = data.initialStatus ?? 'CONFIRMED';
+      if (initialStatus === 'PENDING' && allocTotal > 0) {
+        throw new AuthzError(AuthzErrorCode.BAD_REQUEST,
+          'Cannot allocate against a PENDING payment; confirm it first.', 400);
+      }
+      for (const a of data.allocations ?? []) {
+        const inv = await invRepo.get(tx, ctx, a.invoiceId as UUID);
+        assertResourceInOrg(ctx, inv, 'Invoice');
+        if (inv!.status === 'VOID' || inv!.status === 'DRAFT') {
+          throw new AuthzError(AuthzErrorCode.BAD_REQUEST,
+            `Cannot allocate against invoice ${inv!.invoiceNumber} (status ${inv!.status}).`, 400);
+        }
+      }
+
+      const paidAt = data.paidAt ? new Date(data.paidAt) : (initialStatus === 'CONFIRMED' ? new Date() : undefined);
+      const payment = await payRepo.record(tx, ctx, {
+        method: data.method,
+        amountKobo: asKobo(data.amountKobo),
+        reference: data.reference,
+        payerName: data.payerName,
+        payerPhone: data.payerPhone,
+        payerEmail: data.payerEmail || undefined,
+        paidAt: paidAt as Date | undefined,
+        notes: data.notes,
+        initialStatus,
+      });
+
+      const allocationsOut: Array<{id: string; invoiceId: string; amountKobo: number}> = [];
+      for (const a of data.allocations ?? []) {
+        const res = await allocRepo.allocate(tx, ctx, {
+          paymentId: payment.id,
+          invoiceId: a.invoiceId as UUID,
+          amountKobo: asKobo(a.amountKobo),
+          note: a.note,
+        });
+        allocationsOut.push({
+          id: res.allocation.id, invoiceId: res.invoice.id, amountKobo: Number(res.allocation.amountKobo),
+        });
+      }
+
+      await auditRepo.record(tx, ctx, {
+        action: initialStatus === 'CONFIRMED' ? 'payment.record' : 'payment.pending',
+        entityType: 'payment', entityId: payment.id,
+        after: { paymentNumber: payment.paymentNumber, amountKobo: payment.amountKobo, method: payment.method, allocations: allocTotal },
+        metadata: { requestId, reference: data.reference ?? null },
+      });
+
+      const reRead = await payRepo.get(tx, ctx, payment.id);
+      const response = {
+        payment: {
+          id: reRead!.id,
+          paymentNumber: reRead!.paymentNumber,
+          method: reRead!.method,
+          status: reRead!.status,
+          amountKobo: Number(reRead!.amountKobo),
+          unallocatedKobo: Number(reRead!.unallocatedKobo),
+          reference: reRead!.reference,
+          paidAt: reRead!.paidAt,
+          allocations: allocationsOut,
+        },
+      };
+
+      if (idemKey) {
+        await idemRepo.complete(tx, ctx, idemKey, 201, response);
+      }
+      return NextResponse.json(response, { status: 201 });
+    }).catch((e: unknown) => {
+      if (e instanceof RepoInvariantError) {
+        return NextResponse.json({ error: { code: 'BAD_REQUEST', message: e.message } }, { status: 400 });
+      }
+      throw e;
+    });
   },
 );

@@ -1,10 +1,49 @@
-/** GET /api/invoices — list invoices (invoice.read), with kobo-precise summary & human fields. */
+/**
+ * /api/invoices
+ *   GET  — list (invoice.read). Returns a curated projection for the register.
+ *   POST — create + issue a new invoice (invoice.create, invoice.issue).
+ *          Transactional: verify student/term/session belong to tenant →
+ *          create DRAFT invoice → insert lines → ISSUE → write audit event.
+ *
+ * All money amounts are kobo-precise integers. Idempotency via the
+ * Idempotency-Key header is enforced on POST.
+ */
 import { NextResponse } from 'next/server';
 import { and, eq, sql } from 'drizzle-orm';
-import { withAuthorizedRoute } from '@/lib/authz';
+import { z } from 'zod';
+import { withAuthorizedRoute, assertResourceInOrg, AuthzError, AuthzErrorCode } from '@/lib/authz';
 import { invoices } from '@/lib/db/schema/financials';
 import { students } from '@/lib/db/schema/academic';
 import { terms } from '@/lib/db/schema/academic';
+import * as invRepo from '@/lib/db/repo/invoices';
+import * as lineRepo from '@/lib/db/repo/invoice-lines';
+import * as studentRepo from '@/lib/db/repo/students';
+import * as termRepo from '@/lib/db/repo/terms';
+import * as sessionsRepo from '@/lib/db/repo/academic-sessions';
+import * as auditRepo from '@/lib/db/repo/audit-events';
+import * as idemRepo from '@/lib/db/repo/idempotency-keys';
+import { RepoInvariantError } from '@/lib/db/repo/_context';
+import type { UUID } from '@/lib/db/repo/_context';
+import type { Kobo } from '@/lib/money';
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const KoboInt = z.number().int().nonnegative();
+const asKobo = (n: number) => n as Kobo;
+
+const LineSchema = z.object({
+  description: z.string().trim().min(1).max(255),
+  quantity: z.number().int().positive().default(1),
+  unitRateKobo: KoboInt,
+  adjustmentKobo: z.number().int().default(0),
+});
+
+const CreateSchema = z.object({
+  studentId: z.string().regex(UUID_RE),
+  termId: z.string().regex(UUID_RE).optional(),
+  dueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  memo: z.string().max(1000).optional(),
+  lines: z.array(LineSchema).min(1),
+});
 
 export type InvoiceRow = {
   id: string;
@@ -95,5 +134,105 @@ export const GET = withAuthorizedRoute(
     });
 
     return NextResponse.json({ invoices: result });
+  },
+);
+
+export const POST = withAuthorizedRoute(
+  { action: 'invoice.create', method: 'POST', bodySchema: CreateSchema },
+  async (req, { db, ctx, requestId, body }) => {
+    const data = CreateSchema.parse(body);
+
+    // Idempotency: acquire/replay within a single transaction so we don't
+    // double-create on retries.
+    const idemKey = req.headers.get('idempotency-key')?.trim();
+    return db.transaction(async (tx) => {
+      if (idemKey) {
+        const existing = await idemRepo.acquire(tx, ctx, {
+          key: idemKey, scope: 'invoice.create', requestMethod: 'POST',
+          requestPath: '/api/invoices', expiresAt: new Date(Date.now() + 24*60*60*1000),
+        });
+        if (existing && existing.responseStatus) {
+          try {
+            const parsed = (typeof existing.responseBody === "string" ? JSON.parse(existing.responseBody) : existing.responseBody);
+            const resp = NextResponse.json(parsed, { status: existing.responseStatus });
+            resp.headers.set('Idempotent-Replayed', 'true');
+            return resp;
+          } catch { /* fall through and recreate */ }
+        }
+      }
+
+      // Validate student belongs to this tenant.
+      const student = await studentRepo.get(tx, ctx, data.studentId as UUID);
+      assertResourceInOrg(ctx, student, 'Student');
+
+      // Resolve term: explicit or current.
+      const term = data.termId
+        ? await termRepo.get(tx, ctx, data.termId as UUID)
+        : await termRepo.getCurrent(tx, ctx);
+      if (!term) {
+        throw new AuthzError(
+          AuthzErrorCode.BAD_REQUEST,
+          data.termId ? 'Term not found.' : 'No current term configured; specify termId explicitly.',
+          400,
+        );
+      }
+      assertResourceInOrg(ctx, term, 'Term');
+      // Load the parent academic session from the term.
+      const sess = await sessionsRepo.get(tx, ctx, term.sessionId as UUID);
+      if (!sess) throw new AuthzError(AuthzErrorCode.BAD_REQUEST, 'Term has no parent academic session.', 400);
+
+      const totalLinesKobo = data.lines.reduce(
+        (acc: number, l) => acc + Math.max(0, l.quantity * l.unitRateKobo + l.adjustmentKobo), 0,
+      );
+      if (totalLinesKobo <= 0) {
+        throw new AuthzError(AuthzErrorCode.BAD_REQUEST, 'Invoice total must be greater than zero.', 400);
+      }
+
+      // Create draft, add lines, issue in one transaction.
+      const draft = await invRepo.createDraft(tx, ctx, {
+        studentId: data.studentId as UUID,
+        termId: term.id,
+        sessionId: sess.id,
+        memo: data.memo ?? null,
+      });
+      await lineRepo.addLines(tx, ctx, draft.id, data.lines.map(l => ({
+        description: l.description,
+        quantity: l.quantity,
+        unitRateKobo: asKobo(l.unitRateKobo),
+        adjustmentKobo: l.adjustmentKobo,
+        amountKobo: asKobo(Math.max(0, l.quantity * l.unitRateKobo + l.adjustmentKobo)),
+      })));
+      const issued = await invRepo.issue(tx, ctx, draft.id, { dueDate: data.dueDate });
+
+      await auditRepo.record(tx, ctx, {
+        action: 'invoice.create', entityType: 'invoice', entityId: issued.id,
+        after: { invoiceNumber: issued.invoiceNumber, totalKobo: issued.totalKobo, studentId: issued.studentId },
+        metadata: { requestId, lines: data.lines.length },
+      });
+
+      const response = {
+        invoice: {
+          id: issued.id,
+          invoiceNumber: issued.invoiceNumber,
+          status: issued.status,
+          studentId: issued.studentId,
+          termId: issued.termId,
+          sessionId: issued.sessionId,
+          dueDate: issued.dueDate,
+          totalKobo: Number(issued.totalKobo),
+          paidKobo: Number(issued.paidKobo),
+        },
+      };
+
+      if (idemKey) {
+        await idemRepo.complete(tx, ctx, idemKey, 201, response);
+      }
+      return NextResponse.json(response, { status: 201 });
+    }).catch((e: unknown) => {
+      if (e instanceof RepoInvariantError) {
+        return NextResponse.json({ error: { code: 'BAD_REQUEST', message: e.message } }, { status: 400 });
+      }
+      throw e;
+    });
   },
 );
