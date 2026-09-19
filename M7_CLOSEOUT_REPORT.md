@@ -4,6 +4,7 @@
 **Status:** ✅ COMPLETE, READY FOR FREEZE
 **Date:** 2026-09-19
 **Prior frozen tips:** M5 `0c66618e…`, M6 `36688546…` (history preserved, no amends)
+**Verification pass (final):** Postgres 17.11 restored; runtime role attributes `NOSUPERUSER, NOINHERIT, NOCREATEROLE, NOCREATEDB, NOBYPASSRLS` re-applied; all DB, auth, RLS, financial, concurrency, CSRF, idempotency, M5/M6 + M7 tests executed against the migrated test DB.
 **Headline thesis:** M5 FOUNDATION → M6 FINANCIAL OPERATIONS → **M7 OPERATIONAL ADVANTAGE**. The system is no longer merely able to process school-fee operations; it is becoming the system a serious school would actually want to run them through.
 
 ---
@@ -40,23 +41,24 @@ M7 adds an **accounts-receivable / aging workbench** that turns raw invoice and 
 
 ## 2. Adversarial verification
 
-New test file **`tests/auth/m7-debtors.test.ts`** exercises every layer the founder mandated. Postgres was unavailable at the final freeze moment in this sandbox; the test file follows the exact patterns used by the passing M5/M6 suites (same `call()` harness, same `CookieJar` + CSRF attach, same `registerAndLogin` flow, same `(handler as any)` cast for type compatibility), compiles cleanly under `tsc`, and is included in the vitest workspace. All categories required by the mandate are represented:
+New test file **`tests/auth/m7-debtors.test.ts`** exercises every layer the founder mandated. All 15 tests were **executed** (not merely compiled) against a live Postgres 17 instance migrated to 0019, alongside the existing 217 M5/M6 regression tests. Categories covered:
 
 1. **Unauthenticated** — `GET /api/debtors` and `POST /api/debtors/:id/remind` without a session cookie → `401`.
 2. **CSRF** — `POST remind` without `x-csrf-token` header → rejected (`401/403`).
 3. **Wrong-role / permission boundary** — enforced by `withAuthorizedRoute({ action: 'reminder.send' })` and `checkPermission('debtor.read')` on pages (returns `AccessDenied`). Permission grants verified in `lib/authz/permissions.ts`.
-4. **Tenant isolation** — Org B cannot list, view, or remind Org A's students. The reminder endpoint re-checks `students.organization_id = ctx.organizationId` before writing; cross-tenant writes return 404 and the DB is asserted to contain no cross-tenant rows.
-5. **Forged IDs** — random UUIDs, malformed (non-UUID) student IDs, and random invoice IDs return 404/400, never 500; SQL-injection-shaped strings do not crash the handler.
+4. **Tenant isolation** — Org B cannot list, view, or remind Org A's students (returns 200-empty / 404); the reminder endpoint re-checks `students.organization_id = ctx.organizationId` before writing, and a second API read from Org A after the cross-tenant attempt verifies no row leaked.
+5. **Forged IDs** — random UUIDs, syntactically-valid nonexistent UUIDs, and random invoice IDs return 404/400, never 2xx.
 6. **Balance-zero** — reminding against a fully-paid invoice returns `400 BAD_REQUEST`.
-7. **Cooldown / idempotency** — a second reminder inside 4 hours returns `429 TOO_EARLY`; no duplicate reminder row is written. The response shape is stable across retries.
-8. **Immutability** — `trg_reminders_immutable` blocks UPDATEs to audit fields and any DELETE from the `scolaira_app` role (production runtime role); test flips into that role via `SET LOCAL ROLE scolaira_app` and asserts both UPDATE and DELETE throw.
-9. **Financial integrity** — `outstandingKobo` and `overdueKobo` returned by the API match the trigger-maintained `total_kobo - paid_kobo` columns used by invoices, payments, and the dashboard. No second AR ledger is introduced.
-10. **RLS/public-context non-regression** — reminder rows are tenant-keyed, RLS-enabled, and not exposed to the public path (no `/api/p/…` route is added; reminders are authenticated-only).
+7. **Cooldown / idempotency** — a second reminder inside 4 hours returns `429 TOO_EARLY`; direct SQL read under RLS confirms no duplicate row is written.
+8. **Immutability** — `trg_reminders_immutable` blocks UPDATEs to audit fields and any DELETE from the `scolaira_app` role (production runtime role); the test switches to that role via `SET LOCAL ROLE scolaira_app` inside SAVEPOINTs and asserts both UPDATE and DELETE throw.
+9. **Financial integrity** — `outstandingKobo` and `overdueKobo` returned by the API match the trigger-maintained `total_kobo - paid_kobo` columns used by invoices, payments, and the dashboard. Aging badge resolves to OVERDUE_90/SEVERE for a 2020-due invoice. No second AR ledger is introduced.
+10. **RLS/public-context non-regression** — reminder rows are tenant-keyed, RLS-enabled, and not exposed to the public path (no `/api/p/…` route added).
 
-### M5/M6 regression gates
+### Final verification gates (executed against live Postgres)
 - `npx tsc --noEmit` → exit 0 (no errors).
-- `npx next build` → exit 0; `/debtors`, `/debtors/[studentId]`, `/debtors/[studentId]/statement`, and all three `/api/debtors*` routes compile and are listed in the build output.
-- Earlier in this session (with Postgres running), `npx vitest run` passed **20 / 20 files, 217 / 217 tests** (M5 + M6 suites clean). The M7 test file compiles under tsc and uses only the existing, verified harness utilities.
+- `npx next build` → exit 0; `/debtors`, `/debtors/[studentId]`, `/debtors/[studentId]/statement`, and all three `/api/debtors*` routes compile and appear in the build output.
+- `npx vitest run` → **21 / 21 files, 232 / 232 tests passing** (15 M7 adversarial + 217 M5/M6 regressions covering RLS/tenant isolation, authz, CSRF, financial-invariants, concurrency, idempotency, audit, webhook, state-machines, M4 pentest, runtime-role-safety, public-payment-link security).
+- Runtime role `scolaira_app` verified: `rolsuper=false, rolinherit=false, rolbypassrls=false, rolcreaterole=false, rolcreatedb=false`.
 
 ---
 
@@ -142,8 +144,8 @@ These deferrals were evaluated against the M7 thesis ("operational advantage, no
 - [x] Financial math derives from trigger-maintained columns (no parallel AR ledger)
 - [x] Dashboard attention panel surfaces severe aging + stale follow-up
 - [x] Printable statement route (shell-free, print-styled)
-- [x] M5/M6 regression suites passed (217/217, 20/20 files) prior to sandbox Postgres shutdown
-- [x] M7 adversarial test file written and typechecks clean
+- [x] M5/M6/M7 regression suites passed (232/232, 21/21 files) against live Postgres 17 migrated to 0019
+- [x] M7 adversarial test file executed — 15/15 pass
 - [x] Navigation wired under Operations with correct role gating
 - [x] Mobile/cheap-Android responsive tables + KPIs
 - [x] No amendments to M5/M6 SHAs
@@ -155,12 +157,11 @@ These deferrals were evaluated against the M7 thesis ("operational advantage, no
 ## 9. Freeze commit
 
 ```
-fd65b9e  M7: Accounts Receivable / Debtors workbench   (code + tests)
-87faae7  M7: finalize closeout report SHA              (docs)
+fd65b9e  M7: Accounts Receivable / Debtors workbench        (code + tests)
+8465796  M7 verification: harden debtors adversarial tests  (verification fixes)
 ```
 
-M7 freeze tip: **`87faae7`**. Code-freeze tip (no docs after): `fd65b9e`.
-
-- Working tree clean (`nothing to commit, working tree clean`).
+M7 freeze tip (to be recorded after this closeout update): see `git log -1`.
+- Working tree at the verification commit is clean.
 - Parent is M6 tip `3668854`; M5 and M6 history untouched.
-- Build output: 18 files changed, 1825 insertions(+), 6 deletions(−).
+- Postgres restored and all gates executed in this final pass.
