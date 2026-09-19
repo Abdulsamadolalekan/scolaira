@@ -14,6 +14,7 @@ import { Money } from '@/components/ui/money';
 import { ChevronLeft, FileText, Inbox } from '@/components/ui/icons';
 import { checkPermission } from '@/components/permission-guard';
 import { AccessDenied } from '@/components/access-denied';
+import StudentActions from './student-actions';
 
 export const runtime = 'nodejs';
 
@@ -37,8 +38,9 @@ async function load(id: string): Promise<Profile | null> {
 
 export default async function StudentProfilePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const guard = await checkPermission('student.read');
-  if (!guard.allowed) return <AccessDenied surface="Student record" requiredRole="Proprietor, Administrator, or Finance Officer" />;
+  const read = await checkPermission('student.read');
+  if (!read.allowed) return <AccessDenied surface="Student record" requiredRole="Proprietor, Administrator, or Finance Officer" />;
+  const canUpdate = (await checkPermission('student.update')).allowed;
   const p = await load(id);
   if (!p) notFound();
   const name = [p.student.firstName, p.student.middleName, p.student.lastName].filter(Boolean).join(' ');
@@ -54,7 +56,7 @@ export default async function StudentProfilePage({ params }: { params: Promise<{
           <h1 className="mt-1 text-[22px] sm:text-2xl font-semibold tracking-tight"
               style={{ color: 'var(--color-forest-deepest)', fontFamily: 'var(--font-serif)' }}>{name}</h1>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Link href={`/invoices/new?studentId=${p.student.id}`}
                 className="inline-flex items-center gap-1.5 rounded-md bg-[color:var(--color-forest)] px-3 py-2 text-[13px] font-medium text-white hover:bg-[color:var(--color-forest-deep)]">
             <FileText size={14} /> New invoice
@@ -64,6 +66,7 @@ export default async function StudentProfilePage({ params }: { params: Promise<{
                 style={{borderColor:'var(--color-border)',color:'var(--color-text-primary)'}}>
             <Inbox size={14} /> Record payment
           </Link>
+          {canUpdate && <StudentActions studentId={p.student.id} status={p.student.status} />}
         </div>
       </div>
 

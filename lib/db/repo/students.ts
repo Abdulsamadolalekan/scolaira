@@ -102,7 +102,7 @@ export async function archive(
   // Status transition is enforced by trg_enforce_status_transitions.
   const rows = await db
     .update(students)
-    .set({ status: 'ARCHIVED', archivedAt: new Date(), archivedReason: reason ?? null } as any)
+    .set({ status: 'ARCHIVED', archivedAt: new Date().toISOString().slice(0,10), archivedReason: reason ?? null } as any)
     .where(and(eq(students.id, id), eq(students.organizationId, ctx.organizationId)))
     .returning();
   if (!rows[0]) throw new RepoInvariantError('Student not found.');

@@ -40,10 +40,11 @@ async function loadProfile(db: any, ctx: any, id: string) {
     .where(and(eq(invoices.organizationId, ctx.organizationId), eq(invoices.studentId, id)))
     .orderBy(desc(sql`coalesce(${invoices.issuedAt}, ${invoices.createdAt})`));
 
-  // Payments allocated to any of this student's invoices.
+  // Payments allocated to any of this student's invoices. recorded_by is a
+  // uuid FK to users; no recorded_at column exists — we alias created_at.
   const payRows = await db.execute(sql`
     SELECT p.id, p.payment_number, p.method, p.status, p.amount_kobo, p.reference,
-           p.paid_at, p.recorded_at,
+           p.paid_at, p.created_at AS recorded_at, p.unallocated_kobo,
            coalesce(sum(a.amount_kobo) filter (where a.status='ACTIVE' and i.id is not null),0)::bigint AS applied_kobo
     FROM payments p
     LEFT JOIN payment_allocations a ON a.payment_id = p.id
@@ -55,8 +56,8 @@ async function loadProfile(db: any, ctx: any, id: string) {
         JOIN invoices i2 ON i2.id = a2.invoice_id
         WHERE i2.student_id = ${id}::uuid AND i2.organization_id = ${ctx.organizationId}
       )
-    GROUP BY p.id, p.payment_number, p.method, p.status, p.amount_kobo, p.reference, p.paid_at, p.recorded_at
-    ORDER BY greatest(coalesce(p.paid_at, p.recorded_at), p.created_at) DESC
+    GROUP BY p.id, p.payment_number, p.method, p.status, p.amount_kobo, p.reference, p.paid_at, p.created_at, p.unallocated_kobo
+    ORDER BY greatest(coalesce(p.paid_at, p.created_at), p.created_at) DESC
     LIMIT 50`);
 
   const invoiceList = (invRows as any[]).map(r => ({
@@ -67,7 +68,7 @@ async function loadProfile(db: any, ctx: any, id: string) {
   const paymentList = (payRows as any[]).map((r:any) => ({
     id: r.id, paymentNumber: r.payment_number, method: r.method, status: r.status,
     amountKobo: Number(r.amount_kobo), appliedKobo: Number(r.applied_kobo),
-    unallocatedKobo: Math.max(0, Number(r.amount_kobo) - Number(r.applied_kobo)),
+    unallocatedKobo: Number(r.unallocated_kobo) ?? 0,
     reference: r.reference, paidAt: r.paid_at, recordedAt: r.recorded_at,
   }));
   const totalBilled = invoiceList.reduce((s,i)=>s+i.totalKobo,0);
