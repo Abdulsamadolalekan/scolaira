@@ -27,12 +27,12 @@ import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import { Card, CardHeader } from '@/components/ui/nav-shell';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty';
+import InvoiceActions from './invoice-actions';
 import { Money } from '@/components/ui/money';
 import {
   FileText, ArrowLeft, CheckCircle, Clock, Naira, XCircle,
-  Calendar, User, Hash, Receipt,
+  Calendar, User, Hash,
 } from '@/components/ui/icons';
 import type { InvoiceDetail } from '@/app/api/invoices/[id]/route';
 import { checkPermission } from '@/components/permission-guard';
@@ -135,10 +135,7 @@ async function InvoiceDetailShell({ inv }: { inv: InvoiceDetail }) {
                   <Money kobo={inv.totalKobo} />
                 </div>
               </div>
-              <div className="flex gap-2">
-                <Button size="sm" variant="secondary" iconLeft={<Receipt size={13} />}>Send reminder</Button>
-                <Button size="sm" variant="primary" iconLeft={<Naira size={13} />}>Record payment</Button>
-              </div>
+              <InvoiceActions invoiceId={inv.id} status={inv.status} paidKobo={inv.paidKobo} remainingKobo={inv.remainingKobo} />
             </div>
           </div>
 

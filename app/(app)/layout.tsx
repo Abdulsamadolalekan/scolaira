@@ -35,10 +35,11 @@ interface ItemDef {
 const ALL_NAV: { section: string; items: ItemDef[] }[] = [
   { section: 'Operations', items: [
     { label: 'Command Center', href: '/dashboard', icon: 'dashboard', matchPrefix: '/dashboard', roles: null },
-    { label: 'Invoices',     href: '/invoices',  icon: 'invoices',  matchPrefix: '/invoices', roles: ['OWNER','SCHOOL_ADMIN','FINANCE_OFFICER'] },
-    { label: 'Payments',     href: '/payments',  icon: 'payments',  matchPrefix: '/payments', roles: ['OWNER','SCHOOL_ADMIN','FINANCE_OFFICER'] },
-    { label: 'Students',     href: '/students',  icon: 'students',  matchPrefix: '/students', roles: ['OWNER','SCHOOL_ADMIN','FINANCE_OFFICER'], badge: 'soon' },
-    { label: 'Members',      href: '/members',   icon: 'members',   matchPrefix: '/members',  roles: ['OWNER','SCHOOL_ADMIN'] },
+    { label: 'Invoices',     href: '/invoices',   icon: 'invoices',  matchPrefix: '/invoices',   roles: ['OWNER','SCHOOL_ADMIN','FINANCE_OFFICER'] },
+    { label: 'Payments',     href: '/payments',   icon: 'payments',  matchPrefix: '/payments',   roles: ['OWNER','SCHOOL_ADMIN','FINANCE_OFFICER'] },
+    { label: 'Students',     href: '/students',   icon: 'students',  matchPrefix: '/students',   roles: ['OWNER','SCHOOL_ADMIN','FINANCE_OFFICER'] },
+    { label: 'Reconcile',    href: '/reconcile',  icon: 'payments',  matchPrefix: '/reconcile',  roles: ['OWNER','SCHOOL_ADMIN','FINANCE_OFFICER'] },
+    { label: 'Members',      href: '/members',    icon: 'members',   matchPrefix: '/members',    roles: ['OWNER','SCHOOL_ADMIN'] },
   ]},
   { section: 'Institution', items: [
     { label: 'Settings', href: '/settings', icon: 'settings', matchPrefix: '/settings', roles: ['OWNER','SCHOOL_ADMIN'], badge: 'soon' },

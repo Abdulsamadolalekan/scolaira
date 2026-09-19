@@ -18,6 +18,7 @@ import { Card, CardHeader } from '@/components/ui/nav-shell';
 import { Badge } from '@/components/ui/badge';
 import { EmptyState } from '@/components/ui/empty';
 import { Money } from '@/components/ui/money';
+import PaymentActions from './payment-actions';
 import {
   Naira, ArrowLeft, Clock, AlertTriangle, XCircle,
   Calendar, User, Hash, FileText, Phone, Mail,
@@ -40,7 +41,7 @@ async function PaymentDetailInner({ params }: { params: Promise<{ id: string }> 
   const { id } = await params;
   const p = await loadPayment(id);
   if (!p) notFound();
-  return <PaymentDetailShell p={p} />;
+  return <PaymentDetailShell p={p} id={id} />;
 }
 
 async function loadPayment(id: string): Promise<PaymentDetail | null> {
@@ -58,7 +59,7 @@ async function loadPayment(id: string): Promise<PaymentDetail | null> {
   return res.json();
 }
 
-async function PaymentDetailShell({ p }: { p: PaymentDetail }) {
+async function PaymentDetailShell({ p, id }: { p: PaymentDetail; id: string }) {
   const allocatedPct = p.amountKobo > 0 ? Math.round((p.allocatedKobo / p.amountKobo) * 100) : 0;
 
   return (
@@ -110,6 +111,13 @@ async function PaymentDetailShell({ p }: { p: PaymentDetail }) {
                   <Money kobo={p.amountKobo} />
                 </div>
               </div>
+              {p.status === 'CONFIRMED' && (
+                <Link href={`/payments/${id}/receipt`}
+                      className="inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-[12px] font-medium"
+                      style={{ borderColor: 'var(--color-border)', color: 'var(--color-text-primary)' }}>
+                  Print receipt
+                </Link>
+              )}
             </div>
           </div>
 
@@ -136,6 +144,8 @@ async function PaymentDetailShell({ p }: { p: PaymentDetail }) {
               />
             </div>
           </div>
+
+          <PaymentActions paymentId={p.id} status={p.status} unallocatedKobo={p.unallocatedKobo} />
 
           {p.reversal && (
             <div className="mt-5 rounded-md border px-4 py-3 text-sm"

@@ -3,10 +3,18 @@
  *
  * Serves the institutional Command Center:
  *   - term-aware greeting
- *   - kobo-precise aggregates (billed / collected / outstanding / overdue)
+ *   - kobo-precise aggregates for the CURRENT TERM (billed / collected /
+ *     outstanding / overdue). Pending-payment counts and active-student
+ *     counts remain org-wide because they are operational totals, not
+ *     term-figures.
  *   - unreconciled payments count
  *   - attention list (overdue balances, pending bank transfers, unsent drafts)
- *   - merged activity feed (payments + invoices)
+ *   - merged activity feed (payments + invoices, current-term first)
+ *
+ * Financial figures derive from the trigger-maintained columns
+ * (invoices.total_kobo/paid_kobo, payments.unallocated_kobo) and from
+ * ACTIVE allocations against current-term invoices. There is no dashboard
+ * ledger and no client-side math.
  *
  * All numbers are aggregated from rows the current tenant can already see via
  * RLS; this endpoint does not bypass, extend, or elevate permissions.
@@ -14,7 +22,8 @@
 import { NextResponse } from 'next/server';
 import { and, eq, gt, inArray, sql, desc } from 'drizzle-orm';
 import { withAuthorizedRoute } from '@/lib/authz';
-import { invoices, payments, students, users } from '@/lib/db/schema';
+import * as termRepo from '@/lib/db/repo/terms';
+import { invoices, payments, students, users, paymentAllocations } from '@/lib/db/schema';
 
 export type Summary = {
   termLabel: string;
@@ -53,52 +62,88 @@ export const GET = withAuthorizedRoute(
   async (_req, { db, ctx, session }) => {
     const orgId = ctx.organizationId;
 
-    // ---------- KPIs ----------
-    const [[invAgg], [payAgg], [pendAgg], [stuAgg]] = await Promise.all([
+    // Resolve the current term. If none is configured, KPIs fall back to zero
+    // for term figures (we do NOT silently fall back to all-time because that
+    // would mislead the proprietor).
+    const currentTerm = await termRepo.getCurrent(db, ctx);
+    const termId = currentTerm?.id ?? null;
+    const termLabel = currentTerm
+      ? `${currentTerm.name} · Current term`
+      : 'No current term configured';
+
+    // Term-scoped invoice predicates.
+    const inTerm = termId ? eq(invoices.termId, termId as any) : sql`false`;
+    const inTermAndIssued = termId
+      ? and(eq(invoices.termId, termId as any), inArray(invoices.status, ['ISSUED','PARTIALLY_PAID','PAID']))
+      : sql`false`;
+
+    // ---------- Term-scoped KPIs ----------
+    const [[invAgg], [pendAgg], [stuAgg], [collectedAgg], [draftAgg]] = await Promise.all([
       db.select({
         billed:        sql<number>`coalesce(sum(${invoices.totalKobo}),0)`,
-        outstanding:   sql<number>`coalesce(sum(${invoices.totalKobo} - ${invoices.paidKobo}),0)`,
+        outstanding:   sql<number>`coalesce(sum(case when ${invoices.status} in ('ISSUED','PARTIALLY_PAID') then ${invoices.totalKobo} - ${invoices.paidKobo} else 0 end),0)`,
         overdue:       sql<number>`coalesce(sum(case when ${invoices.status} in ('ISSUED','PARTIALLY_PAID') and ${invoices.dueDate} is not null and ${invoices.dueDate} < current_date then ${invoices.totalKobo} - ${invoices.paidKobo} else 0 end),0)`,
-        drafts:        sql<number>`coalesce(sum(case when ${invoices.status} = 'DRAFT' then 1 else 0 end),0)`,
-      }).from(invoices).where(eq(invoices.organizationId, orgId)),
-      db.select({
-        collected: sql<number>`coalesce(sum(case when ${payments.status}='CONFIRMED' then ${payments.amountKobo} - coalesce(${payments.unallocatedKobo},0) else 0 end),0)`,
-      }).from(payments).where(eq(payments.organizationId, orgId)),
+      }).from(invoices).where(and(eq(invoices.organizationId, orgId), inTermAndIssued)),
       db.select({ count: sql<number>`count(*)` })
         .from(payments).where(and(eq(payments.organizationId, orgId), eq(payments.status, 'PENDING'))),
       db.select({ count: sql<number>`count(*)` })
         .from(students).where(and(eq(students.organizationId, orgId), eq(students.status, 'ACTIVE'))),
+      // Collected against current-term invoices: sum ACTIVE allocations whose
+      // invoice belongs to the current term, where the payment is CONFIRMED.
+      // This is the most accurate definition: it correctly handles payments
+      // that partially cover multiple terms (only the current-term slice is
+      // counted) and excludes unallocated credit sitting on payments.
+      termId
+        ? db.select({ collected: sql<number>`coalesce(sum(${paymentAllocations.amountKobo}),0)` })
+            .from(paymentAllocations)
+            .innerJoin(invoices, eq(invoices.id, paymentAllocations.invoiceId))
+            .innerJoin(payments, eq(payments.id, paymentAllocations.paymentId))
+            .where(and(
+              eq(invoices.organizationId, orgId),
+              eq(invoices.termId, termId as any),
+              eq(paymentAllocations.status, 'ACTIVE'),
+              eq(payments.status, 'CONFIRMED'),
+            ))
+        : Promise.resolve([{ collected: 0 }] as any),
+      db.select({ count: sql<number>`coalesce(sum(case when ${invoices.status}='DRAFT' then 1 else 0 end),0)` })
+        .from(invoices).where(and(eq(invoices.organizationId, orgId), inTerm)),
     ]);
 
-    const inv = invAgg!; const pay = payAgg!; const pen = pendAgg!; const stu = stuAgg!;
+    const inv = invAgg!; const pay = collectedAgg!; const pen = pendAgg!; const stu = stuAgg!; const dr = draftAgg!;
     const billed        = Number(inv.billed) || 0;
     const collected     = Number(pay.collected) || 0;
     const outstanding   = Number(inv.outstanding) || 0;
     const overdue       = Number(inv.overdue) || 0;
     const unreconciled  = Number(pen.count) || 0;
     const activeStudents = Number(stu.count) || 0;
-    const drafts        = Number(inv.drafts) || 0;
+    const drafts        = Number(dr.count) || 0;
     const collectionRateBps = billed > 0 ? Math.round((collected * 10000) / billed) : 0;
 
-    // ---------- Attention: top 3 overdue invoices (by outstanding balance) ----------
+    // ---------- Attention: top 3 overdue invoices (by outstanding balance, current term) ----------
     const overdueBal = sql<number>`${invoices.totalKobo} - ${invoices.paidKobo}`;
-    const topOverdue = await db.select({
-      id: invoices.id,
-      invoiceNumber: invoices.invoiceNumber,
-      studentName: sql<string>`trim(coalesce(${students.firstName},'') || ' ' || coalesce(${students.lastName},''))`.as('student_name'),
-      dueDate: invoices.dueDate,
-      balance: overdueBal.as('balance'),
-    })
-      .from(invoices)
-      .leftJoin(students, eq(students.id, invoices.studentId))
-      .where(and(
-        eq(invoices.organizationId, orgId),
-        inArray(invoices.status, ['ISSUED','PARTIALLY_PAID']),
-        sql`${invoices.dueDate} is not null and ${invoices.dueDate} < current_date`,
-        gt(overdueBal, 0),
-      ))
-      .orderBy(desc(overdueBal))
-      .limit(3);
+    const overdueWhere = termId
+      ? and(
+          eq(invoices.organizationId, orgId),
+          eq(invoices.termId, termId as any),
+          inArray(invoices.status, ['ISSUED','PARTIALLY_PAID']),
+          sql`${invoices.dueDate} is not null and ${invoices.dueDate} < current_date`,
+          gt(overdueBal, 0),
+        )
+      : sql`false`;
+    const topOverdue = termId
+      ? await db.select({
+          id: invoices.id,
+          invoiceNumber: invoices.invoiceNumber,
+          studentName: sql<string>`trim(coalesce(${students.firstName},'') || ' ' || coalesce(${students.lastName},''))`.as('student_name'),
+          dueDate: invoices.dueDate,
+          balance: overdueBal.as('balance'),
+        })
+          .from(invoices)
+          .leftJoin(students, eq(students.id, invoices.studentId))
+          .where(overdueWhere)
+          .orderBy(desc(overdueBal))
+          .limit(3)
+      : [] as any[];
 
     // ---------- Attention: pending payments (up to 2) ----------
     const pendingPays = await db.select({
@@ -141,6 +186,7 @@ export const GET = withAuthorizedRoute(
       .where(and(
         eq(invoices.organizationId, orgId),
         inArray(invoices.status, ['ISSUED','PARTIALLY_PAID','PAID']),
+        termId ? eq(invoices.termId, termId as any) : sql`false`,
       ))
       .orderBy(desc(invoices.issuedAt))
       .limit(6);
@@ -238,7 +284,7 @@ export const GET = withAuthorizedRoute(
     }
 
     return NextResponse.json({
-      termLabel: 'Current term',
+      termLabel,
       greetingName: (session.user as any).firstName || (session.user as any).fullName?.split(' ')[0] || null,
       kpis: {
         billedKobo: billed,
