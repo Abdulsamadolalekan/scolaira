@@ -3,7 +3,8 @@
 **Status:** FROZEN ✅
 **Date:** 2026-09-19
 **M5-FROZEN SHA:** `0c66618e29e6179c80052a82c40f669979cef6b0` (tag `M5-FROZEN`, untouched)
-**M6 FINAL SHA:** `b61a7023bf17bb31ad3011b191ae7f80a6962d19`
+**M6 FINAL SHA:** `efc5966085c594ca0821482a3e2ae7cfbf3d5a82` (M6 code)
+**M6 CLOSEOUT SHA:** `b4a7d3e090e919c5b59f1d07f5a344dfff223141` (this report; tip of `main`)
 
 ---
 
