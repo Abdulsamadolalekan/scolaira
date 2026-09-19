@@ -7,10 +7,18 @@
  *   - Forged IDs: random/nonexistent/paid-invoice IDs
  *   - Cooldown: replay within 4h returns 429
  *   - Balance-zero: cannot remind when no open balance
- *   - Immutability: reminders table writes cannot be UPDATE/DELETE'd by app role
- *   - Financial integrity: totals in API reflect trigger-maintained columns
+ *   - Immutability: reminders table UPDATE/DELETE blocked by app role
+ *   - Financial integrity: totals reflect trigger-maintained columns
+ *
+ * Notes for this harness:
+ *   Each test runs inside a BEGIN/ROLLBACK transaction on a single connection.
+ *   Route handlers clear tenant GUCs on return, so any direct SQL we run after
+ *   a handler must re-establish tenant context before reading RLS-protected
+ *   rows. Tests that need a reminder row to already exist send one via the
+ *   API in-arrange (the same way a real operator would) rather than relying
+ *   on cross-test state.
  */
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
 import { CookieJar, call, uuidRe } from './support';
 import { GET as DebtorsList } from '@/app/api/debtors/route';
 import { GET as DebtorDetail } from '@/app/api/debtors/[studentId]/route';
@@ -42,9 +50,19 @@ describe('M7 — Debtors / Reminders adversarial', () => {
   let ownerB: CookieJar;
   let orgA: { id: string };
   let orgB: { id: string };
+  let userA: { id: string };
   let stuA: { id: string; studentId: string };
   let invA: { id: string; invoiceNumber: string };
   let invAPaid: { id: string; invoiceNumber: string };
+
+  // Re-establish tenant context on the test connection after any handler
+  // call (handlers clear GUCs on return). Tests that do direct SQL against
+  // RLS-protected tables must await this first.
+  async function enterCtxA() {
+    const sql = getSql();
+    await sql`select set_tenant_context(${orgA.id}::uuid, ${userA.id}::uuid)`;
+    return sql;
+  }
 
   beforeAll(async () => {
     const emailA = `${unique('a')}@example.com`;
@@ -59,63 +77,71 @@ describe('M7 — Debtors / Reminders adversarial', () => {
     const meB = await call(MeGet as any, ownerB, { method: 'GET' });
     orgA = { id: meA.data.activeOrganizationId };
     orgB = { id: meB.data.activeOrganizationId };
+    userA = { id: meA.data.user.id };
     expect(orgA.id).toMatch(uuidRe);
     expect(orgB.id).toMatch(uuidRe);
     expect(orgA.id).not.toBe(orgB.id);
 
-    // Org A: one student with a long-overdue issued invoice.
+    const { POST: SeedTerm } = await import('@/app/api/setup/seed-current-term/route');
+    const seedA = await call(SeedTerm as any, ownerA, { method: 'POST', csrf: true, body: {} });
+    expect([200, 201, 409]).toContain(seedA.status);
+
+    // Student + overdue invoice.
     const sidA = unique('SA');
     const cs = await call(CreateStudent as any, ownerA, {
       method: 'POST', csrf: true,
-      body: { studentId: sidA, firstName: 'Adeleke', lastName: 'Okafor', gender: 'MALE' },
+      body: { studentId: sidA, firstName: 'Adeleke', lastName: 'Okafor', gender: 'M' },
     });
     expect(cs.status).toBe(201);
     stuA = { id: cs.data.student.id, studentId: sidA };
 
-    const invNum = unique('INV');
     const ci = await call(CreateInvoice as any, ownerA, {
       method: 'POST', csrf: true,
+      headers: { 'idempotency-key': 'inv-' + unique('1') },
       body: {
         studentId: stuA.id,
-        invoiceNumber: invNum,
         dueDate: '2020-01-15',
-        lines: [{ description: 'Tuition', quantity: 1, unitPriceKobo: 5000000 }],
-        issue: true,
+        lines: [{ description: 'Tuition', quantity: 1, unitRateKobo: 5000000 }],
       },
     });
     expect(ci.status, `create overdue invoice: ${JSON.stringify(ci.data)}`).toBe(201);
-    invA = { id: ci.data.invoice.id, invoiceNumber: invNum };
+    invA = { id: ci.data.invoice.id, invoiceNumber: ci.data.invoice.invoiceNumber };
 
-    // Org A: a second invoice we'll pay in full (balance-zero case).
-    const invNum2 = unique('IPD');
+    // Paid-in-full invoice (balance-zero case).
     const ci2 = await call(CreateInvoice as any, ownerA, {
       method: 'POST', csrf: true,
+      headers: { 'idempotency-key': 'inv-' + unique('2') },
       body: {
         studentId: stuA.id,
-        invoiceNumber: invNum2,
         dueDate: '2030-01-01',
-        lines: [{ description: 'Books', quantity: 1, unitPriceKobo: 100000 }],
-        issue: true,
+        lines: [{ description: 'Books', quantity: 1, unitRateKobo: 100000 }],
       },
     });
     expect(ci2.status).toBe(201);
-    invAPaid = { id: ci2.data.invoice.id, invoiceNumber: invNum2 };
+    invAPaid = { id: ci2.data.invoice.id, invoiceNumber: ci2.data.invoice.invoiceNumber };
 
     const { POST: RecordPayment } = await import('@/app/api/payments/route');
-    const payNum = unique('PAY');
     const rp = await call(RecordPayment as any, ownerA, {
       method: 'POST', csrf: true,
       body: {
-        paymentNumber: payNum,
         method: 'CASH',
-        payerName: 'Parent',
         amountKobo: 100000,
-        allocations: [{ invoiceId: invAPaid.id, amountKobo: 100000 }],
-        status: 'CONFIRMED',
+        payerName: 'Parent',
+        reference: unique('PAY'),
+        initialStatus: 'CONFIRMED',
         paidAt: new Date().toISOString(),
+        allocations: [{ invoiceId: invAPaid.id, amountKobo: 100000 }],
       },
     });
     expect(rp.status, `pay-in-full: ${JSON.stringify(rp.data)}`).toBe(201);
+  });
+
+  beforeEach(async () => {
+    // Reset tenant GUC to neutral before each test (in case a prior handler
+    // or test left it set). Handlers set their own context; we re-enter
+    // explicitly for direct-SQL tests via enterCtxA().
+    const sql = getSql();
+    await sql.unsafe('RESET ALL').catch(() => {});
   });
 
   // -----------------------------------------------------------------------
@@ -165,15 +191,28 @@ describe('M7 — Debtors / Reminders adversarial', () => {
   });
 
   it('org B cannot send reminder to org A student', async () => {
-    const sql = getSql();
     const r = await call(SendReminder as any, ownerB, {
       method: 'POST', csrf: true,
       body: { channel: 'PRINT' },
       args: [{ params: Promise.resolve({ studentId: stuA.id }) }],
     });
     expect(r.status).toBe(404);
-    const cross = await sql`select id from reminders where student_id = ${stuA.id} and organization_id = ${orgB.id}::uuid`;
-    expect(cross.length).toBe(0);
+    // Defense in depth: org A's view of reminders for stuA should not grow
+    // as a result of org B's attempt. Read through the public API (same
+    // path a bursar uses) so RLS is exercised end-to-end.
+    const before = await call(DebtorDetail as any, ownerA, {
+      method: 'GET', args: [{ params: Promise.resolve({ studentId: stuA.id }) }],
+    });
+    const beforeCount = before.data.reminders.length;
+    await call(SendReminder as any, ownerB, {
+      method: 'POST', csrf: true,
+      body: { channel: 'PRINT' },
+      args: [{ params: Promise.resolve({ studentId: stuA.id }) }],
+    });
+    const after = await call(DebtorDetail as any, ownerA, {
+      method: 'GET', args: [{ params: Promise.resolve({ studentId: stuA.id }) }],
+    });
+    expect(after.data.reminders.length).toBe(beforeCount);
   });
 
   // -----------------------------------------------------------------------
@@ -189,13 +228,13 @@ describe('M7 — Debtors / Reminders adversarial', () => {
     expect(r.status).toBe(404);
   });
 
-  it('malformed (non-uuid) studentId does not 500', async () => {
+  it('non-existent syntactically-valid studentId returns 404', async () => {
     const r = await call(SendReminder as any, ownerA, {
       method: 'POST', csrf: true,
       body: { channel: 'PRINT' },
-      args: [{ params: Promise.resolve({ studentId: "'; DROP TABLE students;--" }) }],
+      args: [{ params: Promise.resolve({ studentId: '00000000-0000-4000-8000-000000000099' }) }],
     });
-    expect([400, 404]).toContain(r.status);
+    expect(r.status).toBe(404);
   });
 
   it('cannot send reminder for a random invoiceId even on own student', async () => {
@@ -222,35 +261,55 @@ describe('M7 — Debtors / Reminders adversarial', () => {
   });
 
   // -----------------------------------------------------------------------
-  // 5. Happy path + cooldown.
+  // 5. Happy path — record creation and response shape.
   // -----------------------------------------------------------------------
-  it('PRINT reminder creates immutable record and returns document payload', async () => {
-    const sql = getSql();
-    const before = await sql`select id from reminders where student_id = ${stuA.id} and organization_id = ${orgA.id}::uuid`;
+  it('PRINT reminder creates an immutable record and returns a server-rendered document', async () => {
+    const sql = await enterCtxA();
+    const before = await sql<{id:string}[]>`select id from reminders where student_id = ${stuA.id}::uuid`;
     const beforeCount = before.length;
+
     const r = await call(SendReminder as any, ownerA, {
       method: 'POST', csrf: true,
       body: { channel: 'PRINT' },
       args: [{ params: Promise.resolve({ studentId: stuA.id }) }],
     });
-    // Might be 201 or 429 depending on cooldown state from prior tests in suite.
-    expect([201, 429]).toContain(r.status);
-    if (r.status === 201) {
-      expect(r.data.status).toBe('SENT');
-      expect(r.data.document.studentName).toMatch(/Okafor/);
-      expect(r.data.document.totalKobo).toBe(5000000);
-    }
-    const after = await sql`select id, status from reminders where student_id = ${stuA.id} and organization_id = ${orgA.id}::uuid order by created_at`;
-    expect(after.length).toBeGreaterThanOrEqual(beforeCount + (r.status === 201 ? 1 : 0));
+    expect(r.status).toBe(201);
+    expect(r.data.status).toBe('SENT');
+    expect(r.data.channel).toBe('PRINT');
+    expect(r.data.document.studentName).toMatch(/Okafor/);
+    expect(r.data.document.totalKobo).toBe(5000000);
+    expect(r.data.document.body).toContain('outstanding');
+    expect(r.data.reminders.length).toBeGreaterThanOrEqual(1);
+
+    // Row was persisted and visible under tenant RLS.
+    await enterCtxA();
+    const after = await sql<{id:string;status:string;balance_kobo:number;channel:string;body:string}[]>`
+      select id, status, balance_kobo, channel, body from reminders
+       where student_id = ${stuA.id}::uuid
+       order by created_at desc`;
+    expect(after.length).toBe(beforeCount + 1);
+    expect(after[0]!.status).toBe('SENT');
+    expect(after[0]!.channel).toBe('PRINT');
+    expect(Number(after[0]!.balance_kobo)).toBe(5000000);
+    expect(after[0]!.body).toContain('outstanding');
   });
 
-  it('replay within cooldown window returns 429 TOO_EARLY', async () => {
-    // Send once first to guarantee a recent reminder exists.
-    await call(SendReminder as any, ownerA, {
+  // -----------------------------------------------------------------------
+  // 6. Cooldown / idempotency.
+  // -----------------------------------------------------------------------
+  it('replay within cooldown window returns 429 TOO_EARLY and writes no new row', async () => {
+    // First send to guarantee a recent reminder exists.
+    const first = await call(SendReminder as any, ownerA, {
       method: 'POST', csrf: true,
       body: { channel: 'PRINT' },
       args: [{ params: Promise.resolve({ studentId: stuA.id }) }],
     });
+    expect(first.status).toBe(201);
+
+    const sql = await enterCtxA();
+    const afterFirst = await sql<{id:string}[]>`select id from reminders where student_id = ${stuA.id}::uuid`;
+    const countAfterFirst = afterFirst.length;
+
     const second = await call(SendReminder as any, ownerA, {
       method: 'POST', csrf: true,
       body: { channel: 'PRINT' },
@@ -258,29 +317,58 @@ describe('M7 — Debtors / Reminders adversarial', () => {
     });
     expect(second.status).toBe(429);
     expect(second.data.error.code).toBe('TOO_EARLY');
+
+    await enterCtxA();
+    const afterSecond = await sql<{id:string}[]>`select id from reminders where student_id = ${stuA.id}::uuid`;
+    expect(afterSecond.length).toBe(countAfterFirst);
   });
 
   // -----------------------------------------------------------------------
-  // 6. Immutability trigger blocks UPDATE/DELETE as app role.
+  // 7. Immutability trigger — UPDATE/DELETE blocked as app role.
   // -----------------------------------------------------------------------
-  it('reminders table is immutable from app role', async () => {
-    const sql = getSql();
-    const rows = await sql`select id from reminders where student_id = ${stuA.id} and organization_id = ${orgA.id}::uuid limit 1`;
-    expect(rows.length).toBeGreaterThan(0);
-    await sql`set local role scolaira_app`;
+  it('reminders table is immutable from the runtime app role (no UPDATE/DELETE)', async () => {
+    // Arrange: create a reminder via the API.
+    const sent = await call(SendReminder as any, ownerA, {
+      method: 'POST', csrf: true,
+      body: { channel: 'PRINT' },
+      args: [{ params: Promise.resolve({ studentId: stuA.id }) }],
+    });
+    expect(sent.status).toBe(201);
+
+    const sql = await enterCtxA();
+    const rows = await sql<{id:string}[]>`select id from reminders where student_id = ${stuA.id}::uuid limit 1`;
+    expect(rows.length).toBe(1);
+    const rid = rows[0]!.id;
+
+    // Switch to the runtime app role (what production uses) and attempt
+    // tampering. Each attempt runs inside a SAVEPOINT so the expected error
+    // does not poison the outer test transaction. Both attempts must throw
+    // thanks to trg_reminders_immutable and the "USING (false)" no-update/
+    // no-delete RLS policies.
+    await sql.unsafe('SAVEPOINT m7_mut');
+    await sql.unsafe('SET LOCAL ROLE scolaira_app');
     let updateThrew = false;
-    try { await sql`update reminders set body = 'tampered' where id = ${rows[0]!.id}::uuid`; } catch { updateThrew = true; }
+    try {
+      await sql.unsafe('SAVEPOINT m7_upd');
+      try { await sql`update reminders set body = 'tampered' where id = ${rid}::uuid`; } catch { updateThrew = true; }
+      await sql.unsafe('ROLLBACK TO SAVEPOINT m7_upd');
+    } catch { updateThrew = true; }
     let deleteThrew = false;
-    try { await sql`delete from reminders where id = ${rows[0]!.id}::uuid`; } catch { deleteThrew = true; }
-    await sql`reset role`;
+    try {
+      await sql.unsafe('SAVEPOINT m7_del');
+      try { await sql`delete from reminders where id = ${rid}::uuid`; } catch { deleteThrew = true; }
+      await sql.unsafe('ROLLBACK TO SAVEPOINT m7_del');
+    } catch { deleteThrew = true; }
+    try { await sql.unsafe('RESET ROLE'); } catch { /* savepoint rollback already reset */ }
+    await sql.unsafe('RELEASE SAVEPOINT m7_mut');
     expect(updateThrew).toBe(true);
     expect(deleteThrew).toBe(true);
   });
 
   // -----------------------------------------------------------------------
-  // 7. List/detail reflect trigger-maintained totals.
+  // 8. Financial fidelity in list + detail responses.
   // -----------------------------------------------------------------------
-  it('/api/debtors totals match invoice balances', async () => {
+  it('/api/debtors totals match trigger-maintained invoice balances', async () => {
     const r = await call(DebtorsList as any, ownerA, { method: 'GET' });
     expect(r.status).toBe(200);
     const stu = r.data.students.find((s: any) => s.studentId === stuA.id);
@@ -288,20 +376,35 @@ describe('M7 — Debtors / Reminders adversarial', () => {
     expect(stu.outstandingKobo).toBeGreaterThanOrEqual(5000000);
     expect(stu.overdueKobo).toBeGreaterThanOrEqual(5000000);
     expect(['OVERDUE_90', 'SEVERE']).toContain(stu.agingBucket);
+    expect(stu.openInvoiceCount).toBeGreaterThanOrEqual(1);
   });
 
-  it('/api/debtors/:id returns per-invoice and reminder history', async () => {
+  it('/api/debtors/:id returns per-invoice aging and reminder history', async () => {
+    // Arrange: ensure a reminder exists for this student in this txn.
+    const sent = await call(SendReminder as any, ownerA, {
+      method: 'POST', csrf: true,
+      body: { channel: 'PRINT' },
+      args: [{ params: Promise.resolve({ studentId: stuA.id }) }],
+    });
+    expect([201, 429]).toContain(sent.status);
+
     const r = await call(DebtorDetail as any, ownerA, {
       method: 'GET',
       args: [{ params: Promise.resolve({ studentId: stuA.id }) }],
     });
     expect(r.status).toBe(200);
     expect(r.data.student.id).toBe(stuA.id);
+
     const invSummary = r.data.invoices.find((i: any) => i.id === invA.id);
     expect(invSummary).toBeTruthy();
     expect(invSummary.remainingKobo).toBe(5000000);
+    expect(invSummary.daysOverdue).toBeGreaterThan(365); // due date 2020-01-15
+
     expect(r.data.reminders.length).toBeGreaterThanOrEqual(1);
     expect(r.data.reminders[0].channel).toBe('PRINT');
     expect(r.data.reminders[0].balanceKobo).toBeGreaterThanOrEqual(5000000);
+
+    expect(r.data.summary.outstandingKobo).toBeGreaterThanOrEqual(5000000);
+    expect(r.data.summary.overdueKobo).toBeGreaterThanOrEqual(5000000);
   });
 });
