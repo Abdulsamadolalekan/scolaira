@@ -155,8 +155,11 @@ These deferrals were evaluated against the M7 thesis ("operational advantage, no
 ## 9. Freeze commit
 
 ```
-7c40790  M7: Accounts Receivable / Debtors workbench
+fd65b9e  M7: Accounts Receivable / Debtors workbench   (code + tests)
+87faae7  M7: finalize closeout report SHA              (docs)
 ```
+
+M7 freeze tip: **`87faae7`**. Code-freeze tip (no docs after): `fd65b9e`.
 
 - Working tree clean (`nothing to commit, working tree clean`).
 - Parent is M6 tip `3668854`; M5 and M6 history untouched.
