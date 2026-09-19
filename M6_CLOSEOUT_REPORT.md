@@ -3,7 +3,7 @@
 **Status:** FROZEN ✅
 **Date:** 2026-09-19
 **M5-FROZEN SHA:** `0c66618e29e6179c80052a82c40f669979cef6b0` (tag `M5-FROZEN`, untouched)
-**M6 FINAL SHA:** see final section (recorded at commit time)
+**M6 FINAL SHA:** `7cb97c44339cc457d8035f28331df190986f1085`
 
 ---
 
