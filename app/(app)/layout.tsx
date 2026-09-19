@@ -39,6 +39,7 @@ const ALL_NAV: { section: string; items: ItemDef[] }[] = [
     { label: 'Payments',     href: '/payments',   icon: 'payments',  matchPrefix: '/payments',   roles: ['OWNER','SCHOOL_ADMIN','FINANCE_OFFICER'] },
     { label: 'Students',     href: '/students',   icon: 'students',  matchPrefix: '/students',   roles: ['OWNER','SCHOOL_ADMIN','FINANCE_OFFICER'] },
     { label: 'Reconcile',    href: '/reconcile',  icon: 'payments',  matchPrefix: '/reconcile',  roles: ['OWNER','SCHOOL_ADMIN','FINANCE_OFFICER'] },
+    { label: 'Debtors',      href: '/debtors',    icon: 'debtors',   matchPrefix: '/debtors',    roles: ['OWNER','SCHOOL_ADMIN','FINANCE_OFFICER'] },
     { label: 'Members',      href: '/members',    icon: 'members',   matchPrefix: '/members',    roles: ['OWNER','SCHOOL_ADMIN'] },
   ]},
   { section: 'Institution', items: [

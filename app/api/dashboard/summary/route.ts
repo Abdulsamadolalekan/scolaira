@@ -23,7 +23,7 @@ import { NextResponse } from 'next/server';
 import { and, eq, gt, inArray, sql, desc } from 'drizzle-orm';
 import { withAuthorizedRoute } from '@/lib/authz';
 import * as termRepo from '@/lib/db/repo/terms';
-import { invoices, payments, students, users, paymentAllocations } from '@/lib/db/schema';
+import { invoices, payments, students, users, paymentAllocations, reminders } from '@/lib/db/schema';
 
 export type Summary = {
   termLabel: string;
@@ -39,7 +39,7 @@ export type Summary = {
   };
   attention: Array<{
     id: string;
-    kind: 'overdue_invoice' | 'pending_payment' | 'draft_invoice';
+    kind: 'overdue_invoice' | 'pending_payment' | 'draft_invoice' | 'stale_followup' | 'aging_summary';
     severity: 'danger' | 'warning' | 'info';
     title: string;
     meta: string;
@@ -145,6 +145,41 @@ export const GET = withAuthorizedRoute(
           .limit(3)
       : [] as any[];
 
+    // ---------- Attention: aging summary — severe debtors and stale follow-up ----------
+    const [[severeAgg], [overdueAgg]] = await Promise.all([
+      db.select({
+        severeCount: sql<number>`count(distinct ${students.id})`,
+        severeKobo: sql<number>`coalesce(sum(${invoices.totalKobo} - ${invoices.paidKobo}),0)`,
+        noReminderCount: sql<number>`count(distinct case when ${reminders.id} is null then ${students.id} end)`,
+      }).from(invoices)
+        .leftJoin(students, eq(students.id, invoices.studentId))
+        .leftJoin(reminders, and(
+          eq(reminders.studentId, invoices.studentId),
+          sql`${reminders.createdAt} > current_timestamp - interval '14 days'`,
+        ))
+        .where(and(
+          eq(invoices.organizationId, orgId),
+          inArray(invoices.status, ['ISSUED','PARTIALLY_PAID']),
+          sql`${invoices.dueDate} is not null and ${invoices.dueDate} < current_date - interval '90 days'`,
+          gt(overdueBal, 0),
+        )),
+      db.select({
+        overdueCount: sql<number>`count(distinct ${students.id}) filter (where ${invoices.dueDate} < current_date)`,
+        staleCount: sql<number>`count(distinct case when ${reminders.id} is null or ${reminders.createdAt} < current_timestamp - interval '7 days' then ${students.id} end) filter (where ${invoices.dueDate} < current_date)`,
+      }).from(invoices)
+        .leftJoin(students, eq(students.id, invoices.studentId))
+        .leftJoin(reminders, and(
+          eq(reminders.studentId, invoices.studentId),
+          sql`${reminders.createdAt} > current_timestamp - interval '7 days'`,
+        ))
+        .where(and(
+          eq(invoices.organizationId, orgId),
+          inArray(invoices.status, ['ISSUED','PARTIALLY_PAID']),
+          sql`${invoices.dueDate} is not null and ${invoices.dueDate} < current_date`,
+          gt(overdueBal, 0),
+        )),
+    ]);
+
     // ---------- Attention: pending payments (up to 2) ----------
     const pendingPays = await db.select({
       id: payments.id,
@@ -246,16 +281,48 @@ export const GET = withAuthorizedRoute(
     // ---------- Attention list (order: danger first, then warning, then info) ----------
     const attention: Summary['attention'] = [];
 
+    const severe = severeAgg as { severeCount: number; severeKobo: number; noReminderCount: number } | undefined;
+    const overdue_ = overdueAgg as { overdueCount: number; staleCount: number } | undefined;
+    const severeCount = Number(severe?.severeCount ?? 0);
+    const severeKobo = Number(severe?.severeKobo ?? 0);
+    const noReminderCount = Number(severe?.noReminderCount ?? 0);
+    const overdueCount = Number(overdue_?.overdueCount ?? 0);
+    const staleCount = Number(overdue_?.staleCount ?? 0);
+
+    if (severeCount > 0) {
+      attention.push({
+        id: 'severe-aging',
+        kind: 'aging_summary',
+        severity: 'danger',
+        title: `${severeCount} student${severeCount===1?'':'s'} 90+ days overdue — ${fmt(severeKobo)} at risk`,
+        meta: noReminderCount > 0
+          ? `${noReminderCount} have not received a reminder in the last 14 days. Open Debtors to follow up.`
+          : 'All severe accounts have been reminded recently; review next steps.',
+        href: '/debtors',
+      });
+    }
+
     const today = new Date();
     for (const inv of topOverdue as any[]) {
       const days = inv.dueDate ? Math.max(1, Math.ceil((today.getTime() - new Date(inv.dueDate).getTime()) / 86400000)) : 1;
       attention.push({
         id: inv.id,
         kind: 'overdue_invoice',
-        severity: 'danger',
+        severity: days > 60 ? 'danger' : 'warning',
         title: `${inv.studentName || 'A student'} — ${fmt(Number(inv.balance) || 0)} past due`,
         meta: `${inv.invoiceNumber} · ${days} day${days === 1 ? '' : 's'} overdue`,
         href: `/invoices/${inv.id}`,
+      });
+    }
+
+    if (staleCount > 0 && severeCount === 0) {
+      attention.push({
+        id: 'stale-followup',
+        kind: 'stale_followup',
+        severity: overdueCount > 5 ? 'warning' : 'info',
+        title: `${staleCount} overdue student${staleCount===1?'':'s'} have not been reminded this week`,
+        meta: 'A one-click printable reminder is available from Debtors.',
+        href: '/debtors',
       });
     }
 

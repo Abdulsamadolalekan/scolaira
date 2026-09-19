@@ -111,7 +111,11 @@ export type Action =
   | 'audit.read'
 
   // Communications
-  | 'communication.send';
+  | 'communication.send'
+
+  // Accounts-receivable / debtors
+  | 'debtor.read'         // view aging/debtor workbench and reminders
+  | 'reminder.send';      // send/record a payment reminder
 
 // ---------------------------------------------------------------------------
 // Policy matrix
@@ -152,6 +156,7 @@ const POLICY: Record<MembershipRole, ReadonlySet<Action>> = {
     'dashboard.read', 'payment.read',
     'audit.read',
     'communication.send',
+    'debtor.read', 'reminder.send',
   ]),
   SCHOOL_ADMIN: new Set<Action>([
     'org.settings.read', 'org.settings.update',
@@ -168,6 +173,7 @@ const POLICY: Record<MembershipRole, ReadonlySet<Action>> = {
     'dashboard.read', 'payment.read',
     'audit.read',
     'communication.send',
+    'debtor.read', 'reminder.send',
   ]),
   FINANCE_OFFICER: new Set<Action>([
     'org.settings.read',
@@ -185,6 +191,7 @@ const POLICY: Record<MembershipRole, ReadonlySet<Action>> = {
     'report.financial.read', 'report.financial.export',
     'dashboard.read',
     'communication.send',
+    'debtor.read', 'reminder.send',
     // FINANCE_OFFICER may NOT: manage staff, change org settings, archive/
     // restore students, manage academic sessions/terms/classes, read audit,
     // transfer ownership, delete the org.

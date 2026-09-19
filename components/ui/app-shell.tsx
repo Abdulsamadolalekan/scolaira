@@ -18,10 +18,10 @@ import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils/cn';
 import {
   LogOut, ChevronDown,
-  LayoutDashboard, FileText, Naira, Users, Settings, Shield, Bell,
+  LayoutDashboard, FileText, Naira, Users, Settings, Shield, Bell, AlertTriangle,
 } from '@/components/ui/icons';
 
-export type IconKey = 'dashboard' | 'invoices' | 'payments' | 'students' | 'members' | 'settings' | 'bell';
+export type IconKey = 'dashboard' | 'invoices' | 'payments' | 'students' | 'members' | 'settings' | 'bell' | 'debtors';
 
 const ICONS: Record<IconKey, React.ComponentType<{ size?: number; className?: string }>> = {
   dashboard: LayoutDashboard,
@@ -31,6 +31,7 @@ const ICONS: Record<IconKey, React.ComponentType<{ size?: number; className?: st
   members: Shield,
   settings: Settings,
   bell: Bell,
+  debtors: AlertTriangle,
 };
 
 export interface NavItem {

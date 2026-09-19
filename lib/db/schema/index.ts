@@ -9,4 +9,5 @@ export * from './tenancy';
 export * from './auth';
 export * from './academic';
 export * from './financials';
+export * from './communications';
 export * from './platform';
