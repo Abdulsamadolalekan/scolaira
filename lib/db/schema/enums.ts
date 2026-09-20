@@ -48,6 +48,14 @@ export const studentStatusEnum = pgEnum('student_status', [
 
 export const feeAssignmentStatusEnum = pgEnum('fee_assignment_status', ['DRAFT', 'ACTIVE', 'ARCHIVED']);
 
+export const waiverReasonEnum = pgEnum('waiver_reason', [
+  'SCHOLARSHIP',
+  'SIBLING_DISCOUNT',
+  'STAFF_CHILD',
+  'EARLY_PAYMENT',
+  'OTHER',
+]);
+
 export const invoiceStatusEnum = pgEnum('invoice_status', [
   'DRAFT',
   'ISSUED',

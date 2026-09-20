@@ -41,7 +41,9 @@ Consequences under concurrency:
 - a client retry, browser refresh, or timeout-after-commit sees the existing key and creates no duplicate;
 - an enrollment added after the first commit has a different student key and is safely handled by the next top-up run.
 
-## 2. Atomicity and cohort completeness
+## 2. Effective fee assignment and cohort completeness
+
+A school-wide assignment (`class_id IS NULL`) applies to every enrollment. A class-specific assignment for the same fee definition and term overrides the school-wide assignment for students in that class; this avoids charging a student twice for one named fee when a class price is intentionally configured. The database permits one school-wide assignment per `(organization, fee_definition, term)` and the existing class-scoped uniqueness plus the M8 effective-assignment index prevents duplicate configuration rows. Fee assignment writes are blocked after billing, so a later run cannot silently change an already-issued student's fee structure.
 
 `billTerm` runs inside one database transaction. It first locks the target term with `SELECT ... FOR UPDATE`. Structural writes that can change the billable population or fee structure (`class_enrollments` and `fee_assignments`) take a conflicting `FOR SHARE` lock on their term in a database trigger. Consequently:
 
@@ -55,8 +57,8 @@ Before changing `ACTIVE → BILLED`, the transaction verifies all of the followi
 1. the term is `ACTIVE` and `billed = false`;
 2. there is at least one active enrollment;
 3. there is at least one active, positive-value fee assignment;
-4. every active enrollment has at least one applicable active assignment;
-5. every applicable `(student, assignment)` key exists on a non-void invoice line in the same term;
+4. every active enrollment has at least one applicable active assignment (after class-specific assignments override school-wide assignments);
+5. every applicable `(student, assignment)` key exists on an `ISSUED`, `PARTIALLY_PAID`, or `PAID` invoice line in the same term; a `DRAFT` or `VOID` line is surfaced as a blocked exception and rejects the run because its unique key cannot be silently reused;
 6. every generated invoice is `ISSUED` and has the trigger-maintained total expected from its lines;
 7. all waiver constraints are satisfied and every generated invoice has a positive total (M8 does not issue zero-total invoices; a full scholarship is deferred to a credit/waiver design that can represent a zero obligation without a zero invoice).
 

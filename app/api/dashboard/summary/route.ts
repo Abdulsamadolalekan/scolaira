@@ -39,7 +39,7 @@ export type Summary = {
   };
   attention: Array<{
     id: string;
-    kind: 'overdue_invoice' | 'pending_payment' | 'draft_invoice' | 'stale_followup' | 'aging_summary';
+    kind: 'overdue_invoice' | 'pending_payment' | 'draft_invoice' | 'stale_followup' | 'aging_summary' | 'term_not_billed';
     severity: 'danger' | 'warning' | 'info';
     title: string;
     meta: string;
@@ -288,6 +288,17 @@ export const GET = withAuthorizedRoute(
     const noReminderCount = Number(severe?.noReminderCount ?? 0);
     const overdueCount = Number(overdue_?.overdueCount ?? 0);
     const staleCount = Number(overdue_?.staleCount ?? 0);
+
+    if (currentTerm && currentTerm.status === 'ACTIVE' && !currentTerm.billed) {
+      attention.push({
+        id: 'term-not-billed',
+        kind: 'term_not_billed',
+        severity: 'warning',
+        title: `${currentTerm.name} has not been billed`,
+        meta: 'Review the enrolled population and fee structure before chasing balances.',
+        href: `/terms/${currentTerm.id}/bill`,
+      });
+    }
 
     if (severeCount > 0) {
       attention.push({

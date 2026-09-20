@@ -15,7 +15,8 @@ export const GET = withAuthorizedRoute(
       terms: rows.map(t => ({
         id: t.id, name: t.name, label: t.label,
         sessionId: t.sessionId,
-        isCurrent: t.isCurrent, startsOn: t.startsOn, endsOn: t.endsOn, dueDate: t.dueDate, status: t.status,
+        isCurrent: t.isCurrent, startsOn: t.startsOn, endsOn: t.endsOn, dueDate: t.dueDate,
+        billed: t.billed, billedAt: t.billedAt, billedBy: t.billedBy, status: t.status,
       })),
     });
   },

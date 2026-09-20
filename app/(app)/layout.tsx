@@ -43,6 +43,7 @@ const ALL_NAV: { section: string; items: ItemDef[] }[] = [
     { label: 'Members',      href: '/members',    icon: 'members',   matchPrefix: '/members',    roles: ['OWNER','SCHOOL_ADMIN'] },
   ]},
   { section: 'Institution', items: [
+    { label: 'Fee structure', href: '/settings/fees', icon: 'settings', matchPrefix: '/settings/fees', roles: ['OWNER','SCHOOL_ADMIN','FINANCE_OFFICER'] },
     { label: 'Settings', href: '/settings', icon: 'settings', matchPrefix: '/settings', roles: ['OWNER','SCHOOL_ADMIN'], badge: 'soon' },
   ]},
 ];

@@ -26,6 +26,32 @@ export default function InvoiceActions({ invoiceId, status, paidKobo, remainingK
   const isPaid = status === 'PAID';
   const hasBalance = remainingKobo > 0;
 
+  async function copyPaymentLink() {
+    setBusy('Copy payment link'); setError(null);
+    try {
+      const existingRes = await fetch('/api/payment-links', { credentials: 'same-origin', cache: 'no-store' });
+      const existing = await existingRes.json().catch(() => ({}));
+      const active = (existing?.links ?? []).find((link: any) => link.invoiceId === invoiceId && link.status === 'ACTIVE');
+      let url = active?.url as string | undefined;
+      if (!url) {
+        const createdRes = await fetch('/api/payment-links', {
+          method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json', ...csrfHeaders() },
+          body: JSON.stringify({ invoiceId }),
+        });
+        const created = await createdRes.json().catch(() => ({}));
+        if (!createdRes.ok) throw new Error(created?.error?.message ?? 'Could not create a payment link.');
+        url = created?.link?.url;
+      }
+      if (!url) throw new Error('Payment link was not returned.');
+      const absolute = `${window.location.origin}${url}`;
+      if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(absolute);
+      else window.prompt('Copy payment link', absolute);
+      setFlash('Payment link copied.');
+      setBusy(null);
+      setTimeout(() => setFlash(null), 2500);
+    } catch (e: any) { setError(e?.message ?? 'Could not copy payment link.'); setBusy(null); }
+  }
+
   async function post(path: string, body: any, label: string) {
     setBusy(label); setError(null);
     try {
@@ -50,6 +76,11 @@ export default function InvoiceActions({ invoiceId, status, paidKobo, remainingK
                 style={{...btnBase, backgroundColor:'var(--color-forest)', color:'white'}}>
             Record payment
           </Link>
+        )}
+        {!isVoid && hasBalance && (
+          <button type="button" style={{...btnBase, backgroundColor:'transparent', borderColor:'var(--color-border)', color:'var(--color-forest)'}} disabled={busy!==null} onClick={copyPaymentLink}>
+            {busy === 'Copy payment link' ? 'Preparing…' : 'Copy payment link'}
+          </button>
         )}
         {isDraft && (
           <button type="button" style={{...btnBase, backgroundColor:'var(--color-forest)', color:'white'}}

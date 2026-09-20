@@ -39,6 +39,12 @@ export default async function globalSetup(_ctx: GlobalSetupContext) {
     await sql`GRANT USAGE ON SCHEMA drizzle TO scolaira_app`;
     await sql`GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO scolaira_app`;
     await sql`GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO scolaira_app`;
+    // Mirror the production migration runner's post-grant hardening. Tests
+    // must exercise the same append-only privilege boundary as runtime.
+    await sql`REVOKE UPDATE, DELETE ON audit_events, reversals FROM scolaira_app`;
+    await sql`REVOKE ALL PRIVILEGES ON waivers FROM scolaira_app`;
+    await sql`GRANT SELECT, INSERT ON waivers TO scolaira_app`;
+    await sql`REVOKE DELETE ON invoices, invoice_lines, payments, payment_allocations, receipts FROM scolaira_app`;
     // Do NOT grant EXECUTE ON ALL FUNCTIONS. Migrations 0010+ explicitly
     // GRANT EXECUTE per-function on a whitelist; blanket grants re-expose
     // restricted SECURITY DEFINER helpers to the runtime role.

@@ -70,6 +70,20 @@ Additional constraints noted per row:
 | PATCH  | /api/students/:id           | ✓   | ✓   | —   | —   | —   | R, A |
 | DELETE | /api/students/:id           | ✓   | ✓   | —   | —   | —   | Soft archive; A (no hard delete of financial-linked students). |
 
+## Controlled term billing (M8)
+
+| Method | Path                                      | OWN | ADM | BUR | TCH | STU | Notes |
+|--------|-------------------------------------------|:---:|:---:|:---:|:---:|:---:|-------|
+| GET    | /api/fee-definitions                      | ✓   | ✓   | ✓   | —   | —   | R; configuration read is gated by fee_definition.manage. |
+| POST   | /api/fee-definitions                      | ✓   | ✓   | ✓   | —   | —   | R, A; authoritative default amount in kobo. |
+| PATCH  | /api/fee-definitions/:id                  | ✓   | ✓   | ✓   | —   | —   | R, A; archive is soft and history-preserving. |
+| GET    | /api/terms/:id/fee-assignments            | ✓   | ✓   | ✓   | —   | —   | R; term fee matrix. |
+| PUT    | /api/terms/:id/fee-assignments            | ✓   | ✓   | ✓   | —   | —   | R, A; replaces only an unbilled term matrix. |
+| GET    | /api/terms/:id/bill-preview               | ✓   | ✓   | ✓   | —   | —   | R; read-only review surface, server-computed. |
+| POST   | /api/terms/:id/bill                       | ✓   | —   | ✓   | —   | —   | R, F, A, I; CSRF; term lock + invoice-line uniqueness + ordinary invoice state machine. |
+
+`term.bill` is deliberately OWNER/FINANCE_OFFICER-only. SCHOOL_ADMIN can configure and review the fee structure but cannot create obligations at term scale. No UI permission is a security boundary: every route re-checks the existing matrix, tenant context, RLS, and financial state rules.
+
 ## Invoices
 
 | Method | Path                        | OWN | ADM | BUR | TCH | STU | Notes |

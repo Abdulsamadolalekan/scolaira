@@ -17,7 +17,7 @@
     "test:e2e": "playwright test",
     "test:e2e:install": "playwright install --with-deps chromium",
     "db:generate": "drizzle-kit generate",
-    "db:migrate": "tsx lib/db/migrate.ts",
+    "db:migrate": "tsx scripts/migrate.ts",
     "db:studio": "drizzle-kit studio"
   },
   "dependencies": {

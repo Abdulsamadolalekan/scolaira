@@ -51,14 +51,27 @@ async function load(): Promise<Summary | null> {
   return res.json();
 }
 
+async function loadCurrentTerm(): Promise<{ id: string; name: string; status: string; billed: boolean } | null> {
+  const h = await headers();
+  const host = h.get('x-forwarded-host') || h.get('host');
+  const proto = h.get('x-forwarded-proto') ?? 'http';
+  const cookie = h.get('cookie') ?? '';
+  if (!host) return null;
+  const res = await fetch(`${proto}://${host}/api/terms`, { cache: 'no-store', headers: { cookie } });
+  if (!res.ok) return null;
+  const data = await res.json();
+  return (data.terms ?? []).find((term: { isCurrent: boolean }) => term.isCurrent) ?? null;
+}
+
 export default async function DebtorsPage() {
   const read = await checkPermission('debtor.read');
   if (!read.allowed) return <AccessDenied surface="Debtors / Aging" requiredRole="Proprietor, Administrator, or Finance Officer" />;
-  const data = await load();
+  const [data, currentTerm] = await Promise.all([load(), loadCurrentTerm()]);
   if (!data) return null;
   const { students, totals } = data;
 
   const buckets = countBuckets(students);
+  const termNeedsBilling = currentTerm?.status === 'ACTIVE' && !currentTerm.billed;
 
   return (
     <div className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
@@ -69,6 +82,13 @@ export default async function DebtorsPage() {
           Students with outstanding balances, ranked by how long the oldest invoice has been overdue. Send a printable reminder in one click.
         </p>
       </div>
+
+      {termNeedsBilling && currentTerm && (
+        <div className="mb-4 flex flex-col gap-2 rounded-lg border px-4 py-3 sm:flex-row sm:items-center sm:justify-between" style={{ borderColor: 'var(--color-gold)', backgroundColor: 'var(--color-gold-tint,#fbf1d1)' }}>
+          <div><div className="text-sm font-semibold" style={{ color: 'var(--color-gold-dark,#8a6b11)' }}>{currentTerm.name} has not been billed</div><div className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>Review the complete enrolled population before treating debtor totals as a collection target.</div></div>
+          <Link href={`/terms/${currentTerm.id}/bill`} className="text-sm font-medium" style={{ color: 'var(--color-forest)' }}>Review billing →</Link>
+        </div>
+      )}
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4 lg:grid-cols-5">
         <KpiCard label="Outstanding" value={totals.outstandingKobo} valueIsMoney compact hint="across open invoices" />

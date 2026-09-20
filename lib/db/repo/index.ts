@@ -20,6 +20,7 @@ export * as classes from './classes';
 export * as students from './students';
 export * as feeDefinitions from './fee-definitions';
 export * as feeAssignments from './fee-assignments';
+export * as billing from './billing';
 export * as invoices from './invoices';
 export * as invoiceLines from './invoice-lines';
 export * as payments from './payments';

@@ -28,7 +28,7 @@ Layer | Owned by Scolaira today
 ---|---
 **Tenant, auth, RLS, authz** | M5-foundation: org isolation, runtime role `scolaira_app` hardened (NOSUPERUSER/NOINHERIT/NOCREATEROLE/NOCREATEDB/NOBYPASSRLS), SECURITY DEFINER resolvers, CSRF on state-changing routes, permission-gated pages and APIs.
 **Academic structure** | `academic_sessions → terms → classes → students → guardians → class_enrollments`. Terms have `billed:boolean` and `status: PLANNED|ACTIVE|BILLED|CLOSED` columns. Enrollments uniquely bind `(student, term)`.
-**Fee configuration (data only)** | `fee_definitions` (name, default amount, type) and `fee_assignments` (fee × class × term, with optional override amount) exist in schema and have repo CRUD but have **no UI, no API routes, and no billing path that consumes them**.
+**Fee configuration (data only)** | `fee_definitions` (name/code, with no amount column yet) and `fee_assignments` (fee × class × term, with override amount and nullable school-wide class scope) exist in schema and have minimal repos but have **no UI, no API routes, and no billing path that consumes them**. M8 adds the authoritative `default_amount_kobo` definition column.
 **Invoices** | Single-student create (POST `/api/invoices`) taking manual `lines[]`; issue; void; detail; list. Numbering DB-assigned. Lines may carry a `fee_assignment_id` FK, but no caller ever sets it.
 **Payments** | Record (manual entry) with optional allocations; PENDING→CONFIRM; ALLOCATE (one invoice at a time through the UI — multi-invoice only via direct API); REVERSE/REFUND/CORRECTION append-only. Overpay is held as `unallocated_kobo` on the payment (no student-level credit ledger).
 **Receipts** | Auto-numbered, amount = sum of ACTIVE allocations (correct under partial payment), printable per payment. Idempotent.
@@ -80,7 +80,7 @@ Friction | Evidence in code | Severity
 **Payment links are invisible in the invoice UI.** `/api/payment-links` and `/p/[token]` work; there is no "Copy payment link" button on `/invoices/[id]`. | ⬛ Code fact | Medium — cheap win but not the bottleneck; collecting against missing invoices is impossible regardless of link UX.
 **Public submit creates PENDING payments with no suggested allocation.** `POST /api/p/[token]/submit` ignores the invoice the link was issued against for allocation (by design, for safety); a bursar must manually allocate every online payment. | ⬛ Code fact | Medium — directly repairable once the billing base is solid.
 **No term-close / carry-forward.** No route, no migration, no logic for rolling outstanding balances forward as opening balances (or a "brought forward" line) into a new term. | ⬛ Code fact | High for multi-term schools, but cannot be designed correctly until term billing is real and every student has an invoice for the current term.
-**No scholarships/waivers/discounts as a first-class entity.** `invoice_lines.adjustment_kobo` exists per line (negative adjustments would model a discount) but nothing names, approves, or reports on them. | ⬛ Code fact | Medium — overlaps with bulk billing (per-student overrides at bill-time are a natural place to introduce waivers).
+**No scholarships/waivers/discounts as a first-class entity.** `invoice_lines.adjustment_kobo` exists per line, but nothing names, approves, or reports on concessions. | ⬛ Code fact | Medium — overlaps with bulk billing (per-student overrides at bill-time are a natural place to introduce immutable waivers).
 **No bank-statement import / automated matching.** No integration, no parser, no matching logic. | ⬛ Code fact | High long-term, but schools that are still hand-keying invoices lose more to missed billings than to slow reconciliation.
 **No statement spanning multiple terms.** `/debtors/[studentId]/statement` prints open invoices but no prior-term history, no running balance. | ⬛ Code fact | Medium — prerequisite is predictable term boundaries from billing + close.
 **Reminder history is PRINT-only; SMS/EMAIL/WHATSAPP are placeholders.** Channels exist as enum values but nothing dispatches. | ⬛ Code fact | Medium — provider wiring is out-of-scope for a milestone; M8 should not introduce external side effects.
@@ -121,10 +121,10 @@ M8 should take the **highest-leverage, lowest-coupling** of these. Billing day i
 Each candidate is graded against the founder's test: would a bursar/proprietor notice the improvement on Monday, in measurable operational terms?
 
 ### Candidate A — Bulk Term Billing (fee definitions + enrollments → issued invoices)
-- **What:** API + UI to define fee templates per class, assign fees to a term, preview the bill run per student, and issue every invoice in one transaction. Flips `terms.billed = true` and `terms.status = BILLED`; subsequent runs are idempotent (only newly enrolled / missing students get invoices); per-student adjustments (waivers) are entered at preview time and land as negative `adjustment_kobo` lines with a typed reason.
+- **What:** API + UI to define reusable fees (M8 adds the missing `default_amount_kobo`), assign fees to a term/class or school-wide, preview the bill run per student, and issue every invoice in one transaction. Flips `terms.billed = true` and `terms.status = BILLED`; subsequent runs are idempotent (only newly enrolled / missing students get invoices); per-student concessions entered at review time become signed negative `invoice_lines.adjustment_kobo` values explained by immutable `waivers` rows with a typed reason.
 - **Evidence it matters:** schema already built (fee_definitions, fee_assignments, class_enrollments, terms.billed/status); current invoice creation is one-by-one; every downstream feature (debtors, reminders, payment links, dashboard collection rate) is only as good as the completeness of the invoice population.
 - **Measurable win:** ~1,200 manual form submissions per term → one preview-and-confirm action; missed-student errors go from "likely" to "zero (if enrollment is current)"; debtor list reflects 100% of enrolled students on day one.
-- **Risk / cost:** medium — one new migration (billing-batch / waiver-reason + constraints), new API routes for fee definitions, fee assignments, and term bill-run, new pages (fee setup + bill-term preview). Idempotency design is subtle (what happens if a student enrolls after billing day?).
+- **Risk / cost:** medium — one new migration (billing key / waiver reason + constraints and structural locks), additive API routes for fee definitions, fee assignments, and term bill-run, new fee-setup and bill-review pages. Idempotency design is subtle (what happens if a student enrolls after billing day?).
 
 ### Candidate B — Smart Allocation (auto-FIFO + multi-invoice + unallocated cash wallet)
 - **What:** when a payment is recorded, auto-apply it to the student's oldest open invoices (configurable order); surface unallocated cash on the student record as a credit balance; allow one allocation form to split a payment across many invoices in one submit.
@@ -190,8 +190,8 @@ Concrete, testable outcomes:
 3. **Idempotency.**
    - Re-running "Bill term" on an already-BILLED term does **not** create duplicate invoices. Instead it tops up: for every currently-enrolled student who does not yet have an invoice covering a given (fee_assignment, term), it issues one. This handles post-billing enrolments (a new student admitted mid-term) without duplicating existing lines.
    - A second run on the same preview without new enrollments/changes returns 200 with `"unchanged": true` and zero new invoices.
-   - Idempotency is enforced by a partial unique index on `invoice_lines (fee_assignment_id)` where the parent invoice is not VOID — once a fee assignment has been billed for a student it cannot be billed again for that term. (If a fee was genuinely missed and must be added, that is an explicit "Add fee to billed term" action, not a silent re-run.)
-4. **Waivers / adjustments at bill time.** A per-student waiver during preview writes an `invoice_lines.adjustment_kobo` (negative) with a structured reason (SCHOLARSHIP, SIBLING_DISCOUNT, STAFF_CHILD, EARLY_PAYMENT, OTHER) recorded in a new `waivers` table (or a structured JSON column on the line with an audit log — to be decided at implementation). The total waiver kobo per term is queryable for reporting.
+   - Idempotency is enforced by a database unique index on the denormalized billing key `(organization_id, billing_student_id, billing_term_id, fee_assignment_id)` for fee-assignment-backed lines. A trigger proves those guard columns match the parent invoice and assignment; once a key exists it cannot be silently billed again, including after a void.
+4. **Waivers / adjustments at bill time.** A per-student concession during review inserts an immutable `waivers` row (positive magnitude, approved by the acting OWNER/FINANCE_OFFICER, reason `SCHOLARSHIP | SIBLING_DISCOUNT | STAFF_CHILD | EARLY_PAYMENT | OTHER`). The database trigger applies it to the draft line as a signed negative `invoice_lines.adjustment_kobo`, keeps `amount_kobo` non-negative, and the invoice-issue guard requires the waiver and line adjustment to agree. A concession may not reduce a generated invoice total to zero.
 5. **No silent mutations.** Every invoice created in a bill run is a normal invoice, moving through the existing DRAFT→ISSUED state machine, with trigger-maintained balances, identical to an invoice created one-by-one. There is no "batch" state that bypasses existing invariants. All existing M5/M6/M7 tests continue to pass unchanged because the entities produced are ordinary invoices and lines.
 6. **Dashboard adapts.** The Command Center continues to show KPIs, but now those KPIs reflect a complete billed set. A small "Term not yet billed" banner appears on `/dashboard` and `/debtors` when `terms.status = 'ACTIVE' AND billed = false`, nudging the bursar to run billing before chasing debts.
 7. **Payment link affordance (fast-follow, small):** a "Copy payment link" button on `/invoices/[id]` creates (or reuses) a payment link via the existing `/api/payment-links` endpoint and copies `{origin}/p/{token}` to the clipboard. This is deliberately tiny and can ship in the same milestone because it reuses M6's API unchanged.
@@ -208,14 +208,14 @@ Out of scope is defined in §15.
 
 - Add to `fee_definitions`: `default_amount_kobo BIGINT NOT NULL DEFAULT 0 CHECK (default_amount_kobo >= 0)` (the column is missing today — bulk billing cannot work without it; drizzle schema file updated accordingly). Add a comment documenting that class/term overrides live on `fee_assignments.amount_kobo`.
 - Add to `terms`: `billed_at timestamptz`, `billed_by uuid references users(id)` (the existing `billed boolean` flag and `term_status` enum already include `BILLED` and are reused; no enum change needed).
-- Add `waivers` table (or widen `invoice_lines` with a waiver reason column) — exact shape to decide at implementation; must carry: `organization_id`, `invoice_line_id` (or `invoice_id`), `reason` enum (`SCHOLARSHIP | SIBLING_DISCOUNT | STAFF_CHILD | EARLY_PAYMENT | OTHER`), `amount_kobo` (negative, `CHECK (amount_kobo <= 0 AND -amount_kobo <= invoice_lines.amount_kobo)` enforced via trigger since cross-table), `approved_by`, timestamps, standard RLS, tenant foreign keys, and an immutable-after-insert trigger mirroring `trg_reminders_immutable`.
-- Partial unique index on `invoice_lines (fee_assignment_id, <student via invoice>)` — prevents re-billing the same fee to the same student for the same term even across re-runs. (Implementation note: an FK from `invoice_lines.invoice_id` to `invoices.id` already gives access to `student_id`, `term_id`; the unique index spans `(invoice_id → fee_assignment_id)` via the join, which may require a trigger or a redundant `student_id`/`term_id` on the line. To be decided.)
-- Optional: `billing_batches` table, one row per "Bill term" click, with inputs snapshot (term, fee-assignment version hash) and outcome counts — for audit/debug. Useful but not strictly required; decide against if it introduces a second source of truth.
+- Add immutable `waivers` table: `organization_id`, unique `invoice_line_id`, fixed `reason` enum (`SCHOLARSHIP | SIBLING_DISCOUNT | STAFF_CHILD | EARLY_PAYMENT | OTHER`), positive `amount_kobo` magnitude, `approved_by`, `note`, `created_at`, standard RLS, tenant FKs, and update/delete-blocking trigger. The waiver trigger applies the negative line adjustment while the parent invoice is DRAFT; the invoice issue guard proves the line and waiver agree.
+- Add nullable `invoice_lines.billing_student_id` and `billing_term_id`, with tenant FKs, a consistency trigger against the parent invoice/fee assignment, and a unique index on `(organization_id, billing_student_id, billing_term_id, fee_assignment_id)` for fee-backed lines. This is the smallest safe schema change because PostgreSQL cannot build a child-table unique index across parent columns.
+- No `billing_batches` table: the ordinary invoice/line rows plus per-invoice and batch audit events are sufficient and avoid a second source of truth.
 
 ### Repos
 
 - Extend `lib/db/repo/fee-definitions.ts`: currently has only `create`, `get`, `listForOrg`; add `update`, `archive` (soft by flipping `is_active = false`, preserving history).
-- Extend `lib/db/repo/fee-assignments.ts`: currently has only `create`, `get`, `listForTerm`; add `listForClass(es)`, `replaceForTerm` (set/replace assignments for a term in a single transaction), and an `activate`/`archive` pair that transitions `fee_assignment_status` DRAFT → ACTIVE and * → ARCHIVED.
+- Extend `lib/db/repo/fee-assignments.ts`: currently has only `create`, `get`, `listForTerm`; add a detailed term listing, tenant-reference validation, `replaceForTerm` (set/replace assignments for a term in a single transaction), and an `activate`/`archive` pair that transitions `fee_assignment_status` DRAFT → ACTIVE and * → ARCHIVED.
 - New `lib/db/repo/billing.ts`: `previewTerm(termId)` returning the per-student preview without writing (joins `class_enrollments × fee_assignments WHERE status='ACTIVE' AND (class_id IS NULL OR class_id = enrollment.class_id)`); `billTerm(termId, overrides[])` performing the transactional batch using existing `invRepo.createDraft`, `lineRepo.addLines`, `invRepo.issue` calls so money invariants and trigger-maintained balances are untouched.
 - Add `termRepo.markBilled(tx, ctx, termId, byUser)` flipping `billed=true`, `status='BILLED'`, and setting the new `billed_at`/`billed_by` columns atomically.
 
@@ -223,15 +223,15 @@ Out of scope is defined in §15.
 
 - `GET  /api/fee-definitions` / `POST /api/fee-definitions` / `PATCH /api/fee-definitions/[id]` — fee definitions CRUD (`fee_definition.manage`).
 - `GET  /api/terms/[id]/fee-assignments` / `PUT /api/terms/[id]/fee-assignments` — list/replace assignments for a term (`fee_assignment.manage`).
-- `GET  /api/terms/[id]/bill-preview` — returns the preview structure (`term.bill`).
+- `GET  /api/terms/[id]/bill-preview` — returns the read-only preview structure (`term.read`; SCHOOL_ADMIN can review, but cannot issue).
 - `POST /api/terms/[id]/bill` — executes the bill run with per-student overrides; idempotent via `Idempotency-Key` header and via the DB-level unique guard (see §11 Schema); returns `{ created: N, unchanged: M, totalKobo, waiversKobo, termStatus }` (`term.bill`).
 - **No route changes** to invoices, payments, allocations, receipts, reminders, payment links, or the public `/p/[token]` boundary. Existing `POST /api/invoices` continues to work for ad-hoc (one-off) invoices so ad-hoc charges like damages, field trips, and late-registration penalties are not forced into the bulk path.
 
 ### UI
 
 - `/settings/fees` — fee definition CRUD (or under `/terms/[id]`); plus per-term fee assignment matrix (class × fee → amount).
-- `/terms` list gets a "Bill" action per ACTIVE term; `/terms/[id]/bill` shows preview, per-student waiver entry, issue button, and a "Last billed" summary.
-- Dashboard and Debtors surfaces: a small "Term not yet billed" callout when `billed = false` on the current term (only visible to users who can bill).
+- The fee-structure surface selects a term and links to `/terms/[id]/bill`; that page shows preview, per-student concession entry, issue control, and the BILLED/top-up state.
+- Dashboard and Debtors surfaces: a small "Term not yet billed" callout when `billed = false` on the current term. Review is available to term readers; the issue control remains disabled unless the user has `term.bill`.
 - `/invoices/[id]` gets a tiny "Copy payment link" button — calls existing `/api/payment-links` POST, copies to clipboard, no backend changes.
 
 ### Security / invariants preserved
@@ -243,7 +243,7 @@ Every guarantee called out in §3 of the M7 closeout remains intact. Specificall
 - **Tenant isolation / RLS.** All new tables carry `organization_id`, standard RLS policies, and foreign keys to `organizations(id) ON DELETE CASCADE`. Queries run inside `withTenant`; `scolaira_app` retains its hardened attributes.
 - **Authz.** `fee_definition.manage` and `fee_assignment.manage` already exist in the policy matrix and are default-deny; M8 adds exactly one new action `term.bill`, granted only to OWNER and FINANCE_OFFICER, and uses `checkPermission` on every new page. The matrix-as-code invariant (no database-driven permissions; every change is code-reviewed) is preserved.
 - **CSRF** on all POSTs via existing `csrfHeaders()`.
-- **Idempotency** enforced by database unique index on billable (fee_assignment × student × term), not by client state. The bill run endpoint also accepts an `Idempotency-Key` for the batch itself (defence against double-click).
+- **Idempotency** enforced by database unique index on the denormalized billable key (fee_assignment × student × term), not by client state. The term row lock serializes same-term runs; the bill endpoint also accepts an `Idempotency-Key` for response replay after a timeout/double-click.
 - **Public-submit boundary unchanged.** The fast-follow payment-link button uses the existing, M6-hardened endpoint; no new public routes, no widening of public RLS, no auto-allocation on public submit.
 - **Receipt correctness unchanged.** No new receipt path.
 - **Reminder immutability unchanged.**
@@ -251,12 +251,12 @@ Every guarantee called out in §3 of the M7 closeout remains intact. Specificall
 
 ### Financial safety properties (must be verified in tests)
 
-1. Billing an ACTIVE term with no enrollments → 0 invoices created, term status does NOT flip to BILLED (still ACTIVE), user gets an "No enrolled students" warning (400/422?).
+1. Billing an ACTIVE term with no enrollments → 0 invoices created, term status does NOT flip to BILLED (still ACTIVE), user gets a typed `EMPTY_ENROLLMENT` 409 response.
 2. Billing a PLANNED/CLOSED term → 409.
 3. Re-billing a BILLED term does not duplicate invoices; a new enrollee added between the two runs gets exactly one new invoice; all existing invoices are untouched (verified by counting invoices per fee_assignment before/after).
-4. A waiver cannot make a line total negative (server-side invariant, test).
+4. A waiver cannot make a line total negative, and cannot make a generated invoice total zero (database/server invariant, test).
 5. A cross-tenant user cannot bill another org's term; cannot read another org's fee definitions; cannot write waivers against another org's invoices.
-6. A user without `term.bill` (e.g. SCHOOL_ADMIN, STAFF) gets 403 on POST bill and AccessDenied on the page.
+6. A user without `term.bill` (e.g. SCHOOL_ADMIN, STAFF) gets 403 on POST bill; SCHOOL_ADMIN can still read the review page, where the commit control is disabled, and STAFF cannot access the page because they lack `term.read`.
 7. Unauthenticated → 401; CSRF-less POST → 403/401.
 8. Bill runs leave `invoices.total_kobo = sum(invoice_lines.amount_kobo)` (existing trigger), and the resulting invoices appear in the existing `/api/debtors` list with the expected balance on day one.
 9. The fast-follow payment-link button respects the same `paymentLink.create` permission used today; revoking/reuse semantics match existing behaviour.
@@ -271,7 +271,7 @@ When M8 is implemented, "VERIFIED" means:
   - permissions (unauth, CSRF, wrong-role, cross-tenant on every new route);
   - billing lifecycle (planned→rejected, active→billed, closed→rejected, empty-enrollment→rejected);
   - idempotency (double-issue = 0 new invoices; post-billing enrollee is picked up; re-bill with no changes = unchanged);
-  - waiver invariants (negative line amount, capped at line total, permission-gated approval);
+  - waiver invariants (signed line adjustment, non-negative line amount, positive invoice total, capped at gross line total, immutable reason/approver);
   - that the produced invoices are byte-for-byte compatible with manual invoices (show up in `/api/invoices`, `/api/debtors`, dashboard KPIs, accept allocations, produce receipts);
   - RLS on the new tables using the existing `SET LOCAL ROLE scolaira_app` + SAVEPOINT pattern established in M7.
 - **Regression gates**: existing 232 M5/M6/M7 tests pass unchanged (any change to existing tests must be justified, and in almost all cases there should be none — M8 adds additive routes and tables, not mutations to existing ones).
@@ -286,9 +286,9 @@ Real-device, bank integration, and backup/restore drills remain unverified as in
 ## 13. Risks
 
 1. **Over-scoping M8 into "full AR automation."** Mitigation: hard non-goals in §15; bank import, auto-allocation, statement-as-ledger, and multi-channel reminders are explicitly out.
-2. **Double-billing on re-run.** Mitigation: database-level partial unique index (not application logic) guards against duplicate lines for the same fee_assignment+student+term; re-run only tops up missing enrollee invoices.
+2. **Double-billing on re-run.** Mitigation: database-level unique index on the proven `(fee_assignment, billing_student, billing_term)` key (not application logic) guards against duplicate lines; the term row lock serializes same-term runs; re-run only tops up missing enrollee keys.
 3. **Introducing a competing ledger via waivers/batches.** Mitigation: waivers are structured reasons attached to existing `invoice_lines.adjustment_kobo`; they are not a separate balance. No new aggregate numbers are introduced at the KPI layer.
-4. **Per-student waiver UX becoming a backdoor for arbitrary edits.** Mitigation: waivers reason is an enum; amount is capped at line total; requires explicit permission; audit event logged; waivers are immutable after the invoice is ISSUED (adjustment after issue must go through a credit-note flow, deferred).
+4. **Per-student waiver UX becoming a backdoor for arbitrary edits.** Mitigation: waiver reason is an enum; amount is capped at gross line total; requires explicit `term.bill` permission; audit event logged; waiver rows and their applied line effect are immutable (adjustment after issue must go through a credit-note flow, deferred).
 5. **Breaking the invoice state machine.** Mitigation: bill run uses the existing `createDraft → addLines → issue` repo functions; it does not bypass them.
 6. **Cross-migration coupling.** Mitigation: one numbered migration (`0020`) with idempotent DDL where possible; test DB is migrated from 0000 forward to verify.
 7. **Founder test perceived as "just a bulk form."** Mitigation: the framing is not "we added a button"; the framing is "for the first time the system owns the moment at which a term's obligations come into existence, and every M5/M6/M7 feature becomes correct because the invoice population is complete." Measured by (a) time-to-bill, (b) debtor-list coverage = enrolled count on billing day.
@@ -354,9 +354,9 @@ The ordering matters: D4 (close) depends on M8; D5/D6/D7 depend on a clean bille
 
 ## 17. Build Sequence (suggested, for the M8 implementation milestone)
 
-1. **Migration `0020_term_billing.sql`**: add `billed_at`, `billed_by` to terms (already has `billed`/`status`); add `waivers` table; add the partial unique index that prevents double-billing of the same fee assignment to the same student for the same term; add RLS; add audit trigger mirroring existing tables.
-2. **Repo layer** (no routes): extend fee-definitions and fee-assignments repos; add `billing.previewTerm` (read-only) and `billing.billTerm` (transactional, reuses existing invoice/lines/issue repos); add `termRepo.markBilled`.
-3. **Authz**: add the single new action `term.bill` to the `Action` union and the POLICY sets for OWNER and FINANCE_OFFICER only in `lib/authz/permissions.ts` (`fee_definition.manage` and `fee_assignment.manage` already exist with the correct role grants). Add `term.bill` to the audit action enum and to the audit action whitelist.
+1. **Migration `0020_term_billing.sql`**: add `default_amount_kobo`, `billed_at`, `billed_by`, signed line adjustments, billing-key guard columns/index/trigger, immutable `waivers`, term/enrollment structural locks, term-state consistency check, and RLS/least-privilege grants.
+2. **Repo layer (no routes)**: extend fee-definitions and fee-assignments repos; add `billing.previewTerm` (read-only) and `billing.billTerm` (transactional, reuses existing invoice/lines/issue repos); add `termRepo.lockForBilling` and `markBilled`.
+3. **Authz**: add the single new action `term.bill` to the `Action` union and the POLICY sets for OWNER and FINANCE_OFFICER only in `lib/authz/permissions.ts` (`fee_definition.manage` and `fee_assignment.manage` already exist with the correct role grants). Audit actions remain the existing string-based append-only `audit_events.action` field; M8 records `term.bill` and ordinary invoice events without inventing a new audit enum.
 4. **API routes**: fees CRUD, fee-assignments PUT/list for a term, bill-preview GET, bill POST. All behind `withAuthorizedRoute` with CSRF; bill endpoint supports `Idempotency-Key`.
 5. **UI**: settings/fees page (or term-scoped fee matrix); bill preview page with per-student waiver entry; "Term not billed" callout on dashboard and debtors for authorized users.
 6. **Fast-follow**: "Copy payment link" button on invoice detail (no backend changes).
@@ -393,4 +393,4 @@ If the founder has direct field evidence that contradicts the friction ranking, 
 
 ## 20. Recommendation
 
-Proceed with **M8 = Bulk Term Billing (Candidate A)**, with the small payment-link UX fast-follow (Candidate E) folded in if time permits, and with the explicit non-goals and deferred list above. The work is scoped to one migration, a small set of additive routes/pages, and zero changes to existing financial invariants or to the public security boundary. It moves the system from "you can record what happens" to "you drive the start of the term," which is the position Scolaira must occupy before term-close, reconciliation, or self-service can be built honestly.
+Proceed with **M8 = Bulk Term Billing (Candidate A)**, with the small payment-link UX fast-follow (Candidate E) folded in, and with the explicit non-goals and deferred list above. The implementation owns the database invariant and ordinary invoice state machine without changing the public security boundary. It moves the system from "you can record what happens" to "you drive the start of the term," which is the position Scolaira must occupy before term-close, reconciliation, or self-service can be built honestly.

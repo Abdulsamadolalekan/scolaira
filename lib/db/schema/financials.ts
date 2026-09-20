@@ -34,6 +34,7 @@ import {
   allocationStatusEnum,
   receiptStatusEnum,
   reversalTypeEnum,
+  waiverReasonEnum,
 } from './enums';
 
 // ---------- Helpers for kobo (non-negative BIGINT) ----------
@@ -52,6 +53,7 @@ export const feeDefinitions = pgTable('fee_definitions', {
   code: varchar('code', { length: 32 }).notNull(), // e.g. "TUITION", "DEV_LEVY"
   name: varchar('name', { length: 120 }).notNull(), // "Tuition Fee"
   description: text('description'),
+  defaultAmountKobo: bigint('default_amount_kobo', { mode: 'number' }).notNull().default(0),
   isActive: boolean('is_active').notNull().default(true),
   ...timestamps(),
 }, (t) => [
@@ -135,6 +137,11 @@ export const invoiceLines = pgTable('invoice_lines', {
   feeAssignmentId: uuid('fee_assignment_id').references(() => feeAssignments.id, {
     onDelete: 'restrict',
   }),
+  // Denormalized billing key columns. They are NULL for legitimate ad-hoc
+  // lines; M8's database trigger proves they match invoice.student_id /
+  // invoice.term_id whenever feeAssignmentId is present.
+  billingStudentId: uuid('billing_student_id').references(() => students.id, { onDelete: 'restrict' }),
+  billingTermId: uuid('billing_term_id').references(() => terms.id, { onDelete: 'restrict' }),
   description: varchar('description', { length: 255 }).notNull(),
   quantity: integer('quantity').notNull().default(1),
   unitRateKobo: koboColumn('unit_rate_kobo'),
@@ -290,6 +297,45 @@ export const invoiceLinesRelations = relations(invoiceLines, ({ one }) => ({
     fields: [invoiceLines.feeAssignmentId],
     references: [feeAssignments.id],
   }),
+  billingStudent: one(students, {
+    fields: [invoiceLines.billingStudentId],
+    references: [students.id],
+  }),
+  billingTerm: one(terms, {
+    fields: [invoiceLines.billingTermId],
+    references: [terms.id],
+  }),
+}));
+
+export const waivers = pgTable('waivers', {
+  id: pk(),
+  organizationId: uuid('organization_id')
+    .notNull()
+    .references(() => organizations.id, { onDelete: 'cascade' }),
+  invoiceLineId: uuid('invoice_line_id')
+    .notNull()
+    .references(() => invoiceLines.id, { onDelete: 'restrict' }),
+  reason: waiverReasonEnum('reason').notNull(),
+  amountKobo: koboColumn('amount_kobo'),
+  note: text('note'),
+  approvedBy: uuid('approved_by')
+    .notNull()
+    .references(() => users.id, { onDelete: 'restrict' }),
+  createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
+    .notNull()
+    .defaultNow(),
+}, (t) => [
+  uniqueIndex('waivers_invoice_line_unique_idx').on(t.invoiceLineId),
+  index('waivers_org_created_idx').on(t.organizationId, t.createdAt),
+  index('waivers_org_reason_idx').on(t.organizationId, t.reason),
+]);
+
+export const waiversRelations = relations(waivers, ({ one }) => ({
+  invoiceLine: one(invoiceLines, {
+    fields: [waivers.invoiceLineId],
+    references: [invoiceLines.id],
+  }),
+  approver: one(users, { fields: [waivers.approvedBy], references: [users.id] }),
 }));
 
 export const paymentsRelations = relations(payments, ({ many }) => ({
