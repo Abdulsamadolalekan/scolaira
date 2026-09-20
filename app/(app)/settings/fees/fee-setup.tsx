@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { csrfHeaders } from '@/lib/ui/csrf';
 import { Alert } from '@/components/ui/alert';
@@ -42,14 +42,14 @@ export default function FeeSetup() {
   const selectedTerm = terms.find((term) => term.id === termId);
   const activeFees = useMemo(() => fees.filter((fee) => fee.isActive), [fees]);
 
-  async function getJson(path: string) {
+  const getJson = useCallback(async (path: string) => {
     const response = await fetch(path, { credentials: 'same-origin', cache: 'no-store' });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(data?.error?.message ?? 'Could not load fee setup.');
     return data;
-  }
+  }, []);
 
-  async function loadAssignments(nextTermId: string) {
+  const loadAssignments = useCallback(async (nextTermId: string) => {
     if (!nextTermId) return;
     try {
       const data = await getJson(`/api/terms/${nextTermId}/fee-assignments`);
@@ -63,7 +63,7 @@ export default function FeeSetup() {
         status: row.status === 'ACTIVE' ? 'ACTIVE' : 'DRAFT',
       })));
     } catch (e) { setError((e as Error).message); }
-  }
+  }, [getJson]);
 
   useEffect(() => {
     let cancelled = false;
@@ -79,9 +79,9 @@ export default function FeeSetup() {
       .catch((e) => setError((e as Error).message))
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, []);
+  }, [getJson]);
 
-  useEffect(() => { if (termId) void loadAssignments(termId); }, [termId]);
+  useEffect(() => { if (termId) void loadAssignments(termId); }, [loadAssignments, termId]);
 
   async function createFee(e: React.FormEvent) {
     e.preventDefault(); setError(null); setNotice(null);

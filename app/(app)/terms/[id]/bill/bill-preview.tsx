@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { csrfHeaders } from '@/lib/ui/csrf';
 import { Alert } from '@/components/ui/alert';
@@ -34,7 +34,7 @@ export default function BillPreview({ termId, canBill }: { termId: string; canBi
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
-  async function load() {
+  const load = useCallback(async () => {
     setLoading(true); setError(null);
     try {
       const response = await fetch(`/api/terms/${termId}/bill-preview`, { credentials: 'same-origin', cache: 'no-store' });
@@ -43,8 +43,8 @@ export default function BillPreview({ termId, canBill }: { termId: string; canBi
       setPreview(data.preview);
     } catch (e) { setError((e as Error).message); }
     finally { setLoading(false); }
-  }
-  useEffect(() => { void load(); }, [termId]);
+  }, [termId]);
+  useEffect(() => { void load(); }, [load]);
 
   const overrideRows = useMemo(() => Object.values(overrides), [overrides]);
   const waiverTotal = overrideRows.reduce((sum, row) => sum + row.amountKobo, 0);
