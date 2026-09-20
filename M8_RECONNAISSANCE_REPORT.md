@@ -14,7 +14,7 @@ M5 made the books correct. M6 hardened the financial edges, added receipts, and 
 
 **What is missing, and what makes every downstream feature wobble, is the act of billing itself.**
 
-Today a bursar must issue invoices one student at a time, manually typing line items, despite the database already containing: (a) `fee_definitions` (named fees with a default amount), (b) `fee_assignments` linking fee definitions to `(class, term)`, (c) `class_enrollments` (which student is in which class this term), and (d) `terms.billed` / `terms.status` lifecycle columns (`PLANNED → ACTIVE → BILLED → CLOSED`) that are currently written by no code path. The schema was built for bulk term billing; the product does not perform it.
+Today a bursar must issue invoices one student at a time, manually typing line items, despite the database already containing: (a) `fee_definitions` (named fees with a code — TUITION, DEV_LEVY — but **no amount column yet**, a schema gap M8 fills with `default_amount_kobo`), (b) `fee_assignments` linking fee definitions to `(class, term)` with an `amount_kobo` override and a nullable `class_id` (org-wide fees), (c) `class_enrollments` (which student is in which class this term, uniquely per `(student, term)`), and (d) `terms.billed` / `terms.status` lifecycle columns (`PLANNED → ACTIVE → BILLED → CLOSED`) that are currently written by no code path. The schema was built for bulk term billing; the product does not perform it.
 
 **Selected M8 thesis:** *Make Scolaira the system a school uses to actually bill an entire term in one controlled, auditable pass — taking the configured fee structure and enrolled population and turning them into issued invoices, with a pre-issue preview, per-student overrides, idempotent re-runs, and a term-level "Billed" transition that locks a cohort into the collection cycle the rest of M5/M6/M7 already supports.*
 
@@ -38,7 +38,7 @@ Layer | Owned by Scolaira today
 **Communications plumbing** | `reminders` table (PRINT only wired to action; SMS/EMAIL/WHATSAPP accepted as PENDING for future providers).
 **Audit** | Append-only `audit_events` on every financial write, with immutable triggers on financial entities and reminders.
 
-**Gaps (schema present, product dormant):** fee_definitions UI/API, fee_assignments UI/API, term billing (the `billed` flag never flips), term close / carry-forward, opening balances, student-level credit/wallet, scholarships/waivers/discounts as a first-class concept, bulk invoice generation, invoice-level shareable payment-link action, statement-as-a-ledger across terms.
+**Gaps (schema present, product dormant):** fee_definitions have no UI or API routes and the repo only supports `create/get/listForOrg` (no update/archive); fee_assignments have no UI or API routes and the repo only supports `create/get/listForTerm` (no replace, no list-for-classes, no activation); `feeAssignments.status` (DRAFT/ACTIVE/ARCHIVED) and `feeAssignments.classId` being nullable (signaling org-wide fees that apply to every student regardless of class) are unconsumed by any code path; term billing (the `billed` flag never flips); term close / carry-forward; opening balances; student-level credit/wallet; scholarships/waivers/discounts as a first-class concept; bulk invoice generation; invoice-level shareable payment-link action; statement-as-a-ledger across terms. The authorization actions `fee_definition.manage` and `fee_assignment.manage` are already granted to OWNER/SCHOOL_ADMIN/FINANCE_OFFICER in `lib/authz/permissions.ts` but nothing routes to them.
 
 ---
 
@@ -178,10 +178,10 @@ Each candidate is graded against the founder's test: would a bursar/proprietor n
 
 Concrete, testable outcomes:
 
-1. **Fee setup.** An `OWNER` or `FINANCE_OFFICER` can
-   - create and edit fee definitions (name, code optional, description, default amount in kobo, applies to class level optional), scoped to the tenant;
-   - assign a fee definition to one or more classes for a given term, with an optional per-(fee,class,term) override amount.
-2. **Bill-term action.** From the term (or a new "Bill run" page), an authorized user can click "Bill term" for the current ACTIVE term. The system:
+1. **Fee setup.** An `OWNER`, `SCHOOL_ADMIN`, or `FINANCE_OFFICER` (all three already hold `fee_definition.manage` + `fee_assignment.manage` in the existing policy matrix in `lib/authz/permissions.ts`) can
+   - create and edit fee definitions (`code` — e.g. `TUITION`, `DEV_LEVY`; `name`; `description`; `default_amount_kobo` — a new column in migration 0020 because the current schema has **no** amount on fee_definitions, only `code/name/description/isActive`; `isActive`), scoped to the tenant; `code` is unique per org via the existing `fee_defs_org_code_idx`;
+   - assign a fee definition to a specific class, or leave `classId = NULL` to indicate an **org-wide** fee that applies to every enrolled student in the term (the column is already nullable), with a per-(fee,class,term) override amount (the existing `amount_kobo`) and optional `dueDate` and `adjustment_kobo`; assignments transition DRAFT → ACTIVE before billing (the `fee_assignment_status` enum DRAFT/ACTIVE/ARCHIVED already exists in `enums.ts` but is unused); ARCHIVED assignments are skipped.
+2. **Bill-term action.** From the term (or a new "Bill run" page), an authorized user can click "Bill term" for the current ACTIVE term. A new action `term.bill` is added to the permission matrix (granted to OWNER and FINANCE_OFFICER; explicitly **not** to SCHOOL_ADMIN — finalising a term's bill is a proprietor/finance-gate step, distinct from configuring fees). The system:
    - refuses if the term is `PLANNED` or already `CLOSED` (409);
    - computes a **preview**: for each enrolled student in each class, the list of applicable fees (via `class_enrollments × fee_assignments`), the per-line amount, any per-student adjustment already on file, and the invoice total; shows class-level and term-level totals;
    - highlights students who already have an invoice in this term for the same fee assignment (to prevent double-billing);
@@ -195,7 +195,7 @@ Concrete, testable outcomes:
 5. **No silent mutations.** Every invoice created in a bill run is a normal invoice, moving through the existing DRAFT→ISSUED state machine, with trigger-maintained balances, identical to an invoice created one-by-one. There is no "batch" state that bypasses existing invariants. All existing M5/M6/M7 tests continue to pass unchanged because the entities produced are ordinary invoices and lines.
 6. **Dashboard adapts.** The Command Center continues to show KPIs, but now those KPIs reflect a complete billed set. A small "Term not yet billed" banner appears on `/dashboard` and `/debtors` when `terms.status = 'ACTIVE' AND billed = false`, nudging the bursar to run billing before chasing debts.
 7. **Payment link affordance (fast-follow, small):** a "Copy payment link" button on `/invoices/[id]` creates (or reuses) a payment link via the existing `/api/payment-links` endpoint and copies `{origin}/p/{token}` to the clipboard. This is deliberately tiny and can ship in the same milestone because it reuses M6's API unchanged.
-8. **Permissions.** A new action `term.bill` plus a `fee.manage` action, both granted to `OWNER` and `FINANCE_OFFICER`; `SCHOOL_ADMIN` gets `fee.manage` but not `term.bill` (billing is the proprietor/finance final step); `STAFF`/read-only roles get neither. All pages and routes are permission-gated via existing `withAuthorizedRoute` and `checkPermission`.
+8. **Permissions.** The policy matrix in `lib/authz/permissions.ts` already contains `fee_definition.manage` and `fee_assignment.manage` (granted to OWNER / SCHOOL_ADMIN / FINANCE_OFFICER). M8 adds exactly one new action: `term.bill`, granted to OWNER and FINANCE_OFFICER only — finalising a term's bill is a proprietor/finance gate, distinct from configuring fee templates (which school admins can do). SCHOOL_ADMIN can therefore set up fees but cannot pull the trigger; STAFF and read-only roles get neither. All pages and routes are permission-gated via the existing `withAuthorizedRoute` and `checkPermission`, preserving the matrix-as-code invariant documented at the top of `permissions.ts`.
 9. **Audit.** Bill runs produce: (a) individual `invoice.create` audit events per generated invoice (same as manual creation — reuse the existing audit call so audit tooling doesn't fork), and (b) a single `term.bill` audit event per batch with metadata `{ termId, invoicesCreated, totalKobo, waiversKobo }`.
 
 Out of scope is defined in §15.
@@ -206,25 +206,26 @@ Out of scope is defined in §15.
 
 ### Schema changes (one migration, `0020_term_billing.sql`)
 
-- Add to `terms`: `billed_at timestamptz`, `billed_by uuid references users(id)` (the existing `billed boolean` flag and `status` enum are reused).
-- Add `waivers` table (or widen `invoice_lines` with a waiver reason) — exact shape to decide at implementation; must carry: `organization_id`, `invoice_line_id` (or `invoice_id`), `reason` enum, `amount_kobo` (negative), `approved_by`, timestamps, RLS, tenant foreign keys.
+- Add to `fee_definitions`: `default_amount_kobo BIGINT NOT NULL DEFAULT 0 CHECK (default_amount_kobo >= 0)` (the column is missing today — bulk billing cannot work without it; drizzle schema file updated accordingly). Add a comment documenting that class/term overrides live on `fee_assignments.amount_kobo`.
+- Add to `terms`: `billed_at timestamptz`, `billed_by uuid references users(id)` (the existing `billed boolean` flag and `term_status` enum already include `BILLED` and are reused; no enum change needed).
+- Add `waivers` table (or widen `invoice_lines` with a waiver reason column) — exact shape to decide at implementation; must carry: `organization_id`, `invoice_line_id` (or `invoice_id`), `reason` enum (`SCHOLARSHIP | SIBLING_DISCOUNT | STAFF_CHILD | EARLY_PAYMENT | OTHER`), `amount_kobo` (negative, `CHECK (amount_kobo <= 0 AND -amount_kobo <= invoice_lines.amount_kobo)` enforced via trigger since cross-table), `approved_by`, timestamps, standard RLS, tenant foreign keys, and an immutable-after-insert trigger mirroring `trg_reminders_immutable`.
 - Partial unique index on `invoice_lines (fee_assignment_id, <student via invoice>)` — prevents re-billing the same fee to the same student for the same term even across re-runs. (Implementation note: an FK from `invoice_lines.invoice_id` to `invoices.id` already gives access to `student_id`, `term_id`; the unique index spans `(invoice_id → fee_assignment_id)` via the join, which may require a trigger or a redundant `student_id`/`term_id` on the line. To be decided.)
 - Optional: `billing_batches` table, one row per "Bill term" click, with inputs snapshot (term, fee-assignment version hash) and outcome counts — for audit/debug. Useful but not strictly required; decide against if it introduces a second source of truth.
 
 ### Repos
 
-- Extend `lib/db/repo/fee-definitions.ts` with `update`, `listForOrg` (exists), `archive`.
-- Extend `lib/db/repo/fee-assignments.ts` with `listForClass(es)`, `replaceForTerm` (to re-assign fees for a term in one transaction — useful for bulk assignment).
-- New `lib/db/repo/billing.ts`: `previewTerm(termId)` returning the per-student preview without writing; `billTerm(termId, overrides[])` performing the transactional batch using existing `invRepo.createDraft`, `lineRepo.addLines`, `invRepo.issue` calls so money invariants are untouched.
-- Add `termRepo.markBilled(tx, ctx, termId)` flipping the flags atomically.
+- Extend `lib/db/repo/fee-definitions.ts`: currently has only `create`, `get`, `listForOrg`; add `update`, `archive` (soft by flipping `is_active = false`, preserving history).
+- Extend `lib/db/repo/fee-assignments.ts`: currently has only `create`, `get`, `listForTerm`; add `listForClass(es)`, `replaceForTerm` (set/replace assignments for a term in a single transaction), and an `activate`/`archive` pair that transitions `fee_assignment_status` DRAFT → ACTIVE and * → ARCHIVED.
+- New `lib/db/repo/billing.ts`: `previewTerm(termId)` returning the per-student preview without writing (joins `class_enrollments × fee_assignments WHERE status='ACTIVE' AND (class_id IS NULL OR class_id = enrollment.class_id)`); `billTerm(termId, overrides[])` performing the transactional batch using existing `invRepo.createDraft`, `lineRepo.addLines`, `invRepo.issue` calls so money invariants and trigger-maintained balances are untouched.
+- Add `termRepo.markBilled(tx, ctx, termId, byUser)` flipping `billed=true`, `status='BILLED'`, and setting the new `billed_at`/`billed_by` columns atomically.
 
 ### API routes (all gated by existing `withAuthorizedRoute`)
 
-- `GET  /api/fees` / `POST /api/fees` / `PATCH /api/fees/[id]` — fee definitions CRUD (`fee.manage`).
-- `GET  /api/terms/[id]/fee-assignments` / `PUT /api/terms/[id]/fee-assignments` — list/replace assignments for a term (`fee.manage`).
+- `GET  /api/fee-definitions` / `POST /api/fee-definitions` / `PATCH /api/fee-definitions/[id]` — fee definitions CRUD (`fee_definition.manage`).
+- `GET  /api/terms/[id]/fee-assignments` / `PUT /api/terms/[id]/fee-assignments` — list/replace assignments for a term (`fee_assignment.manage`).
 - `GET  /api/terms/[id]/bill-preview` — returns the preview structure (`term.bill`).
-- `POST /api/terms/[id]/bill` — executes the bill run with per-student overrides; idempotent; returns `{ created: N, unchanged: M, totalKobo, waiversKobo, termStatus }` (`term.bill`).
-- No route changes to invoices, payments, allocations, receipts, reminders, or payment links. Existing POST `/api/invoices` continues to work for ad-hoc invoices.
+- `POST /api/terms/[id]/bill` — executes the bill run with per-student overrides; idempotent via `Idempotency-Key` header and via the DB-level unique guard (see §11 Schema); returns `{ created: N, unchanged: M, totalKobo, waiversKobo, termStatus }` (`term.bill`).
+- **No route changes** to invoices, payments, allocations, receipts, reminders, payment links, or the public `/p/[token]` boundary. Existing `POST /api/invoices` continues to work for ad-hoc (one-off) invoices so ad-hoc charges like damages, field trips, and late-registration penalties are not forced into the bulk path.
 
 ### UI
 
@@ -240,7 +241,7 @@ Every guarantee called out in §3 of the M7 closeout remains intact. Specificall
 - **No second ledger.** Bill runs produce ordinary invoices and invoice_lines; `total_kobo`, `paid_kobo`, `unallocated_kobo` remain trigger-maintained. The new `waivers` table is an audit record of *why* an `adjustment_kobo` exists, not a competing balance.
 - **No UI as financial authority.** All money writes go through the same repos and the same state machine (DRAFT→ISSUED), with triggers as the hard guarantee. The preview is read-only; the issue action is server-validated.
 - **Tenant isolation / RLS.** All new tables carry `organization_id`, standard RLS policies, and foreign keys to `organizations(id) ON DELETE CASCADE`. Queries run inside `withTenant`; `scolaira_app` retains its hardened attributes.
-- **Authz.** Two new actions, default-deny, granted only to the documented roles; pages use `checkPermission`.
+- **Authz.** `fee_definition.manage` and `fee_assignment.manage` already exist in the policy matrix and are default-deny; M8 adds exactly one new action `term.bill`, granted only to OWNER and FINANCE_OFFICER, and uses `checkPermission` on every new page. The matrix-as-code invariant (no database-driven permissions; every change is code-reviewed) is preserved.
 - **CSRF** on all POSTs via existing `csrfHeaders()`.
 - **Idempotency** enforced by database unique index on billable (fee_assignment × student × term), not by client state. The bill run endpoint also accepts an `Idempotency-Key` for the batch itself (defence against double-click).
 - **Public-submit boundary unchanged.** The fast-follow payment-link button uses the existing, M6-hardened endpoint; no new public routes, no widening of public RLS, no auto-allocation on public submit.
@@ -355,7 +356,7 @@ The ordering matters: D4 (close) depends on M8; D5/D6/D7 depend on a clean bille
 
 1. **Migration `0020_term_billing.sql`**: add `billed_at`, `billed_by` to terms (already has `billed`/`status`); add `waivers` table; add the partial unique index that prevents double-billing of the same fee assignment to the same student for the same term; add RLS; add audit trigger mirroring existing tables.
 2. **Repo layer** (no routes): extend fee-definitions and fee-assignments repos; add `billing.previewTerm` (read-only) and `billing.billTerm` (transactional, reuses existing invoice/lines/issue repos); add `termRepo.markBilled`.
-3. **Authz**: add `fee.manage` and `term.bill` permissions with role grants in `lib/authz/permissions.ts`; add them to the audit action enum.
+3. **Authz**: add the single new action `term.bill` to the `Action` union and the POLICY sets for OWNER and FINANCE_OFFICER only in `lib/authz/permissions.ts` (`fee_definition.manage` and `fee_assignment.manage` already exist with the correct role grants). Add `term.bill` to the audit action enum and to the audit action whitelist.
 4. **API routes**: fees CRUD, fee-assignments PUT/list for a term, bill-preview GET, bill POST. All behind `withAuthorizedRoute` with CSRF; bill endpoint supports `Idempotency-Key`.
 5. **UI**: settings/fees page (or term-scoped fee matrix); bill preview page with per-student waiver entry; "Term not billed" callout on dashboard and debtors for authorized users.
 6. **Fast-follow**: "Copy payment link" button on invoice detail (no backend changes).
