@@ -86,7 +86,20 @@ export const POST = withAuthorizedRoute(
         metadata: { requestId, note: data.note ?? null },
       });
       return NextResponse.json({ receipt: { id: receipt.id, receiptNumber: receipt.receiptNumber, amountKobo: receipted, status: receipt.status } }, { status: 201 });
-    } catch (e) {
+    } catch (e: any) {
+      if (e?.code === '23505') {
+        // M9 database uniqueness is the winner under a concurrent issue race.
+        // Re-read the committed ISSUED receipt and return it as the idempotent
+        // result instead of surfacing a generic conflict.
+        const winner = await db.select()
+          .from(receipts)
+          .where(and(eq(receipts.paymentId, data.paymentId), eq(receipts.status, 'ISSUED')))
+          .orderBy(desc(receipts.issuedAt))
+          .limit(1);
+        if (winner[0]) {
+          return NextResponse.json({ receipt: { id: winner[0].id, receiptNumber: winner[0].receiptNumber, amountKobo: Number(winner[0].amountKobo), status: winner[0].status } }, { status: 200 });
+        }
+      }
       if (e instanceof RepoInvariantError) {
         throw new AuthzError(AuthzErrorCode.BAD_REQUEST, e.message, 400);
       }

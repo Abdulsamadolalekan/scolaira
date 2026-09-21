@@ -23,6 +23,43 @@ beforeEach(async () => {
   await sql`BEGIN`;
 });
 
+let originalTransaction: ((fn: (tx: any) => Promise<unknown>) => Promise<unknown>) | null = null;
+
+/**
+ * Route-test opt-in for handlers that must run inside the outer per-test
+ * transaction. Production handlers still use Drizzle BEGIN/COMMIT. The M9
+ * workflow is intentionally one isolated test, so it can use savepoints
+ * without changing the frozen M5–M8 route-boundary tests that deliberately
+ * carry committed setup state between assertions.
+ */
+export function enableSavepointTransactionsForTest(): void {
+  const harnessDb = getDb() as any;
+  if (originalTransaction) return;
+  originalTransaction = harnessDb.transaction.bind(harnessDb);
+  const transactionDb = harnessDb;
+  const sql = getSql();
+  harnessDb.transaction = async (fn: (tx: any) => Promise<unknown>) => {
+    const savepoint = `route_tx_${Math.random().toString(36).slice(2, 12)}`;
+    await sql.unsafe(`SAVEPOINT ${savepoint}`);
+    try {
+      const result = await fn(transactionDb);
+      await sql.unsafe(`RELEASE SAVEPOINT ${savepoint}`);
+      return result;
+    } catch (error) {
+      try { await sql.unsafe(`ROLLBACK TO SAVEPOINT ${savepoint}`); } catch { /* preserve original error */ }
+      try { await sql.unsafe(`RELEASE SAVEPOINT ${savepoint}`); } catch { /* preserve original error */ }
+      throw error;
+    }
+  };
+}
+
+export function disableSavepointTransactionsForTest(): void {
+  if (!originalTransaction) return;
+  const harnessDb = getDb() as any;
+  harnessDb.transaction = originalTransaction;
+  originalTransaction = null;
+}
+
 afterEach(async () => {
   const sql = getSql();
   try {

@@ -11,6 +11,7 @@ import { and, eq, sql, desc } from 'drizzle-orm';
 import { withAuthorizedRoute, assertResourceInOrg, AuthzError, AuthzErrorCode } from '@/lib/authz';
 import * as studentRepo from '@/lib/db/repo/students';
 import * as auditRepo from '@/lib/db/repo/audit-events';
+import { begin as beginIdempotency, complete as completeIdempotency } from '@/lib/m9/idempotency';
 import { invoices } from '@/lib/db/schema';
 
 export const runtime = 'nodejs';
@@ -98,22 +99,30 @@ export const GET = withAuthorizedRoute(
 
 export const PATCH = withAuthorizedRoute(
   { action: 'student.update', method: 'PATCH', bodySchema: PatchSchema },
-  async (_req, { db, ctx, requestId, body }, params) => {
+  async (req, { db, ctx, requestId, body }, params) => {
     const { id } = await (params as { params: Promise<{ id: string }> }).params;
-    const existing = await studentRepo.get(db, ctx, id as any);
-    assertResourceInOrg(ctx, existing, 'Student');
     const data = PatchSchema.parse(body);
-    const updated = await studentRepo.update(db, ctx, id as any, {
-      ...data,
-      dateOfBirth: data.dateOfBirth === null ? null : data.dateOfBirth,
-      admissionDate: data.admissionDate === null ? null : data.admissionDate,
+    return db.transaction(async (tx) => {
+      const idem = await beginIdempotency(tx, ctx, req, {
+        scope: 'student.update', path: `/api/students/${id}`, payload: { id, ...data },
+      });
+      if (idem.replay) return idem.replay;
+      const existing = await studentRepo.get(tx, ctx, id as any);
+      assertResourceInOrg(ctx, existing, 'Student');
+      const updated = await studentRepo.update(tx, ctx, id as any, {
+        ...data,
+        dateOfBirth: data.dateOfBirth === null ? null : data.dateOfBirth,
+        admissionDate: data.admissionDate === null ? null : data.admissionDate,
+      });
+      await auditRepo.record(tx, ctx, {
+        action: 'student.update', entityType: 'student', entityId: id as any,
+        before: { firstName: existing!.firstName, lastName: existing!.lastName },
+        after: { firstName: updated.firstName, lastName: updated.lastName },
+        metadata: { requestId },
+      });
+      const response = { student: updated };
+      await completeIdempotency(tx, ctx, idem.key, 200, response);
+      return NextResponse.json(response);
     });
-    await auditRepo.record(db, ctx, {
-      action: 'student.update', entityType: 'student', entityId: id as any,
-      before: { firstName: existing!.firstName, lastName: existing!.lastName },
-      after: { firstName: updated.firstName, lastName: updated.lastName },
-      metadata: { requestId },
-    });
-    return NextResponse.json({ student: updated });
   },
 );

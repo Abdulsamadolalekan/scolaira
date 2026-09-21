@@ -64,6 +64,8 @@ export type Action =
   | 'term.read'
   | 'class.manage'
   | 'class.read'
+  | 'roster.read'
+  | 'enrollment.manage'
   | 'guardian.manage'
 
   // Financial configuration
@@ -146,7 +148,7 @@ const POLICY: Record<MembershipRole, ReadonlySet<Action>> = {
     'org.settings.read', 'org.settings.update', 'org.delete', 'org.owner.transfer',
     'member.invite', 'member.read', 'member.update', 'member.suspend', 'member.reactivate', 'member.revoke', 'member.change_role',
     'student.create', 'student.read', 'student.update', 'student.archive', 'student.restore',
-    'academic_session.manage', 'term.manage', 'term.bill', 'term.read', 'class.manage', 'class.read', 'guardian.manage',
+    'academic_session.manage', 'term.manage', 'term.bill', 'term.read', 'class.manage', 'class.read', 'roster.read', 'enrollment.manage', 'guardian.manage',
     'fee_definition.manage', 'fee_assignment.manage',
     'invoice.create', 'invoice.read', 'invoice.issue', 'invoice.void',
     'payment.record', 'payment.confirm', 'payment.allocate', 'payment.reverse', 'payment.refund',
@@ -163,7 +165,7 @@ const POLICY: Record<MembershipRole, ReadonlySet<Action>> = {
     'org.settings.read', 'org.settings.update',
     'member.invite', 'member.read', 'member.update', 'member.suspend', 'member.reactivate', 'member.revoke', 'member.change_role',
     'student.create', 'student.read', 'student.update', 'student.archive', 'student.restore',
-    'academic_session.manage', 'term.manage', 'term.read', 'class.manage', 'class.read', 'guardian.manage',
+    'academic_session.manage', 'term.manage', 'term.read', 'class.manage', 'class.read', 'roster.read', 'enrollment.manage', 'guardian.manage',
     'fee_definition.manage', 'fee_assignment.manage',
     'invoice.create', 'invoice.read', 'invoice.issue', 'invoice.void',
     'payment.record', 'payment.confirm', 'payment.allocate', 'payment.reverse', 'payment.refund',
@@ -181,6 +183,7 @@ const POLICY: Record<MembershipRole, ReadonlySet<Action>> = {
     'member.read', // must be able to see who performed financial actions
     'student.read', // required to attach invoices/payments to students
     'class.read',
+    'roster.read',
     'term.bill',
     'term.read',
     'fee_definition.manage', 'fee_assignment.manage',

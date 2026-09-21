@@ -18,6 +18,7 @@ export * as academicSessions from './academic-sessions';
 export * as terms from './terms';
 export * as classes from './classes';
 export * as students from './students';
+export * as enrollments from './enrollments';
 export * as feeDefinitions from './fee-definitions';
 export * as feeAssignments from './fee-assignments';
 export * as billing from './billing';

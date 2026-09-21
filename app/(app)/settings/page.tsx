@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { Card, CardHeader } from '@/components/ui/nav-shell';
 import { EmptyState } from '@/components/ui/empty';
 import { Settings } from '@/components/ui/icons';
@@ -19,13 +20,14 @@ export default function SettingsPage() {
         </p>
       </div>
       <Card>
-        <CardHeader title="Workspace settings" description="Scheduled for M5." />
-        <div className="p-6">
+        <CardHeader title="Workspace settings" description="School profile, branding, bank details, and access remain separate settings surfaces." />
+        <div className="p-6 space-y-4">
           <EmptyState
             icon={<Settings size={20} />}
-            title="Coming in this milestone"
-            description="School profile, bank details, academic-session and term setup, branding, and audit-export surfaces."
+            title="Academic setup is now a working surface"
+            description="Create sessions, terms, classes, students, and term-specific enrollment from the academic roster workspace."
           />
+          <Link href="/academic" className="inline-flex rounded-md px-3 py-2 text-[13px] font-medium text-white" style={{ backgroundColor: 'var(--color-forest)' }}>Open academic roster</Link>
         </div>
       </Card>
     </div>

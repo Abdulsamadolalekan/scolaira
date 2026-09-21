@@ -28,7 +28,7 @@ async function main() {
   await owner`REVOKE UPDATE, DELETE ON audit_events, reversals FROM scolaira_app`;
   await owner`REVOKE ALL PRIVILEGES ON waivers FROM scolaira_app`;
   await owner`GRANT SELECT, INSERT ON waivers TO scolaira_app`;
-  await owner`REVOKE DELETE ON invoices, invoice_lines, payments, payment_allocations, receipts FROM scolaira_app`;
+  await owner`REVOKE DELETE ON invoices, invoice_lines, payments, payment_allocations, receipts, class_enrollments FROM scolaira_app`;
   await owner`REVOKE UPDATE ON payment_allocations FROM scolaira_app`;
 
   const orgId = randomUUID() as UUID;
@@ -40,9 +40,9 @@ async function main() {
   const feeId = randomUUID() as UUID;
   const assignmentId = randomUUID() as UUID;
 
-  await owner`
-    SELECT set_config('app.organization_id', ${orgId}, false), set_config('app.user_id', ${userId}, false), set_config('app.is_platform_admin', '0', false)
-  `;
+  // Bootstrap the identity rows first; FORCE RLS does not allow a tenant
+  // context for an organization that has not been inserted yet.
+  await owner`SELECT auth_enter_system_context()`;
   await owner`
     INSERT INTO organizations (id, name, slug) VALUES (${orgId}::uuid, 'M8 Concurrency School', ${`m8-concurrency-${orgId.slice(0, 8)}`})
   `;
@@ -53,6 +53,7 @@ async function main() {
     INSERT INTO organization_members (organization_id, user_id, role, status, joined_at)
     VALUES (${orgId}::uuid, ${userId}::uuid, 'FINANCE_OFFICER', 'ACTIVE', now())
   `;
+  await owner`SELECT set_tenant_context(${orgId}::uuid, ${userId}::uuid)`;
   await owner`
     INSERT INTO academic_sessions (id, organization_id, name, starts_on, is_current, status)
     VALUES (${sessionId}::uuid, ${orgId}::uuid, 'M8 Session', '2026-01-01', true, 'ACTIVE')

@@ -47,7 +47,7 @@ async function run() {
     await sql`REVOKE UPDATE, DELETE ON audit_events, reversals FROM scolaira_app`;
     await sql`REVOKE ALL PRIVILEGES ON waivers FROM scolaira_app`;
     await sql`GRANT SELECT, INSERT ON waivers TO scolaira_app`;
-    await sql`REVOKE DELETE ON invoices, invoice_lines, payments, payment_allocations, receipts FROM scolaira_app`;
+    await sql`REVOKE DELETE ON invoices, invoice_lines, payments, payment_allocations, receipts, class_enrollments FROM scolaira_app`;
     // NOTE: EXECUTE on functions is NOT granted wholesale. Each SECURITY
     // DEFINER helper GRANTs EXECUTE explicitly inside its own migration
     // (see 0010_lockdown_secdef.sql §7 for the whitelist). Granting EXECUTE
