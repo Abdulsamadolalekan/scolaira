@@ -19,6 +19,12 @@ export type ReconciliationCase = typeof reconciliationCases.$inferSelect;
 export type ReconciliationEvidence = typeof reconciliationEvidence.$inferSelect;
 export type ReconciliationCandidate = typeof reconciliationCandidates.$inferSelect;
 
+function requireActor(ctx: TenantCtx): UUID {
+  if (!ctx.userId)
+    throw new AuthzError(AuthzErrorCode.UNAUTHENTICATED, 'A human actor is required.', 401);
+  return ctx.userId;
+}
+
 export interface QueueRow {
   caseId: string | null;
   paymentId: string;
@@ -42,21 +48,46 @@ export interface QueueRow {
   assignedTo: string | null;
 }
 
-function encodeCursor(createdAt: string, paymentId: string): string {
-  return Buffer.from(JSON.stringify({ createdAt, paymentId }), 'utf8').toString('base64url');
+function encodeCursor(createdAtMicros: string, paymentId: string): string {
+  return Buffer.from(JSON.stringify({ createdAt: createdAtMicros, paymentId }), 'utf8').toString(
+    'base64url',
+  );
 }
 
-function decodeCursor(value: string | null): { createdAt: string; paymentId: string } | null {
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const CURSOR_TIME_RE = /^\d{1,20}$/;
+const LEGACY_ISO_CURSOR_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+
+type DecodedCursor = { createdAt: string; paymentId: string };
+
+function decodeCursor(value: string | null): DecodedCursor | null {
   if (!value) return null;
   try {
     const parsed = JSON.parse(Buffer.from(value, 'base64url').toString('utf8')) as {
       createdAt?: unknown;
       paymentId?: unknown;
     };
-    if (typeof parsed.createdAt !== 'string' || typeof parsed.paymentId !== 'string') return null;
-    return { createdAt: parsed.createdAt, paymentId: parsed.paymentId };
+    if (typeof parsed.createdAt !== 'string' || typeof parsed.paymentId !== 'string')
+      throw new Error();
+    const paymentId = parsed.paymentId;
+    let createdAt = parsed.createdAt;
+    if (CURSOR_TIME_RE.test(createdAt)) {
+      BigInt(createdAt);
+    } else {
+      // Cursors issued before microsecond ordering used Date#toISOString().
+      // Preserve their position at millisecond precision rather than breaking
+      // clients that retained a cursor across the deployment.
+      if (!LEGACY_ISO_CURSOR_RE.test(createdAt)) throw new Error();
+      const milliseconds = Date.parse(createdAt);
+      if (!Number.isSafeInteger(milliseconds)) throw new Error();
+      const canonical = new Date(milliseconds).toISOString();
+      if (canonical !== createdAt) throw new Error();
+      createdAt = (BigInt(milliseconds) * 1000n).toString();
+    }
+    if (!UUID_RE.test(paymentId)) throw new Error();
+    return { createdAt, paymentId };
   } catch {
-    return null;
+    throw new AuthzError(AuthzErrorCode.BAD_REQUEST, 'Invalid reconciliation queue cursor.', 400);
   }
 }
 
@@ -99,6 +130,7 @@ export async function ensureOpenCase(
     reason?: string | null;
   },
 ): Promise<ReconciliationCase> {
+  const actorId = requireActor(ctx);
   const existing = await getOpenCaseForPayment(db, ctx, input.paymentId);
   if (existing) return existing;
   try {
@@ -110,7 +142,7 @@ export async function ensureOpenCase(
         kind: input.kind,
         state: input.state ?? 'UNMATCHED',
         reason: input.reason ?? null,
-        createdBy: ctx.userId,
+        createdBy: actorId,
       })
       .onConflictDoNothing({
         target: reconciliationCases.paymentId,
@@ -148,7 +180,7 @@ export async function listEvidence(
         eq(reconciliationEvidence.caseId, caseId),
       ),
     )
-    .orderBy(desc(reconciliationEvidence.createdAt));
+    .orderBy(desc(reconciliationEvidence.createdAt), desc(reconciliationEvidence.id));
 }
 
 export async function listCandidates(
@@ -165,7 +197,7 @@ export async function listCandidates(
         eq(reconciliationCandidates.caseId, caseId),
       ),
     )
-    .orderBy(desc(reconciliationCandidates.createdAt));
+    .orderBy(desc(reconciliationCandidates.createdAt), desc(reconciliationCandidates.id));
 }
 
 export async function listQueue(
@@ -189,7 +221,7 @@ export async function listQueue(
   if (filters.unallocatedOnly) conditions.push(sql`q.unallocated_kobo > 0`);
   if (cursor) {
     conditions.push(
-      sql`(q.created_at < ${cursor.createdAt}::timestamptz OR (q.created_at = ${cursor.createdAt}::timestamptz AND q.payment_id < ${cursor.paymentId}::uuid))`,
+      sql`(q.sort_created_at < ${cursor.createdAt}::bigint OR (q.sort_created_at = ${cursor.createdAt}::bigint AND q.payment_id < ${cursor.paymentId}::uuid))`,
     );
   }
 
@@ -204,6 +236,7 @@ export async function listQueue(
         c.reason,
         c.assigned_to,
         c.created_at,
+        floor(extract(epoch from c.created_at) * 1000000)::bigint AS sort_created_at,
         p.payment_number,
         p.status AS payment_status,
         p.method,
@@ -214,25 +247,42 @@ export async function listQueue(
         p.paid_at,
         COALESCE(alloc.active_count, 0)::int AS active_allocation_count,
         COALESCE(ev.evidence_count, 0)::int AS evidence_count,
-        alloc.student_name,
-        alloc.invoice_number
+        COALESCE(alloc.student_name, candidate.student_name) AS student_name,
+        COALESCE(alloc.invoice_number, candidate.invoice_number) AS invoice_number
       FROM reconciliation_cases c
       JOIN payments p ON p.id = c.payment_id AND p.organization_id = c.organization_id
       LEFT JOIN LATERAL (
         SELECT
           count(*) FILTER (WHERE pa.status = 'ACTIVE') AS active_count,
-          (array_agg(trim(coalesce(s.first_name, '') || ' ' || coalesce(s.last_name, '')) ORDER BY pa.allocated_at DESC))[1] AS student_name,
-          (array_agg(i.invoice_number ORDER BY pa.allocated_at DESC))[1] AS invoice_number
+          (array_agg(trim(coalesce(s.first_name, '') || ' ' || coalesce(s.last_name, '')) ORDER BY pa.allocated_at DESC, pa.id DESC))[1] AS student_name,
+          (array_agg(i.invoice_number ORDER BY pa.allocated_at DESC, pa.id DESC))[1] AS invoice_number
         FROM payment_allocations pa
-        JOIN invoices i ON i.id = pa.invoice_id
-        JOIN students s ON s.id = i.student_id
+        JOIN invoices i ON i.id = pa.invoice_id AND i.organization_id = p.organization_id
+        JOIN students s ON s.id = i.student_id AND s.organization_id = p.organization_id
         WHERE pa.payment_id = p.id
+          AND pa.organization_id = p.organization_id
       ) alloc ON true
       LEFT JOIN LATERAL (
         SELECT count(*) AS evidence_count
           FROM reconciliation_evidence e
          WHERE e.case_id = c.id
+           AND e.organization_id = c.organization_id
       ) ev ON true
+      LEFT JOIN LATERAL (
+        SELECT
+          trim(coalesce(s.first_name, '') || ' ' || coalesce(s.last_name, '')) AS student_name,
+          i.invoice_number
+        FROM reconciliation_candidates rc
+        LEFT JOIN invoices i ON i.id = rc.invoice_id AND i.organization_id = rc.organization_id
+        LEFT JOIN students s
+          ON s.id = coalesce(rc.student_id, i.student_id)
+         AND s.organization_id = rc.organization_id
+        WHERE rc.case_id = c.id
+          AND rc.organization_id = c.organization_id
+          AND rc.state = 'ACCEPTED'
+        ORDER BY rc.created_at DESC, rc.id DESC
+        LIMIT 1
+      ) candidate ON true
       WHERE c.organization_id = ${ctx.organizationId}::uuid
         AND c.closed_at IS NULL
     ),
@@ -248,6 +298,7 @@ export async function listQueue(
         'Derived from the current payment state; open a case to record a decision.' AS reason,
         NULL::uuid AS assigned_to,
         p.created_at,
+        floor(extract(epoch from p.created_at) * 1000000)::bigint AS sort_created_at,
         p.payment_number,
         p.status AS payment_status,
         p.method,
@@ -264,12 +315,13 @@ export async function listQueue(
       LEFT JOIN LATERAL (
         SELECT
           count(*) FILTER (WHERE pa.status = 'ACTIVE') AS active_count,
-          (array_agg(trim(coalesce(s.first_name, '') || ' ' || coalesce(s.last_name, '')) ORDER BY pa.allocated_at DESC))[1] AS student_name,
-          (array_agg(i.invoice_number ORDER BY pa.allocated_at DESC))[1] AS invoice_number
+          (array_agg(trim(coalesce(s.first_name, '') || ' ' || coalesce(s.last_name, '')) ORDER BY pa.allocated_at DESC, pa.id DESC))[1] AS student_name,
+          (array_agg(i.invoice_number ORDER BY pa.allocated_at DESC, pa.id DESC))[1] AS invoice_number
         FROM payment_allocations pa
-        JOIN invoices i ON i.id = pa.invoice_id
-        JOIN students s ON s.id = i.student_id
+        JOIN invoices i ON i.id = pa.invoice_id AND i.organization_id = p.organization_id
+        JOIN students s ON s.id = i.student_id AND s.organization_id = p.organization_id
         WHERE pa.payment_id = p.id
+          AND pa.organization_id = p.organization_id
       ) alloc ON true
       WHERE p.organization_id = ${ctx.organizationId}::uuid
         AND (
@@ -290,7 +342,7 @@ export async function listQueue(
     )
     SELECT * FROM queue q
      WHERE ${sql.join(conditions, sql` AND `)}
-     ORDER BY q.created_at DESC, q.payment_id DESC
+     ORDER BY q.sort_created_at DESC, q.payment_id DESC
      LIMIT ${limit + 1}
   `)) as unknown as Array<Record<string, unknown>>;
 
@@ -318,9 +370,12 @@ export async function listQueue(
     evidenceCount: Number(r.evidence_count),
     assignedTo: (r.assigned_to as string | null) ?? null,
   }));
-  const last = mapped.at(-1);
+  const lastRaw = page.at(-1);
   return {
     rows: mapped,
-    nextCursor: hasMore && last ? encodeCursor(last.createdAt, last.paymentId) : null,
+    nextCursor:
+      hasMore && lastRaw
+        ? encodeCursor(String(lastRaw.sort_created_at), String(lastRaw.payment_id))
+        : null,
   };
 }

@@ -12,6 +12,7 @@ import {
   acceptedCandidate,
   getOrCreateCase,
   lockPayment,
+  requireEvidence,
   updateCaseState,
 } from '@/lib/reconciliation';
 import type { UUID } from '@/lib/db/repo/_context';
@@ -24,7 +25,7 @@ const Schema = z.object({
     .array(
       z.object({
         invoiceId: z.string().regex(UUID_RE),
-        amountKobo: z.number().int().positive(),
+        amountKobo: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
         note: z.string().trim().max(500).optional(),
       }),
     )
@@ -59,6 +60,7 @@ export const POST = withAuthorizedRoute(
       const caseRow = await getOrCreateCase(tx, ctx, payment, { kind: 'TO_ALLOCATE' });
       if (caseRow.state === 'FLAGGED')
         throw new AuthzError(AuthzErrorCode.CONFLICT, 'Unflag the case before allocating it.', 409);
+      await requireEvidence(tx, ctx, caseRow.id);
       const candidate = await acceptedCandidate(tx, ctx, caseRow.id);
       if (!candidate)
         throw new AuthzError(
@@ -68,6 +70,12 @@ export const POST = withAuthorizedRoute(
         );
 
       const total = data.allocations.reduce((sum, row) => sum + row.amountKobo, 0);
+      if (!Number.isSafeInteger(total))
+        throw new AuthzError(
+          AuthzErrorCode.BAD_REQUEST,
+          'Allocation total exceeds the supported safe integer range.',
+          400,
+        );
       if (total > payment.unallocatedKobo)
         throw new AuthzError(
           AuthzErrorCode.BAD_REQUEST,

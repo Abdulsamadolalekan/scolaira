@@ -25,6 +25,12 @@ export type {
   ReconciliationState,
 } from '@/lib/db/repo/reconciliation';
 
+function requireActor(ctx: TenantCtx): UUID {
+  if (!ctx.userId)
+    throw new AuthzError(AuthzErrorCode.UNAUTHENTICATED, 'A human actor is required.', 401);
+  return ctx.userId;
+}
+
 export interface PaymentSnapshot {
   id: UUID;
   status: string;
@@ -66,6 +72,16 @@ export async function getOrCreateCase(
 ): Promise<ReconciliationCase> {
   const existing = await reconciliationRepo.getOpenCaseForPayment(db, ctx, payment.id);
   if (existing) return existing;
+  const hasDerivedWork =
+    payment.status === 'PENDING' ||
+    payment.status === 'DUPLICATE_SUSPECT' ||
+    (payment.status === 'CONFIRMED' && payment.unallocatedKobo > 0);
+  if (!hasDerivedWork)
+    throw new AuthzError(
+      AuthzErrorCode.CONFLICT,
+      'No open reconciliation work remains for this payment.',
+      409,
+    );
   const kind =
     input?.kind ?? reconciliationRepo.derivedKind(payment.status, payment.unallocatedKobo);
   return reconciliationRepo.ensureOpenCase(db, ctx, {
@@ -115,6 +131,25 @@ export async function addEvidence(
     metadata?: Record<string, unknown> | null;
   },
 ): Promise<ReconciliationEvidence> {
+  const actorId = requireActor(ctx);
+  const caseRows = await db
+    .select({ closedAt: reconciliationCases.closedAt })
+    .from(reconciliationCases)
+    .where(
+      and(
+        eq(reconciliationCases.id, input.caseId),
+        eq(reconciliationCases.organizationId, ctx.organizationId),
+      ),
+    )
+    .limit(1);
+  if (!caseRows[0])
+    throw new AuthzError(AuthzErrorCode.NOT_FOUND, 'Reconciliation case not found.', 404);
+  if (caseRows[0].closedAt)
+    throw new AuthzError(
+      AuthzErrorCode.CONFLICT,
+      'This reconciliation case is already closed.',
+      409,
+    );
   const rows = await db
     .insert(reconciliationEvidence)
     .values({
@@ -126,7 +161,7 @@ export async function addEvidence(
       note: input.note ?? null,
       contentHash: input.contentHash ?? null,
       metadata: (input.metadata ?? null) as any,
-      createdBy: ctx.userId,
+      createdBy: actorId,
     })
     .returning();
   return rows[0]!;
@@ -195,6 +230,7 @@ export async function updateCaseState(
     afterExtra?: Record<string, unknown>;
   },
 ): Promise<ReconciliationCase> {
+  const actorId = requireActor(ctx);
   const currentRows = await db
     .select()
     .from(reconciliationCases)
@@ -238,7 +274,7 @@ export async function updateCaseState(
         input.resolutionCode === undefined ? current.resolutionCode : input.resolutionCode,
       resolutionNote:
         input.resolutionNote === undefined ? current.resolutionNote : input.resolutionNote,
-      resolvedBy: input.close ? ctx.userId : current.resolvedBy,
+      resolvedBy: input.close ? actorId : current.resolvedBy,
       resolvedAt: input.close ? now : current.resolvedAt,
       closedAt: input.close ? now : current.closedAt,
       version: current.version + 1,
@@ -291,6 +327,7 @@ export async function createAcceptedCandidate(
     requestId?: string;
   },
 ): Promise<ReconciliationCandidate> {
+  const actorId = requireActor(ctx);
   if (!input.studentId && !input.invoiceId) {
     throw new AuthzError(
       AuthzErrorCode.BAD_REQUEST,
@@ -298,6 +335,25 @@ export async function createAcceptedCandidate(
       400,
     );
   }
+  const caseRows = await db
+    .select({ state: reconciliationCases.state, closedAt: reconciliationCases.closedAt })
+    .from(reconciliationCases)
+    .where(
+      and(
+        eq(reconciliationCases.id, input.caseId),
+        eq(reconciliationCases.organizationId, ctx.organizationId),
+      ),
+    )
+    .limit(1);
+  const caseRow = caseRows[0];
+  if (!caseRow)
+    throw new AuthzError(AuthzErrorCode.NOT_FOUND, 'Reconciliation case not found.', 404);
+  if (caseRow.closedAt || caseRow.state !== 'UNMATCHED')
+    throw new AuthzError(
+      AuthzErrorCode.CONFLICT,
+      'Only an open, unflagged reconciliation case can accept a candidate.',
+      409,
+    );
   const existing = await acceptedCandidate(db, ctx, input.caseId);
   if (existing)
     throw new AuthzError(
@@ -305,9 +361,12 @@ export async function createAcceptedCandidate(
       'This case already has an accepted candidate.',
       409,
     );
-  let candidate: ReconciliationCandidate;
+  let rows: ReconciliationCandidate[];
   try {
-    const proposed = await db
+    // Insert the decision atomically. A create-then-update sequence can leave
+    // a stray PROPOSED candidate behind when concurrent callers race for the
+    // one-accepted-candidate partial unique index outside an HTTP transaction.
+    rows = await db
       .insert(reconciliationCandidates)
       .values({
         organizationId: ctx.organizationId,
@@ -315,36 +374,11 @@ export async function createAcceptedCandidate(
         studentId: input.studentId ?? null,
         invoiceId: input.invoiceId ?? null,
         basis: input.basis,
-        state: 'PROPOSED',
-        createdBy: ctx.userId,
-      })
-      .returning();
-    candidate = proposed[0]!;
-  } catch (error: any) {
-    if (error?.code === '23505')
-      throw new AuthzError(
-        AuthzErrorCode.CONFLICT,
-        'This case already has a candidate decision.',
-        409,
-      );
-    throw error;
-  }
-  let rows: ReconciliationCandidate[];
-  try {
-    rows = await db
-      .update(reconciliationCandidates)
-      .set({
         state: 'ACCEPTED',
-        decidedBy: ctx.userId,
+        createdBy: actorId,
+        decidedBy: actorId,
         decidedAt: new Date(),
       })
-      .where(
-        and(
-          eq(reconciliationCandidates.id, candidate.id),
-          eq(reconciliationCandidates.organizationId, ctx.organizationId),
-          eq(reconciliationCandidates.state, 'PROPOSED'),
-        ),
-      )
       .returning();
   } catch (error: any) {
     if (error?.code === '23505')

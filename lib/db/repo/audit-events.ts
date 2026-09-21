@@ -5,7 +5,7 @@
  * Until they are, the service layer writes audit events explicitly through this
  * repo. The table is append-only via trigger + REVOKE UPDATE/DELETE.
  */
-import { eq, and, desc } from 'drizzle-orm';
+import { eq, and, desc, sql } from 'drizzle-orm';
 import { auditEvents } from '../schema';
 import type { TenantCtx, TenantScopedDb, UUID } from './_context';
 import type { auditActorTypeEnum } from '../schema/enums';
@@ -48,6 +48,10 @@ export async function record(
       requestId: input.requestId ?? null,
       correlationId: input.correlationId ?? null,
       ipAddress: input.ipAddress ?? null,
+      // `now()` is transaction-scoped in PostgreSQL, so two audit rows in one
+      // mutation can share an identical timestamp. Use the database clock for
+      // deterministic newest-first history; this remains server-maintained.
+      createdAt: sql`clock_timestamp()`,
     })
     .returning();
   return rows[0]!;
@@ -70,6 +74,6 @@ export async function listForEntity(
         eq(auditEvents.entityId, entityId),
       ),
     )
-    .orderBy(desc(auditEvents.createdAt))
+    .orderBy(desc(auditEvents.createdAt), desc(auditEvents.id))
     .limit(limit);
 }

@@ -1,370 +1,199 @@
 # SCOLAIRA M10 CLOSEOUT REPORT — RECONCILIATION CONTROL PLANE
 
-**Date:** 2026-09-21 (Africa/Lagos)
-**Status:** Implemented and verified against the migrated application and test databases
-**Selected capability:** Reconciliation control plane over the existing authoritative financial system
-**Final implementation tree verified:** `783ad2b7d76c4ce1c19c551183e88ae4e0359ff8`
+**Freeze date:** 2026-09-21 (Africa/Lagos)
+**Status:** M10 accepted as PASS and ready for immutable freeze
+**Capability:** Tenant-safe reconciliation control plane over the existing authoritative financial system
+**M10 implementation baseline before final freeze:** `43b406962f05b2cb83af94b4b296f47fb3f76878`
+**Authoritative freeze tag:** `m10-reconciliation-control-plane`
+**Authoritative closeout commit:** the exact SHA is recorded by the post-commit `git rev-parse` verification and final freeze handoff below.
 
-This closeout records the M10 implementation, the real-database verification performed for it, the exact regression/build evidence, and the remaining product-policy limitations. It does not claim bank/provider ingestion, automatic matching, or a new source of financial truth.
+This closeout records the final M10 implementation, adversarial audit, regression evidence, database evidence, freeze lineage, and the remaining operational condition. It does not claim bank/provider ingestion, automatic or heuristic matching, AI matching, a new financial ledger, or any other M10 non-goal.
 
-## 1. Executive result
+## 1. M10 scope and result
 
-M10 adds a tenant-safe, authorization-controlled reconciliation workflow for known payment records:
+M10 adds a human-controlled reconciliation layer for known payment records:
 
-- a cursor-paginated operational queue;
+- a tenant-scoped, cursor-paginated queue and payment detail surface;
 - explicit `UNMATCHED`, `FLAGGED`, `RECONCILED`, and `ALLOCATED` case states;
-- append-only human-entered evidence;
+- durable operator/provider evidence;
 - explicit human student/invoice candidates;
-- durable case history and audit timelines;
+- retained case history and audit timelines;
 - guarded confirm, match, allocate, flag, unflag, and resolve operations;
-- a dashboard/queue detail surface with payment identity, amount/date/method/reference, allocation context, evidence, prior cases, and permitted actions;
-- integration with the authoritative payment-recording path for new pending/unallocated payments; and
-- no reconciliation-owned payment, allocation, invoice, receipt, reversal, refund, or balance totals.
+- server-truth payment, allocation, invoice, student, evidence, candidate, and history display; and
+- integration with existing authoritative payment confirmation/allocation paths without creating a second financial truth.
 
-Financial effects remain in the existing payment, allocation, invoice, reversal, refund, and receipt repositories/triggers. M10 only records operational decisions and delegates the actual allocation/confirmation behavior to existing financial mechanisms.
+M10 does not add bank/provider ingestion, automatic or heuristic matching, AI matching, guardian/student portals, term rollover, wallets/credit, installments, multi-currency, or unrelated reporting expansion.
 
-The final full regression passed **28 test files and 257 tests**. TypeScript, production build, formatting checks, targeted M10 tests, migration upgrade/idempotency, RLS/tenant isolation, runtime-role restrictions, and the frozen M5–M9 suite all passed as described below.
+**Freeze decision:** PASS. No M1–M9 historical commit was amended, rewritten, reopened, or financially reinterpreted. No M11 work is authorized.
 
-## 2. Frozen milestone lineage and exact SHA evidence
+## 2. Frozen lineage and exact repository surface
 
-No M1–M9 commit was amended, rebased, rewritten, or reopened.
+The frozen milestone references remain unchanged:
 
-| Milestone | Frozen commit / target | Tag or evidence |
-| --- | --- | --- |
-| M5 | `0c66618e29e6179c80052a82c40f669979cef6b` | `M5-FROZEN` |
-| M6 | `3668854682e39c7ef5ce1ec2647f85d6c6b8ced9` | Frozen M6 target |
-| M7 | `86beba9742c31bcb3ce01d96934b06e9e4a7d445` | M7 closeout target |
-| M8 | `9989e6334c51ca61f43af4cd938a146c24fd054e` | `m8-controlled-term-billing` resolves to this commit |
-| M9 implementation | `ce4b9230e60f15dbc0cca1e8c5d6ecc25e2a6b7e` | M9 implementation |
-| M9 freeze | `791b6e09ad211eac470e6011e28172b1ff925575` | `m9-academic-control-layer` resolves to this commit |
-| M10 primary implementation | `6082a1fa84878d1de2047a811584bfbee0bf2155` | `M10: add reconciliation control plane` |
-| M10 authorization coverage | `87baf05549203b4190163bb035d259475d9aaa83` | `M10: cover reconciliation authorization policy` |
-| M10 dashboard contract clarification | `512a82a9b602e6e42b1fefb90fdf954da7e3f14f` | `M10: clarify paged reconciliation summaries` |
-| M10 concurrency-test hardening | `783ad2b7d76c4ce1c19c551183e88ae4e0359ff8` | `M10: verify concurrent candidate decisions` |
+| Milestone | Frozen commit                              | Tag/evidence                 |
+| --------- | ------------------------------------------ | ---------------------------- |
+| M5        | `0c66618e29e6179c80052a82c40f669979cef6b`  | `M5-FROZEN`                  |
+| M6        | `3668854682e39c7ef5ce1ec2647f85d6c6b8ced9` | frozen M6 target             |
+| M7        | `86beba9742c31bcb3ce01d96934b06e9e4a7d445` | M7 closeout target           |
+| M8        | `9989e6334c51ca61f43af4cd938a146c24fd054e` | `m8-controlled-term-billing` |
+| M9        | `791b6e09ad211eac470e6011e28172b1ff925575` | `m9-academic-control-layer`  |
 
-The closeout documentation commit is intentionally separate from the implementation SHA recorded above. The final authorized closeout commit is the commit that adds this report; its exact SHA is recorded in the final `git log`/`git rev-parse HEAD` evidence after the report is staged.
+The committed M10 history begins at `6082a1f` and includes authorization, dashboard-contract, and concurrency-test hardening commits through baseline `43b4069`. The final freeze commit adds the audit remediation, forward migrations `0025`–`0036`, finalized regression tests, and both security/closeout reports as one authorized M10 closeout.
 
-## 3. Implementation inventory
+The final M10 surface consists only of reconciliation control-plane implementation, its tenant/auth/database hardening, the related dashboard/queue/API contract corrections, M10 adversarial tests, the E2E security-contract corrections needed for complete verification, migration metadata, and M10 closeout documentation. No unrelated cleanup or refactoring was introduced.
 
-### 3.1 Database and schema
+## 3. Reconciliation state model
 
-- `lib/db/migrations/0023_m10_reconciliation_control_plane.sql`
-  - creates `reconciliation_cases`, `reconciliation_evidence`, and `reconciliation_candidates`;
-  - adds one-open-case-per-payment uniqueness;
-  - adds tenant-reference guards for payment, case, student, invoice, and assignee relationships;
-  - adds database transition/shape guards;
-  - adds append-only evidence enforcement;
-  - enables and **forces** RLS on all three tables;
-  - adds tenant policies and operational indexes; and
-  - leaves monetary fields out of all M10 tables.
-- `lib/db/migrations/0024_m10_decision_shape_guards.sql`
-  - requires closed cases to have a terminal state, resolver, and resolution time;
-  - requires allocated cases to be closed; and
-  - requires decided candidates to retain a decision actor/time and prevents decided-candidate state mutation.
-- `lib/db/schema/reconciliation.ts` contains the Drizzle control-plane types/relations.
-- `lib/db/repo/reconciliation.ts` contains tenant-scoped case/evidence/candidate access and queue SQL. Its queue union covers both explicit cases and unresolved legacy payments that predate M10.
+Supported case states are `UNMATCHED`, `FLAGGED`, `RECONCILED`, and `ALLOCATED`.
 
-### 3.2 Service and route boundary
+- `UNMATCHED -> FLAGGED` records an exception and reason.
+- `FLAGGED -> UNMATCHED` restores the recorded prior state.
+- `FLAGGED -> RECONCILED` is permitted only after reviewed restoration of a reconciled case.
+- `UNMATCHED -> RECONCILED` requires evidence and a valid human decision/candidate.
+- `RECONCILED -> FLAGGED -> RECONCILED` preserves the prior state through the forward-only `0033` guard fix.
+- `RECONCILED -> ALLOCATED` is only the allocation workflow's reflection of a fully allocated authoritative payment and accepted candidate; it closes the case.
+- `ALLOCATED` and all closed cases are terminal. Closed cases cannot be reopened, edited, or given late evidence/candidates.
 
-- `lib/reconciliation/index.ts` owns payment locking, evidence requirements, explicit candidate decisions, optimistic case-state updates, and delegation to authoritative allocation behavior.
-- `app/api/reconciliation/queue/route.ts` validates all filters with Zod: `state`, `kind`, `paymentStatus`, `unallocatedOnly`, `limit`, and `cursor`.
-- `app/api/reconciliation/payments/[id]/route.ts` returns payment identity, integer-kobo amount fields, allocations, current case, evidence, candidates, audit timeline, and earlier case summaries.
-- The mutation routes are:
-  - `POST /api/reconciliation/payments/:id/evidence`
-  - `POST /api/reconciliation/payments/:id/confirm`
-  - `POST /api/reconciliation/payments/:id/match`
-  - `POST /api/reconciliation/payments/:id/allocate`
-  - `POST /api/reconciliation/payments/:id/flag`
-  - `POST /api/reconciliation/payments/:id/resolve`
-- `app/api/payments/route.ts` now opens an explicit `UNMATCHED` case for newly recorded `PENDING` or unallocated payments. The queue still derives unresolved payments created before M10, so no historical record must be rewritten to become visible.
-- The confirm route calls the existing `payRepo.confirm` state-machine repository. The allocate route calls the existing invoice/payment allocation repository and therefore retains the existing financial triggers and race protections.
+Invalid transitions, forged prior states, stale versions, missing evidence, terminal updates, and allocated-open shapes are rejected by the service and/or database boundary. The database state machine remains authoritative against direct SQL bypass.
 
-### 3.3 Dashboard and queue
+## 4. Evidence model and durable history
 
-- `app/(app)/reconcile/page.tsx` is a permission-gated server dashboard.
-- `app/(app)/reconcile/reconciliation-queue.tsx` provides expandable detail, evidence entry, confirm/match/allocate/flag/unflag/resolve controls, cursor loading, and “Earlier cases”.
-- Summary cards are explicitly labelled as describing the currently loaded page; they do not pretend that a 50/100-row page is a global count.
-- The queue consistently classifies a confirmed payment with positive `unallocatedKobo` as `TO_MATCH`, not `TO_ALLOCATE`.
+`reconciliation_evidence` is a tenant-scoped, durable append-only record with:
 
-## 4. No shadow ledger / authoritative financial boundary
+- explicit kind: `BANK_REFERENCE`, `CASH_RECEIPT`, `POS_SLIP`, `OPERATOR_NOTE`, or `PROVIDER_EVENT`;
+- reference and/or non-empty note;
+- optional observed time, content hash, and metadata;
+- authenticated creator and database-maintained creation time; and
+- restrictive linkage to its reconciliation case.
 
-M10 does **not** create or maintain a second financial truth.
+Evidence update/delete is blocked by runtime privileges and an immutable database trigger. Decisions require evidence. Case history is retained rather than deleted or merged. Closed-case state, resolution actor/time, resolution code/note, and linkage are protected by forward terminal-history guards. Candidate decisions retain actor/time and decided candidates cannot be moved to another case.
 
-- `reconciliation_cases` stores payment identity, state, workflow kind, actor/time, reason, resolution fields, assignment, and an optimistic version. It has no amount, balance, paid total, allocation total, invoice total, receipt total, reversal total, or refund total.
-- `reconciliation_candidates` stores an explicit human-selected student/invoice context and the operator's basis. It does not copy a payment or invoice balance.
-- `reconciliation_evidence` stores durable evidence metadata, references, notes, optional observation time, and optional content hash. It is not a bank-ingestion ledger.
-- Queue amount/status/allocation data is read from `payments`, `payment_allocations`, `invoices`, and `students`.
-- Confirming a payment uses the existing payment repository/state machine.
-- Allocating uses the existing allocation repository and database triggers; M10 never writes invoice paid/outstanding totals or payment unallocated totals.
-- Reversal, refund, receipt, and correction consequences remain on their existing routes and state machines. M10 resolve explicitly returns `financialAction: "none"`.
-- No destructive correction path, record merge, silent delete, or financial reinterpretation was introduced.
+Audit events cover evidence, payment confirmation, candidate acceptance, case transitions, allocation, and resolution. Before/after state, actor, request/correlation context, reason, and payment/case linkage are retained. Audit writes use the database clock for deterministic newest-first history when multiple rows are created in one transaction.
 
-## 5. State model, actors, preconditions, and concurrency
+## 5. Candidate model
 
-### 5.1 States and transitions
+`reconciliation_candidates` records an explicit human-selected student and/or invoice plus a non-empty human basis. It does not allocate money or copy a financial balance.
 
-| Transition / action | Actor and precondition | Durable evidence/audit | Concurrency behavior |
-| --- | --- | --- | --- |
-| Case creation → `UNMATCHED` | Authenticated authorized reviewer or authoritative payment-recording path; payment is tenant-visible. | `created_by`/`created_at`; later case/evidence decisions are audited. | Partial unique index permits only one open case per payment; `ensureOpenCase` converges concurrent creators. |
-| `UNMATCHED → FLAGGED` | `reconciliation.review`; required reason. | Case audit with before/after state and reason. | Case row is versioned and updated with a compare-and-swap predicate. |
-| `FLAGGED → UNMATCHED` | `reconciliation.review`; explicit unflag request and reason. | `reconciliation.unflag` audit; previous state is preserved/cleared deterministically. | Closed cases cannot be reopened; stale update returns conflict. |
-| `FLAGGED/UNMATCHED/RECONCILED → RECONCILED` | Evidence is required. Either an explicit human candidate is accepted or an exception is explicitly resolved. | Candidate audit plus case transition audit, or resolve audit with code/note. | State update checks current version and open-case status. |
-| `PENDING → CONFIRMED` payment | `reconciliation.review`; evidence required; flagged cases must first be unflagged. | Existing `payment.confirm` audit plus `reconciliation.confirm` case audit. | Existing payment lock/state-machine behavior is retained. |
-| `RECONCILED/UNMATCHED → ALLOCATED` | Confirmed payment, accepted human candidate, valid existing invoice allocation request, and evidence. | Existing `payment.allocate` audit plus `reconciliation.allocate` case audit. | Existing allocation/invoice locking and financial race protections remain authoritative; an allocated case is closed. |
-| `RECONCILED → FLAGGED` | Authorized reviewer with a reason. | `reconciliation.flag` audit. | Versioned case update; closed cases are rejected. |
-| Open exception → closed `RECONCILED` | `reconciliation.resolve`, evidence, resolution code, and non-empty note. No financial action is performed. | `reconciliation.resolve` audit with `financialAction: none`, actor, code, and note. | Database shape guard requires resolver/time/terminal state; closed case cannot change. |
+- Candidate student/invoice relationships are tenant-checked in service joins and database triggers.
+- A candidate cannot be inserted or accepted for a flagged, allocated, or closed case.
+- Only one accepted candidate is allowed per case through `m10_reconciliation_one_accepted_candidate_idx`.
+- Candidate decisions are audited and immutable after decision.
+- Decided candidate linkage cannot be rewritten by direct SQL (`0036`).
 
-Database triggers reject invalid transitions, allocated-open shapes, closed-nonterminal shapes, cross-tenant references, candidate state mutation after decision, and backward case versions. The service layer adds authorization, evidence, idempotency, and audit requirements.
+No fuzzy, heuristic, confidence-scored, AI, provider, or automatic matching path exists.
 
-`confirm` deliberately does not invent a reconciliation state transition merely because a payment status changed: it updates the authoritative payment and changes the operational kind to `TO_MATCH` or `TO_ALLOCATE` while retaining the case's review state. `match` is the explicit human decision that establishes `RECONCILED`; `allocate` closes a fully allocated case as `ALLOCATED`.
+## 6. Queue, dashboard, and server-truth workflow
 
-### 5.2 Evidence and candidate rules
+The queue exposes authoritative payment number, status, method, amount, unallocated amount, dates, payer/reference context, allocations, case kind/state, assignment, evidence count, and accepted candidate context. Explicit open cases suppress duplicate derived rows. Confirmed payments with positive authoritative unallocated balance derive `TO_MATCH`; pending and duplicate-suspect payments derive their appropriate work; fully allocated payments do not receive false derived work.
 
-- Evidence requires a human-entered reference or note and is inserted append-only.
-- Evidence kinds are explicit: `BANK_REFERENCE`, `CASH_RECEIPT`, `POS_SLIP`, `OPERATOR_NOTE`, and `PROVIDER_EVENT`.
-- No file upload, provider parser, fuzzy match, confidence score, AI score, or automatic financial decision exists.
-- A candidate requires a student or invoice and a non-empty human basis. Invoice/student tenant and identity consistency are checked in both service and database guards.
-- One accepted candidate per case is enforced by a partial unique index. Candidate decisions are audited and immutable after decision.
+The detail API:
 
-## 6. API and dashboard contract
+- prefers an open case over closed history;
+- exposes derived current work after a previous case closes if the payment still needs work;
+- returns all retained closed cases as history;
+- joins allocations to tenant-matching invoices and students;
+- aggregates payment audits and audits for every retained reconciliation case; and
+- exposes actions based on server-returned state, not client-supplied financial truth.
 
-### 6.1 Contract decisions
+Queue pagination uses a PostgreSQL epoch-microsecond sort key plus payment UUID. Previously issued canonical ISO cursors are accepted at millisecond precision; malformed cursors remain a 400. Queue summaries are explicitly page-scoped rather than falsely presented as global counts.
 
-- Existing financial APIs use integer `*Kobo` fields; the UI formats those values as Naira. M10 documents the implemented contract rather than the earlier aspirational Naira-string example.
-- Organization context is always derived from the authenticated tenant context. No M10 route accepts a client-selected organization ID.
-- GET queue filters are schema-validated and cursor-paginated.
-- Queue rows expose payment number, status, method, amount, unallocated balance, payment/reference dates, payer/reference context, allocation context, evidence count, case kind/state, and assignment.
-- Detail returns current and earlier reconciliation cases so a closed prior decision does not disappear from operational history.
-- Mutations return deterministic JSON error envelopes and use the existing centralized auth/CSRF boundary.
+## 7. Tenant/RLS and authorization boundaries
 
-### 6.2 Authorization matrix
+M10 mutations use the centralized authorization wrapper and require authentication, tenant membership, capability authorization, CSRF, validated input, transaction scope, idempotency, and audit coverage. `OWNER`, `SCHOOL_ADMIN`, and `FINANCE_OFFICER` receive the reconciliation capabilities; `STAFF`, public-link contexts, and platform-support read-only contexts cannot mutate reconciliation.
 
-`lib/authz/permissions.ts` adds three explicit actions:
+Organization context is derived from authenticated tenant context. No M10 endpoint accepts a client organization ID to establish scope. Repository queries repeat organization predicates in joins and filters; the database adds tenant-matching triggers and RLS.
 
-- `reconciliation.read`
-- `reconciliation.review`
-- `reconciliation.resolve`
+Against the real migrated database at `0036`:
 
-`OWNER`, `SCHOOL_ADMIN`, and `FINANCE_OFFICER` receive the three actions. `STAFF` receives none. Platform support mode is read-only and cannot invoke reconciliation mutations. The route layer uses `withAuthorizedRoute`; the test-only plain `Request` query fallback in `lib/authz/index.ts` preserves the same schema validation when Next's `nextUrl` is absent.
+- `scolaira_app` remains `NOSUPERUSER`, `NOINHERIT`, `NOCREATEROLE`, `NOCREATEDB`, and `NOBYPASSRLS`;
+- all three M10 tables have RLS enabled and FORCE RLS enabled;
+- exactly three M10 tenant policies are installed;
+- policies call centralized `auth_is_platform_admin_authorized()` and require authenticated tenant context rather than trusting a caller-set platform flag;
+- the live catalog contains the two partial unique indexes, fourteen M10 indexes, twenty-nine M10 constraints, and thirty-two M10 trigger entries backed by sixteen guard/timestamp functions; and
+- runtime update/delete/trigger privileges are least-privilege constrained by the migration runner.
 
-## 7. Tenant isolation, RLS/FORCE RLS, and runtime role
+Adversarial tenant tests covered queue/detail reads, dashboard data, evidence, candidates, history, manipulated tenant IDs, cross-tenant student/invoice/payment/case payloads, forged platform context, public context, and direct SQL writes.
 
-The direct PostgreSQL catalog audit was run against the migrated application database after M10 migration application.
+## 8. Authoritative financial mutation path
 
-### 7.1 Role attributes
+M10 is not a second ledger:
 
-```text
-ROLE|scolaira_app|false|false|false|false|false
-```
+- payment status, amount, and unallocated balance come from `payments`;
+- allocation context comes from authoritative `payment_allocations` joined to tenant-matching invoices/students;
+- invoice status/balance remains in the existing invoice/allocation triggers;
+- confirmation delegates to the existing payment repository/state machine;
+- allocation locks the authoritative payment, validates safe integer totals and remaining balance, then calls the existing allocation repository;
+- reversal/refund/receipt consequences remain on their existing authoritative routes; and
+- resolve explicitly returns `financialAction: none`.
 
-The fields are `rolsuper`, `rolinherit`, `rolcreaterole`, `rolcreatedb`, and `rolbypassrls`. Therefore `scolaira_app` remains `NOSUPERUSER`, `NOINHERIT`, `NOCREATEROLE`, `NOCREATEDB`, and `NOBYPASSRLS`.
+A focused successful regression proves invoice issuance → accepted human candidate → authoritative full allocation → invoice `PAID`, payment unallocated `0`, and closed `ALLOCATED` reconciliation case. Existing financial concurrency tests continue to prevent over-allocation.
 
-### 7.2 M10 RLS catalog result
+## 9. Concurrency and idempotency
 
-```text
-reconciliation_candidates|true|true
-reconciliation_cases|true|true
-reconciliation_evidence|true|true
-```
-
-All three M10 tables have RLS enabled and forced. Their policies derive visibility and write checks from the authenticated tenant GUC, with the same platform-context boundary used by the existing tenant model. Cross-tenant payment/case/evidence/candidate references are also rejected by M10 trigger guards.
-
-The same RLS/FORCE RLS result was verified on both `scolaira` and `scolaira_test` after migration setup.
-
-### 7.3 Runtime privilege result
-
-Table-level grants for `scolaira_app` are only:
-
-```text
-reconciliation_cases       INSERT, SELECT
-reconciliation_candidates  INSERT, SELECT
-reconciliation_evidence    INSERT, SELECT
-```
-
-Column-level update grants are:
-
-```text
-reconciliation_cases:
-  closed_at, kind, previous_state, reason, resolution_code,
-  resolution_note, resolved_at, resolved_by, state, version
-reconciliation_candidates:
-  decided_at, decided_by, state
-reconciliation_evidence:
-  none
-```
-
-The migration runner, test bootstrap, and M8 verification setup all reapply these restrictions after their broad bootstrap grants. Evidence has no runtime update/delete privilege and also has an append-only database trigger.
-
-### 7.4 Executed isolation checks
-
-- `tests/db/m10-reconciliation.test.ts` proves a tenant-B context sees zero tenant-A queue rows and cannot insert a case referring to tenant-A payment data.
-- `tests/db/tenant-isolation.test.ts` proves cross-tenant invoice/payment/allocation denial and tenant-scoped joins.
-- `tests/auth/rls-bypass-regression.test.ts` proves cold-connection default denial, invalid platform-context denial, forged platform identity denial, and runtime-role `NOBYPASSRLS` behavior.
-- `tests/auth/runtime-role-safety.test.ts` passes in the final regression.
-
-## 8. Idempotency and auditability
-
-All six M10 mutation routes call the existing durable M9 idempotency implementation with a required `Idempotency-Key` and route-specific scope/path/payload hash.
-
-- Same-key retries replay the original response and mark the replay header.
+- Payment workflows use row locks.
+- Case updates use organization, open-case, and optimistic-version predicates.
+- Concurrent case creation converges through the partial unique index and conflict recovery.
+- Concurrent accepted candidate decisions produce one winner and one conflict with exactly one accepted candidate.
+- All six M10 mutation routes require route/path/payload-scoped idempotency keys and cache/replay the original response.
+- Repeated evidence, resolve, match, confirm, and allocation requests do not duplicate their effects.
 - Same-key changed-payload reuse is rejected by the existing idempotency hash boundary.
-- Idempotency records and the financial/control writes are completed in the same transaction.
-- The existing authorized `app/api/receipts/route.ts` uniqueness-race replay hardening remains untouched.
-- The authoritative payment-recording path retains its existing idempotency behavior and now opens a control case without changing payment semantics.
 
-The case/evidence/candidate workflow records:
+The authorized receipt uniqueness-race replay hardening remains intact.
 
-- evidence-add audit;
-- payment-confirm audit through the existing financial audit path;
-- candidate acceptance audit;
-- case state before/after audit with request ID/payment ID metadata;
-- allocation audit through the existing payment allocation path; and
-- resolution code/note and explicit no-financial-action audit.
+## 10. Adversarial findings closed
 
-The detail endpoint merges payment and case audit entries and exposes earlier case summaries, so previous decisions remain visible rather than being overwritten.
+1. Forgeable platform-admin GUC in the initial M10 policies — fixed by `0031` and backend-bound platform context in `0034`.
+2. Missing runtime payment/actor/content shapes — forward-preflighted and constrained by `0025` and actor migrations.
+3. Cross-tenant/non-authenticated actor attribution — guarded by `0027`–`0029` and `0032`.
+4. Candidate writes after flagged/terminal state — guarded by `0030` and service checks.
+5. Reconciled flag restoration failure — fixed forward-only in `0033`; no applied migration was rewritten.
+6. `ALLOCATED` without fully allocated authoritative payment — blocked by `0035` and regression-tested.
+7. Closed-case history and decided-candidate linkage rewrites — blocked by `0036`.
+8. False derived detail state after case close — fixed through open-case preference and authoritative derived-work calculation.
+9. Unsafe allocation totals — rejected before financial repository calls.
+10. Cursor precision and same-transaction audit ordering ambiguity — fixed with microsecond cursor ordering, legacy ISO compatibility, deterministic tie-breaks, and database-clock audit timestamps.
 
-## 9. Adversarial and concurrency verification
+## 11. Migration replay, fresh database, and upgrade fixture
 
-### 9.1 M10-specific database tests
+Migration files are numeric and journaled through `0036_m10_terminal_linkage_guards`. The runner applies each file in its own transaction and reapplies least-privilege grants after bootstrap.
 
-`tests/db/m10-reconciliation.test.ts` passed **4/4** and covers:
+Executed evidence:
 
-1. derived queue visibility without a financial shadow record; durable evidence requirement; evidence immutability; and absence of monetary columns on the case result;
-2. tenant isolation and cross-tenant case-write denial;
-3. illegal, closed, and malformed transition denial, including evidence-required terminal decisions; and
-4. concurrent open-case creation converging to one case per payment plus concurrent accepted-candidate decisions converging to one accepted candidate.
+- Real `npm run db:migrate`: **`new=0 total=36`**.
+- Fresh test database: **36/36 migrations applied successfully**.
+- Temporary upgrade fixture: applied `0000`–`0024`, inserted a valid payment/case/evidence set, then applied `0025`–`0036`; final result was `cases=1`, `evidence=1`, `invalid=0`.
+- No migration deleted, merged, silently repaired, or financially reinterpreted existing records.
 
-The concurrent candidate test expects one winner and one conflict from the partial unique index, then directly verifies exactly one `ACCEPTED` candidate.
+## 12. Complete verification
 
-### 9.2 M10-specific HTTP tests
+| Verification                                   | Result                                             |
+| ---------------------------------------------- | -------------------------------------------------- |
+| Focused M10 DB/auth                            | 2 files, **11/11 tests passed**                    |
+| Full Vitest                                    | 28 files, **262/262 tests passed**                 |
+| TypeScript                                     | `npm run typecheck` passed                         |
+| Production build                               | `npm run build` passed                             |
+| Lint                                           | passed with existing non-fatal repository warnings |
+| Formatting/diff checks                         | Prettier and `git diff --check` passed             |
+| Full Playwright harness                        | **32/32 passed**                                   |
+| Existing financial concurrency/security suites | passed; no hidden aggregate failure                |
 
-`tests/auth/m10-reconciliation.test.ts` passed **2/2** and covers:
+Legacy PostgreSQL `25001`/`25P01` transaction-state warnings remain visible in frozen M5–M8 test harness output; all affected tests pass. They are not an M10 integrity failure.
 
-- the explicit evidence → confirm → human student match workflow;
-- integer-kobo response contract;
-- durable evidence replay with the same key;
-- missing idempotency key rejection;
-- missing CSRF rejection;
-- detail response with evidence, candidate, current state, and allocation balance;
-- centralized role policy for owner/admin/finance and STAFF/platform-support denial; and
-- the queue query-parser compatibility path for a plain test `Request`.
+## 13. Known operational condition
 
-### 9.3 Existing financial and security adversarial suites
+> The real database currently has no active tenant fixture for the positive tenant/platform read-path smoke test. This is an operational staging verification item, not an identified M10 implementation failure. It must be exercised against a real seeded staging tenant before production deployment.
 
-The final full regression also passed:
+The real database did receive migration replay, live catalog inspection, and negative boundary checks: a forged platform context returned `authorized=false` and zero visible M10 cases; public context returned zero visible M10 cases. A legitimate positive tenant/platform read-path smoke must be run against seeded staging data before production deployment.
 
-- `tests/db/financial-attacks.test.ts`: **14/14**, including negative money, invoice/payment balance trigger protection, append-only allocation/reversal checks, over-allocation denial, and reversal bounds;
-- `tests/db/concurrency.test.ts`: **3/3**, including allocation contention and concurrent legitimate payments;
-- `tests/db/tenant-isolation.test.ts`: **10/10**;
-- `tests/auth/rls-bypass-regression.test.ts`: **9/9**;
-- `tests/auth/authz.test.ts`: **29/29**;
-- `tests/db/audit.test.ts`: **7/7**;
-- `tests/db/idempotency.test.ts`: **5/5**; and
-- `tests/auth/runtime-role-safety.test.ts`: **2/2**.
+## 14. Freeze identity
 
-The known frozen auth-harness transaction warnings remain visible in the full run: **35** PostgreSQL `25001` (“already a transaction is in progress”) and **35** `25P01` (“there is no transaction in progress”). They are legacy M5–M8 harness behavior; all affected tests pass and no M10 financial failure is hidden behind an aggregate count.
-
-The standalone M8 verifier result recorded in the frozen M9 closeout remains valid: concurrent billing produced exactly one invoice, one invoice line, and one `BILLED` term. M10 does not change that billing path.
-
-## 10. Migration and database evidence
-
-### 10.1 Upgrade/idempotency
-
-The application database was migrated with:
+The final authorized closeout commit and tag are established only after the following checks succeed:
 
 ```text
-npm run db:migrate
-[db] migrations applied. new=0 total=24
+git rev-parse m10-reconciliation-control-plane
+git rev-parse HEAD
 ```
 
-The final integration setup recreated/migrated the test database and reported:
+Both commands must return the same exact commit SHA. The final SHA is recorded in the freeze handoff and must not be replaced by an amended or rewritten M9 object.
 
-```text
-[test-db] migrations applied. new=24 total=24
-```
-
-A direct owner catalog query on both `scolaira` and `scolaira_test` returned:
-
-```text
-24
-24|0024_m10_decision_shape_guards
-23|0023_m10_reconciliation_control_plane
-```
-
-No migration was destructive. M10 migrations are forward-only and the journal contains entries through `0024_m10_decision_shape_guards`.
-
-### 10.2 Migration safety
-
-- Tenant references are guarded in triggers and foreign keys.
-- RLS is enabled and forced within the migration.
-- Runtime privilege hardening is re-applied after migration execution.
-- One-open-case and one-accepted-candidate uniqueness are database-enforced.
-- State-shape and evidence immutability are database-enforced.
-- No existing payment, allocation, invoice, receipt, reversal, refund, academic, reminder, or public payment-link record is deleted or rewritten.
-
-## 11. Regression, TypeScript, build, and working tree
-
-Final commands executed against the final implementation tree:
-
-```text
-SCOLAIRA_SESSION_SECRET=<test fixture secret> \
-SCOLAIRA_DEV_ECHO_RESET_TOKEN=1 npm test
-→ Test Files  28 passed (28)
-→ Tests       257 passed (257)
-
-npm run typecheck
-→ PASS (tsc --noEmit)
-
-git diff --check
-→ PASS
-
-Prettier checks for changed M10 TypeScript/Markdown files
-→ PASS
-
-npm run build
-→ Compiled successfully
-→ M10 reconciliation API routes and /reconcile compiled
-```
-
-The build output contains the repository's existing warnings but no compilation failure. M10 routes compiled as dynamic server routes:
-
-```text
-/api/reconciliation/queue
-/api/reconciliation/payments/[id]
-/api/reconciliation/payments/[id]/evidence
-/api/reconciliation/payments/[id]/confirm
-/api/reconciliation/payments/[id]/match
-/api/reconciliation/payments/[id]/allocate
-/api/reconciliation/payments/[id]/flag
-/api/reconciliation/payments/[id]/resolve
-/reconcile
-```
-
-Before adding this report, `git status --short` was clean at `783ad2b7d76c4ce1c19c551183e88ae4e0359ff8`. The report is the only expected working-tree addition before the authorized closeout-documentation commit.
-
-## 12. Explicit non-goals and limitations
-
-The following are intentionally not implemented and are not claimed by this closeout:
-
-- bank statement, webhook, POS, or provider ingestion;
-- fuzzy, heuristic, confidence-scored, or AI matching;
-- automatic financial decisions or automatic allocation;
-- uploaded evidence files or a provider-specific import staging area;
-- a parent/guardian portal;
-- term close, session close, rollover, carry-forward, wallets, credit, installments, or multi-currency;
-- a new receipt, refund, reversal, or correction semantics;
-- destructive correction, record merge, or financial reinterpretation;
-- unrelated reporting expansion; and
-- global queue totals in the four summary cards. They are explicitly page-scoped; cursor pagination is the source for additional work.
-
-Product-policy questions remain for a future policy-gated extension: minimum evidence by payment method, duplicate-reference disposition, wrong-account payments, role-specific rejection/reversal policy, evidence retention/redaction, assignment/SLA policy, and whether confirmation and allocation should remain two reviewed steps. M10 leaves those ambiguities visible instead of guessing.
-
-## 13. Closeout conclusion
-
-M10 is ready as a controlled reconciliation layer over the frozen M1–M9 system. It establishes an auditable, tenant-safe human review loop while preserving the existing authoritative financial state machines and runtime-role boundaries. The exact final implementation SHA before this report is:
-
-```text
-783ad2b7d76c4ce1c19c551183e88ae4e0359ff8
-```
-
-The authorized closeout-documentation commit must contain this report only, use the required Scolaira identity, and leave the working tree clean.
+**M10 status after successful commit/tag verification: FROZEN**

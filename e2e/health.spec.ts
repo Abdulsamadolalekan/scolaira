@@ -22,10 +22,10 @@ test('/api/health returns ok payload', async ({ request }) => {
   expect(body.checks.database).toBe('not_configured');
 });
 
-test('root page redirects to Command Center', async ({ page }) => {
+test('root page enforces authentication for the Command Center', async ({ page }) => {
   await page.goto('/');
-  await page.waitForURL(/\/preview\/command-center/);
-  await expect(page.getByText('Good morning, Bursar')).toBeVisible({ timeout: 10000 });
+  await page.waitForURL(/\/login\?next=%2Fdashboard/);
+  await expect(page.getByRole('heading', { name: 'Sign in' })).toBeVisible({ timeout: 10000 });
 });
 
 test('Command Center renders KPIs + security headers', async ({ page }) => {
@@ -55,7 +55,7 @@ test('Invoice detail renders summary', async ({ page }) => {
 });
 
 test('404 page renders for unknown routes', async ({ page }) => {
-  const response = await page.goto('/does-not-exist');
+  const response = await page.goto('/preview/does-not-exist');
   expect(response?.status()).toBe(404);
   await expect(page.getByRole('heading', { level: 1, name: /Page not found/ })).toBeVisible({
     timeout: 10000,

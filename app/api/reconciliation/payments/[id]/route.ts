@@ -59,8 +59,16 @@ export const GET = withAuthorizedRoute(
           eq(reconciliationCases.paymentId, id as UUID),
         ),
       )
-      .orderBy(desc(reconciliationCases.createdAt));
-    const caseRow = caseRows[0] ?? null;
+      .orderBy(desc(reconciliationCases.createdAt), desc(reconciliationCases.id));
+    // A closed case is history, not the current work item. Financial state can
+    // legitimately create new reconciliation work after a prior close (for
+    // example, a reversal can restore an unallocated balance), so prefer the
+    // open case and otherwise expose the derived current state below.
+    const caseRow = caseRows.find((row) => row.closedAt === null) ?? null;
+    const hasDerivedWork =
+      payment.status === 'PENDING' ||
+      payment.status === 'DUPLICATE_SUSPECT' ||
+      (payment.status === 'CONFIRMED' && Number(payment.unallocatedKobo) > 0);
     const related = caseRow
       ? {
           evidence: await reconciliationRepo.listEvidence(db, ctx, caseRow.id),
@@ -84,23 +92,35 @@ export const GET = withAuthorizedRoute(
         note: paymentAllocations.note,
       })
       .from(paymentAllocations)
-      .innerJoin(invoices, eq(invoices.id, paymentAllocations.invoiceId))
-      .innerJoin(students, eq(students.id, invoices.studentId))
+      .innerJoin(
+        invoices,
+        and(
+          eq(invoices.id, paymentAllocations.invoiceId),
+          eq(invoices.organizationId, paymentAllocations.organizationId),
+        ),
+      )
+      .innerJoin(
+        students,
+        and(
+          eq(students.id, invoices.studentId),
+          eq(students.organizationId, paymentAllocations.organizationId),
+        ),
+      )
       .where(
         and(
           eq(paymentAllocations.organizationId, ctx.organizationId),
           eq(paymentAllocations.paymentId, id as UUID),
         ),
       )
-      .orderBy(desc(paymentAllocations.allocatedAt));
+      .orderBy(desc(paymentAllocations.allocatedAt), desc(paymentAllocations.id));
 
-    const [paymentAudit, caseAudit] = await Promise.all([
+    const [paymentAudit, caseAudits] = await Promise.all([
       auditRepo.listForEntity(db, ctx, 'payment', id as UUID, 50),
-      caseRow
-        ? auditRepo.listForEntity(db, ctx, 'reconciliation_case', caseRow.id, 50)
-        : Promise.resolve([]),
+      Promise.all(
+        caseRows.map((row) => auditRepo.listForEntity(db, ctx, 'reconciliation_case', row.id, 50)),
+      ),
     ]);
-    const audit = [...paymentAudit, ...caseAudit]
+    const audit = [...paymentAudit, ...caseAudits.flat()]
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
       .slice(0, 100);
 
@@ -117,25 +137,43 @@ export const GET = withAuthorizedRoute(
             case: caseRow,
             evidence: related.evidence,
             candidates: related.candidates,
-            history: caseRows.slice(1).map((prior) => ({
+            history: caseRows
+              .filter((prior) => prior.id !== caseRow.id)
+              .map((prior) => ({
+                id: prior.id,
+                state: prior.state,
+                kind: prior.kind,
+                reason: prior.reason,
+                resolutionCode: prior.resolutionCode,
+                createdBy: prior.createdBy,
+                resolvedBy: prior.resolvedBy,
+                resolvedAt: prior.resolvedAt,
+                closedAt: prior.closedAt,
+                createdAt: prior.createdAt,
+              })),
+          }
+        : {
+            case: null,
+            derived: hasDerivedWork
+              ? {
+                  state: 'UNMATCHED',
+                  kind: derivedKind(payment.status, Number(payment.unallocatedKobo)),
+                }
+              : null,
+            evidence: [],
+            candidates: [],
+            history: caseRows.map((prior) => ({
               id: prior.id,
               state: prior.state,
               kind: prior.kind,
               reason: prior.reason,
               resolutionCode: prior.resolutionCode,
+              createdBy: prior.createdBy,
+              resolvedBy: prior.resolvedBy,
+              resolvedAt: prior.resolvedAt,
               closedAt: prior.closedAt,
               createdAt: prior.createdAt,
             })),
-          }
-        : {
-            case: null,
-            derived: {
-              state: 'UNMATCHED',
-              kind: derivedKind(payment.status, Number(payment.unallocatedKobo)),
-            },
-            evidence: [],
-            candidates: [],
-            history: [],
           },
       allocations: allocations.map((row) => ({
         ...row,

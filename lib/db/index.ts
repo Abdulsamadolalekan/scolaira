@@ -47,9 +47,7 @@ function getOrCreateSql(): postgres.Sql {
     );
   }
   const isBootstrap = process.env.SCOLAIRA_BOOTSTRAP === '1';
-  const url = isBootstrap
-    ? (serverEnv.db.migrationUrl ?? serverEnv.db.url)
-    : serverEnv.db.url;
+  const url = isBootstrap ? (serverEnv.db.migrationUrl ?? serverEnv.db.url) : serverEnv.db.url;
   const sql = postgres(url, {
     // Pool is constrained to a single connection because all GUC-based
     // tenant/security context (app.organization_id, app.auth_bootstrap, …)
@@ -80,15 +78,18 @@ function getOrCreateSql(): postgres.Sql {
             FROM pg_roles
            WHERE rolname = current_user;
         `);
-        const row = (Array.isArray(res) ? res[0] : undefined) as { rolsuper?: unknown; rolbypassrls?: unknown } | undefined;
+        const row = (Array.isArray(res) ? res[0] : undefined) as
+          { rolsuper?: unknown; rolbypassrls?: unknown } | undefined;
         if (!row) {
-          throw new Error('DATABASE SECURITY FAILURE: could not read role attributes for current_user');
+          throw new Error(
+            'DATABASE SECURITY FAILURE: could not read role attributes for current_user',
+          );
         }
         if (String(row.rolsuper) === 't' || String(row.rolbypassrls) === 't') {
           throw new Error(
             'DATABASE SECURITY FAILURE: runtime DB principal is SUPERUSER or has BYPASSRLS. ' +
-            'Tenant RLS cannot be enforced. Refusing to start. ' +
-            '(Use DATABASE_MIGRATION_URL for migrations; DATABASE_URL must be the least-privileged role.)'
+              'Tenant RLS cannot be enforced. Refusing to start. ' +
+              '(Use DATABASE_MIGRATION_URL for migrations; DATABASE_URL must be the least-privileged role.)',
           );
         }
         // Reset tenant GUCs to a known-clean state so even a misbehaving
@@ -100,6 +101,7 @@ function getOrCreateSql(): postgres.Sql {
           SET SESSION app.acting_role = '';
           SET SESSION app.is_platform_admin = '0';
           SET SESSION app.platform_admin_id = '';
+          SET SESSION app.platform_token = '';
           SET SESSION app.auth_bootstrap = '0';
           SET SESSION app.bypass_financial_triggers = '0';
           SET SESSION app.tenant_token = '';

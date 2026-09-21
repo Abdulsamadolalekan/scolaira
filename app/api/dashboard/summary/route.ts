@@ -20,10 +20,17 @@
  * RLS; this endpoint does not bypass, extend, or elevate permissions.
  */
 import { NextResponse } from 'next/server';
-import { and, eq, gt, inArray, sql, desc } from 'drizzle-orm';
+import { and, eq, gt, inArray, or, sql, desc } from 'drizzle-orm';
 import { withAuthorizedRoute } from '@/lib/authz';
 import * as termRepo from '@/lib/db/repo/terms';
-import { invoices, payments, students, users, paymentAllocations, reminders } from '@/lib/db/schema';
+import {
+  invoices,
+  payments,
+  students,
+  users,
+  paymentAllocations,
+  reminders,
+} from '@/lib/db/schema';
 
 export type Summary = {
   termLabel: string;
@@ -39,7 +46,13 @@ export type Summary = {
   };
   attention: Array<{
     id: string;
-    kind: 'overdue_invoice' | 'pending_payment' | 'draft_invoice' | 'stale_followup' | 'aging_summary' | 'term_not_billed';
+    kind:
+      | 'overdue_invoice'
+      | 'pending_payment'
+      | 'draft_invoice'
+      | 'stale_followup'
+      | 'aging_summary'
+      | 'term_not_billed';
     severity: 'danger' | 'warning' | 'info';
     title: string;
     meta: string;
@@ -74,49 +87,87 @@ export const GET = withAuthorizedRoute(
     // Term-scoped invoice predicates.
     const inTerm = termId ? eq(invoices.termId, termId as any) : sql`false`;
     const inTermAndIssued = termId
-      ? and(eq(invoices.termId, termId as any), inArray(invoices.status, ['ISSUED','PARTIALLY_PAID','PAID']))
+      ? and(
+          eq(invoices.termId, termId as any),
+          inArray(invoices.status, ['ISSUED', 'PARTIALLY_PAID', 'PAID']),
+        )
       : sql`false`;
 
     // ---------- Term-scoped KPIs ----------
+    const reconciliationWork = or(
+      eq(payments.status, 'PENDING'),
+      eq(payments.status, 'DUPLICATE_SUSPECT'),
+      and(eq(payments.status, 'CONFIRMED'), gt(payments.unallocatedKobo, 0)),
+    );
     const [[invAgg], [pendAgg], [stuAgg], [collectedAgg], [draftAgg]] = await Promise.all([
-      db.select({
-        billed:        sql<number>`coalesce(sum(${invoices.totalKobo}),0)`,
-        outstanding:   sql<number>`coalesce(sum(case when ${invoices.status} in ('ISSUED','PARTIALLY_PAID') then ${invoices.totalKobo} - ${invoices.paidKobo} else 0 end),0)`,
-        overdue:       sql<number>`coalesce(sum(case when ${invoices.status} in ('ISSUED','PARTIALLY_PAID') and ${invoices.dueDate} is not null and ${invoices.dueDate} < current_date then ${invoices.totalKobo} - ${invoices.paidKobo} else 0 end),0)`,
-      }).from(invoices).where(and(eq(invoices.organizationId, orgId), inTermAndIssued)),
-      db.select({ count: sql<number>`count(*)` })
-        .from(payments).where(and(eq(payments.organizationId, orgId), eq(payments.status, 'PENDING'))),
-      db.select({ count: sql<number>`count(*)` })
-        .from(students).where(and(eq(students.organizationId, orgId), eq(students.status, 'ACTIVE'))),
+      db
+        .select({
+          billed: sql<number>`coalesce(sum(${invoices.totalKobo}),0)`,
+          outstanding: sql<number>`coalesce(sum(case when ${invoices.status} in ('ISSUED','PARTIALLY_PAID') then ${invoices.totalKobo} - ${invoices.paidKobo} else 0 end),0)`,
+          overdue: sql<number>`coalesce(sum(case when ${invoices.status} in ('ISSUED','PARTIALLY_PAID') and ${invoices.dueDate} is not null and ${invoices.dueDate} < current_date then ${invoices.totalKobo} - ${invoices.paidKobo} else 0 end),0)`,
+        })
+        .from(invoices)
+        .where(and(eq(invoices.organizationId, orgId), inTermAndIssued)),
+      db
+        .select({ count: sql<number>`count(*)` })
+        .from(payments)
+        .where(and(eq(payments.organizationId, orgId), reconciliationWork)),
+      db
+        .select({ count: sql<number>`count(*)` })
+        .from(students)
+        .where(and(eq(students.organizationId, orgId), eq(students.status, 'ACTIVE'))),
       // Collected against current-term invoices: sum ACTIVE allocations whose
       // invoice belongs to the current term, where the payment is CONFIRMED.
       // This is the most accurate definition: it correctly handles payments
       // that partially cover multiple terms (only the current-term slice is
       // counted) and excludes unallocated credit sitting on payments.
       termId
-        ? db.select({ collected: sql<number>`coalesce(sum(${paymentAllocations.amountKobo}),0)` })
+        ? db
+            .select({ collected: sql<number>`coalesce(sum(${paymentAllocations.amountKobo}),0)` })
             .from(paymentAllocations)
-            .innerJoin(invoices, eq(invoices.id, paymentAllocations.invoiceId))
-            .innerJoin(payments, eq(payments.id, paymentAllocations.paymentId))
-            .where(and(
-              eq(invoices.organizationId, orgId),
-              eq(invoices.termId, termId as any),
-              eq(paymentAllocations.status, 'ACTIVE'),
-              eq(payments.status, 'CONFIRMED'),
-            ))
+            .innerJoin(
+              invoices,
+              and(
+                eq(invoices.id, paymentAllocations.invoiceId),
+                eq(invoices.organizationId, paymentAllocations.organizationId),
+              ),
+            )
+            .innerJoin(
+              payments,
+              and(
+                eq(payments.id, paymentAllocations.paymentId),
+                eq(payments.organizationId, paymentAllocations.organizationId),
+              ),
+            )
+            .where(
+              and(
+                eq(invoices.organizationId, orgId),
+                eq(invoices.termId, termId as any),
+                eq(paymentAllocations.status, 'ACTIVE'),
+                eq(payments.status, 'CONFIRMED'),
+              ),
+            )
         : Promise.resolve([{ collected: 0 }] as any),
-      db.select({ count: sql<number>`coalesce(sum(case when ${invoices.status}='DRAFT' then 1 else 0 end),0)` })
-        .from(invoices).where(and(eq(invoices.organizationId, orgId), inTerm)),
+      db
+        .select({
+          count: sql<number>`coalesce(sum(case when ${invoices.status}='DRAFT' then 1 else 0 end),0)`,
+        })
+        .from(invoices)
+        .where(and(eq(invoices.organizationId, orgId), inTerm)),
     ]);
 
-    const inv = invAgg!; const pay = collectedAgg!; const pen = pendAgg!; const stu = stuAgg!; const dr = draftAgg!;
-    const billed        = Number(inv.billed) || 0;
-    const collected     = Number(pay.collected) || 0;
-    const outstanding   = Number(inv.outstanding) || 0;
-    const overdue       = Number(inv.overdue) || 0;
-    const unreconciled  = Number(pen.count) || 0;
+    const inv = invAgg!;
+    const pay = collectedAgg!;
+    const pen = pendAgg!;
+    const stu = stuAgg!;
+    const dr = draftAgg!;
+    const billed = Number(inv.billed) || 0;
+    const collected = Number(pay.collected) || 0;
+    const outstanding = Number(inv.outstanding) || 0;
+    const overdue = Number(inv.overdue) || 0;
+    const unreconciled = Number(pen.count) || 0;
     const activeStudents = Number(stu.count) || 0;
-    const drafts        = Number(dr.count) || 0;
+    const drafts = Number(dr.count) || 0;
     const collectionRateBps = billed > 0 ? Math.round((collected * 10000) / billed) : 0;
 
     // ---------- Attention: top 3 overdue invoices (by outstanding balance, current term) ----------
@@ -125,116 +176,169 @@ export const GET = withAuthorizedRoute(
       ? and(
           eq(invoices.organizationId, orgId),
           eq(invoices.termId, termId as any),
-          inArray(invoices.status, ['ISSUED','PARTIALLY_PAID']),
+          inArray(invoices.status, ['ISSUED', 'PARTIALLY_PAID']),
           sql`${invoices.dueDate} is not null and ${invoices.dueDate} < current_date`,
           gt(overdueBal, 0),
         )
       : sql`false`;
     const topOverdue = termId
-      ? await db.select({
-          id: invoices.id,
-          invoiceNumber: invoices.invoiceNumber,
-          studentName: sql<string>`trim(coalesce(${students.firstName},'') || ' ' || coalesce(${students.lastName},''))`.as('student_name'),
-          dueDate: invoices.dueDate,
-          balance: overdueBal.as('balance'),
-        })
+      ? await db
+          .select({
+            id: invoices.id,
+            invoiceNumber: invoices.invoiceNumber,
+            studentName:
+              sql<string>`trim(coalesce(${students.firstName},'') || ' ' || coalesce(${students.lastName},''))`.as(
+                'student_name',
+              ),
+            dueDate: invoices.dueDate,
+            balance: overdueBal.as('balance'),
+          })
           .from(invoices)
           .leftJoin(students, eq(students.id, invoices.studentId))
           .where(overdueWhere)
           .orderBy(desc(overdueBal))
           .limit(3)
-      : [] as any[];
+      : ([] as any[]);
 
     // ---------- Attention: aging summary — severe debtors and stale follow-up ----------
     const [[severeAgg], [overdueAgg]] = await Promise.all([
-      db.select({
-        severeCount: sql<number>`count(distinct ${students.id})`,
-        severeKobo: sql<number>`coalesce(sum(${invoices.totalKobo} - ${invoices.paidKobo}),0)`,
-        noReminderCount: sql<number>`count(distinct case when ${reminders.id} is null then ${students.id} end)`,
-      }).from(invoices)
+      db
+        .select({
+          severeCount: sql<number>`count(distinct ${students.id})`,
+          severeKobo: sql<number>`coalesce(sum(${invoices.totalKobo} - ${invoices.paidKobo}),0)`,
+          noReminderCount: sql<number>`count(distinct case when ${reminders.id} is null then ${students.id} end)`,
+        })
+        .from(invoices)
         .leftJoin(students, eq(students.id, invoices.studentId))
-        .leftJoin(reminders, and(
-          eq(reminders.studentId, invoices.studentId),
-          sql`${reminders.createdAt} > current_timestamp - interval '14 days'`,
-        ))
-        .where(and(
-          eq(invoices.organizationId, orgId),
-          inArray(invoices.status, ['ISSUED','PARTIALLY_PAID']),
-          sql`${invoices.dueDate} is not null and ${invoices.dueDate} < current_date - interval '90 days'`,
-          gt(overdueBal, 0),
-        )),
-      db.select({
-        overdueCount: sql<number>`count(distinct ${students.id}) filter (where ${invoices.dueDate} < current_date)`,
-        staleCount: sql<number>`count(distinct case when ${reminders.id} is null or ${reminders.createdAt} < current_timestamp - interval '7 days' then ${students.id} end) filter (where ${invoices.dueDate} < current_date)`,
-      }).from(invoices)
+        .leftJoin(
+          reminders,
+          and(
+            eq(reminders.studentId, invoices.studentId),
+            sql`${reminders.createdAt} > current_timestamp - interval '14 days'`,
+          ),
+        )
+        .where(
+          and(
+            eq(invoices.organizationId, orgId),
+            inArray(invoices.status, ['ISSUED', 'PARTIALLY_PAID']),
+            sql`${invoices.dueDate} is not null and ${invoices.dueDate} < current_date - interval '90 days'`,
+            gt(overdueBal, 0),
+          ),
+        ),
+      db
+        .select({
+          overdueCount: sql<number>`count(distinct ${students.id}) filter (where ${invoices.dueDate} < current_date)`,
+          staleCount: sql<number>`count(distinct case when ${reminders.id} is null or ${reminders.createdAt} < current_timestamp - interval '7 days' then ${students.id} end) filter (where ${invoices.dueDate} < current_date)`,
+        })
+        .from(invoices)
         .leftJoin(students, eq(students.id, invoices.studentId))
-        .leftJoin(reminders, and(
-          eq(reminders.studentId, invoices.studentId),
-          sql`${reminders.createdAt} > current_timestamp - interval '7 days'`,
-        ))
-        .where(and(
-          eq(invoices.organizationId, orgId),
-          inArray(invoices.status, ['ISSUED','PARTIALLY_PAID']),
-          sql`${invoices.dueDate} is not null and ${invoices.dueDate} < current_date`,
-          gt(overdueBal, 0),
-        )),
+        .leftJoin(
+          reminders,
+          and(
+            eq(reminders.studentId, invoices.studentId),
+            sql`${reminders.createdAt} > current_timestamp - interval '7 days'`,
+          ),
+        )
+        .where(
+          and(
+            eq(invoices.organizationId, orgId),
+            inArray(invoices.status, ['ISSUED', 'PARTIALLY_PAID']),
+            sql`${invoices.dueDate} is not null and ${invoices.dueDate} < current_date`,
+            gt(overdueBal, 0),
+          ),
+        ),
     ]);
 
-    // ---------- Attention: pending payments (up to 2) ----------
-    const pendingPays = await db.select({
-      id: payments.id,
-      paymentNumber: payments.paymentNumber,
-      amountKobo: payments.amountKobo,
-      payerName: payments.payerName,
-      method: payments.method,
-      reference: payments.reference,
-      paidAt: payments.paidAt,
-    })
+    // ---------- Attention: reconciliation work (up to 2) ----------
+    const reconciliationPays = await db
+      .select({
+        id: payments.id,
+        paymentNumber: payments.paymentNumber,
+        amountKobo: payments.amountKobo,
+        unallocatedKobo: payments.unallocatedKobo,
+        payerName: payments.payerName,
+        method: payments.method,
+        status: payments.status,
+        reference: payments.reference,
+        paidAt: payments.paidAt,
+      })
       .from(payments)
-      .where(and(eq(payments.organizationId, orgId), eq(payments.status, 'PENDING')))
+      .where(and(eq(payments.organizationId, orgId), reconciliationWork))
       .orderBy(sql`coalesce(${payments.paidAt}, ${payments.createdAt}) desc`)
       .limit(2);
 
     // ---------- Activity feed: latest payments + invoices, merged ----------
-    const recentPayments = await db.select({
-      id: payments.id,
-      at: sql<string>`coalesce(${payments.paidAt}, ${payments.createdAt})`,
-      amountKobo: payments.amountKobo,
-      payerName: payments.payerName,
-      reference: payments.reference,
-      recordedBy: payments.recordedBy,
-    })
+    const recentPayments = await db
+      .select({
+        id: payments.id,
+        at: sql<string>`coalesce(${payments.paidAt}, ${payments.createdAt})`,
+        amountKobo: payments.amountKobo,
+        payerName: payments.payerName,
+        reference: payments.reference,
+        recordedBy: payments.recordedBy,
+      })
       .from(payments)
       .where(and(eq(payments.organizationId, orgId), eq(payments.status, 'CONFIRMED')))
       .orderBy(sql`coalesce(${payments.paidAt}, ${payments.createdAt}) desc`)
       .limit(6);
 
-    const recentInvoices = await db.select({
-      id: invoices.id,
-      at: sql<string>`${invoices.issuedAt}`,
-      invoiceNumber: invoices.invoiceNumber,
-      studentName: sql<string>`trim(coalesce(${students.firstName},'') || ' ' || coalesce(${students.lastName},''))`.as('student_name'),
-      totalKobo: invoices.totalKobo,
-    })
+    const recentInvoices = await db
+      .select({
+        id: invoices.id,
+        at: sql<string>`${invoices.issuedAt}`,
+        invoiceNumber: invoices.invoiceNumber,
+        studentName:
+          sql<string>`trim(coalesce(${students.firstName},'') || ' ' || coalesce(${students.lastName},''))`.as(
+            'student_name',
+          ),
+        totalKobo: invoices.totalKobo,
+      })
       .from(invoices)
       .leftJoin(students, eq(students.id, invoices.studentId))
-      .where(and(
-        eq(invoices.organizationId, orgId),
-        inArray(invoices.status, ['ISSUED','PARTIALLY_PAID','PAID']),
-        termId ? eq(invoices.termId, termId as any) : sql`false`,
-      ))
+      .where(
+        and(
+          eq(invoices.organizationId, orgId),
+          inArray(invoices.status, ['ISSUED', 'PARTIALLY_PAID', 'PAID']),
+          termId ? eq(invoices.termId, termId as any) : sql`false`,
+        ),
+      )
       .orderBy(desc(invoices.issuedAt))
       .limit(6);
 
-    const actorIds = Array.from(new Set(recentPayments.map(r => r.recordedBy).filter(Boolean))) as string[];
+    const actorIds = Array.from(
+      new Set(recentPayments.map((r) => r.recordedBy).filter(Boolean)),
+    ) as string[];
     const actorMap = new Map<string, string>();
     if (actorIds.length) {
-      const us = await db.select({ id: users.id, name: sql<string>`trim(coalesce(${users.firstName},'') || ' ' || coalesce(${users.lastName},''))`.as('actor_name') }).from(users).where(inArray(users.id, actorIds));
+      const us = await db
+        .select({
+          id: users.id,
+          name: sql<string>`trim(coalesce(${users.firstName},'') || ' ' || coalesce(${users.lastName},''))`.as(
+            'actor_name',
+          ),
+        })
+        .from(users)
+        .where(inArray(users.id, actorIds));
       us.forEach((u: any) => actorMap.set(u.id, u.name));
     }
 
-    type PayEv = { id: string; kind: 'payment_confirmed'; at: string; amountKobo: number; payerName: string | null; reference: string | null; actor: string | null };
-    type InvEv = { id: string; kind: 'invoice_issued';   at: string; invoiceNumber: string; studentName: string | null; totalKobo: number };
+    type PayEv = {
+      id: string;
+      kind: 'payment_confirmed';
+      at: string;
+      amountKobo: number;
+      payerName: string | null;
+      reference: string | null;
+      actor: string | null;
+    };
+    type InvEv = {
+      id: string;
+      kind: 'invoice_issued';
+      at: string;
+      invoiceNumber: string;
+      studentName: string | null;
+      totalKobo: number;
+    };
     const payEvents: PayEv[] = recentPayments.map((r: any) => ({
       id: r.id,
       kind: 'payment_confirmed',
@@ -281,7 +385,8 @@ export const GET = withAuthorizedRoute(
     // ---------- Attention list (order: danger first, then warning, then info) ----------
     const attention: Summary['attention'] = [];
 
-    const severe = severeAgg as { severeCount: number; severeKobo: number; noReminderCount: number } | undefined;
+    const severe = severeAgg as
+      { severeCount: number; severeKobo: number; noReminderCount: number } | undefined;
     const overdue_ = overdueAgg as { overdueCount: number; staleCount: number } | undefined;
     const severeCount = Number(severe?.severeCount ?? 0);
     const severeKobo = Number(severe?.severeKobo ?? 0);
@@ -305,17 +410,20 @@ export const GET = withAuthorizedRoute(
         id: 'severe-aging',
         kind: 'aging_summary',
         severity: 'danger',
-        title: `${severeCount} student${severeCount===1?'':'s'} 90+ days overdue — ${fmt(severeKobo)} at risk`,
-        meta: noReminderCount > 0
-          ? `${noReminderCount} have not received a reminder in the last 14 days. Open Debtors to follow up.`
-          : 'All severe accounts have been reminded recently; review next steps.',
+        title: `${severeCount} student${severeCount === 1 ? '' : 's'} 90+ days overdue — ${fmt(severeKobo)} at risk`,
+        meta:
+          noReminderCount > 0
+            ? `${noReminderCount} have not received a reminder in the last 14 days. Open Debtors to follow up.`
+            : 'All severe accounts have been reminded recently; review next steps.',
         href: '/debtors',
       });
     }
 
     const today = new Date();
     for (const inv of topOverdue as any[]) {
-      const days = inv.dueDate ? Math.max(1, Math.ceil((today.getTime() - new Date(inv.dueDate).getTime()) / 86400000)) : 1;
+      const days = inv.dueDate
+        ? Math.max(1, Math.ceil((today.getTime() - new Date(inv.dueDate).getTime()) / 86400000))
+        : 1;
       attention.push({
         id: inv.id,
         kind: 'overdue_invoice',
@@ -331,22 +439,32 @@ export const GET = withAuthorizedRoute(
         id: 'stale-followup',
         kind: 'stale_followup',
         severity: overdueCount > 5 ? 'warning' : 'info',
-        title: `${staleCount} overdue student${staleCount===1?'':'s'} have not been reminded this week`,
+        title: `${staleCount} overdue student${staleCount === 1 ? '' : 's'} have not been reminded this week`,
         meta: 'A one-click printable reminder is available from Debtors.',
         href: '/debtors',
       });
     }
 
-    for (const p of pendingPays as any[]) {
+    for (const p of reconciliationPays as any[]) {
       const amt = Number(p.amountKobo) || 0;
       const method = (p.method || '').replace(/_/g, ' ').toLowerCase();
+      const title =
+        p.status === 'DUPLICATE_SUSPECT'
+          ? 'Duplicate-suspect payment needs review'
+          : p.status === 'CONFIRMED'
+            ? `${method === 'bank_transfer' ? 'Bank transfer' : method || 'Payment'} needs matching`
+            : `${method === 'bank_transfer' ? 'Bank transfer' : method || 'Payment'} pending confirmation`;
+      const meta =
+        p.status === 'CONFIRMED'
+          ? `${fmt(Number(p.unallocatedKobo) || amt)} still unallocated${p.payerName ? ' from ' + p.payerName : ''} — ref ${p.reference || 'n/a'}`
+          : `${fmt(amt)}${p.payerName ? ' from ' + p.payerName : ''} — ref ${p.reference || 'n/a'}`;
       attention.push({
         id: p.id,
         kind: 'pending_payment',
         severity: 'warning',
-        title: `${method === 'bank_transfer' ? 'Bank transfer' : method || 'Payment'} pending reconciliation`,
-        meta: `${fmt(amt)}${p.payerName ? ' from ' + p.payerName : ''} — ref ${p.reference || 'n/a'}`,
-        href: `/payments/${p.id}`,
+        title,
+        meta,
+        href: '/reconcile',
       });
     }
 
@@ -363,7 +481,8 @@ export const GET = withAuthorizedRoute(
 
     return NextResponse.json({
       termLabel,
-      greetingName: (session.user as any).firstName || (session.user as any).fullName?.split(' ')[0] || null,
+      greetingName:
+        (session.user as any).firstName || (session.user as any).fullName?.split(' ')[0] || null,
       kpis: {
         billedKobo: billed,
         collectedKobo: collected,

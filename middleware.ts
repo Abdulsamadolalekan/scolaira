@@ -25,7 +25,7 @@ const PUBLIC_PATHS = new Set([
   '/login',
   '/register',
   '/reset',
-  '/auth',       // reset-confirm landing page (optional)
+  '/auth', // reset-confirm landing page (optional)
 ]);
 
 const PUBLIC_API_PREFIXES = [
@@ -40,6 +40,8 @@ function isPublic(pathname: string): boolean {
   if (PUBLIC_PATHS.has(pathname)) return true;
   for (const p of PUBLIC_API_PREFIXES) if (pathname.startsWith(p)) return true;
   if (pathname.startsWith('/_next') || pathname.startsWith('/favicon')) return true;
+  // Design-system previews are mock-data-only and explicitly unavailable in production.
+  if (pathname.startsWith('/preview')) return true;
   if (pathname === '/') return true;
   return false;
 }

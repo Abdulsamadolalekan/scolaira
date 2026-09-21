@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
 import { Money } from '@/components/ui/money';
@@ -8,15 +8,28 @@ import { csrfHeaders } from '@/lib/ui/csrf';
 import type { QueueRow } from '@/lib/db/repo/reconciliation';
 
 type Detail = {
-  payment: QueueRow & { payerPhone?: string | null; payerEmail?: string | null };
+  payment: {
+    id: string;
+    paymentNumber: string;
+    status: string;
+    method: string;
+    amountKobo: number;
+    unallocatedKobo: number;
+    reference: string | null;
+    payerName: string | null;
+    payerPhone: string | null;
+    payerEmail: string | null;
+    paidAt: string | null;
+    createdAt: string;
+  };
   reconciliation: {
     case: any | null;
-    derived?: { state: string; kind: string };
+    derived?: { state: string; kind: string } | null;
     evidence: any[];
     candidates: any[];
     history: any[];
   };
-  allocations: any[];
+  allocations: Array<{ status: string }>;
   audit: any[];
 };
 
@@ -34,6 +47,14 @@ export default function ReconciliationQueue({
   const [details, setDetails] = useState<Record<string, Detail>>({});
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  // router.refresh() replaces the server props, but does not reset local state
+  // initialized from those props. Keep the visible queue aligned with the
+  // server response after every successful mutation or navigation refresh.
+  useEffect(() => {
+    setRows(initialRows);
+    setCursor(initialCursor);
+  }, [initialRows, initialCursor]);
 
   async function loadDetail(paymentId: string) {
     if (details[paymentId]) return;
@@ -245,18 +266,23 @@ function CaseDetail({
   onPost: (paymentId: string, path: string, body: unknown, label: string) => Promise<void>;
 }) {
   const currentCase = detail.reconciliation.case;
+  const payment = detail.payment;
   const state = currentCase?.state ?? detail.reconciliation.derived?.state ?? row.state;
+  const isClosed = Boolean(currentCase?.closedAt);
+  const activeAllocationCount = detail.allocations.filter(
+    (allocation) => allocation.status === 'ACTIVE',
+  ).length;
   const [evidenceKind, setEvidenceKind] = useState('OPERATOR_NOTE');
   const [evidenceText, setEvidenceText] = useState('');
   const [matchInvoice, setMatchInvoice] = useState('');
   const [matchBasis, setMatchBasis] = useState('');
-  const [allocateAmount, setAllocateAmount] = useState(String(row.unallocatedKobo));
+  const [allocateAmount, setAllocateAmount] = useState(String(payment.unallocatedKobo));
   const [reason, setReason] = useState('');
   const actionBusy = (path: string) => busy === `${row.paymentId}:${path}`;
 
   function submitEvidence(e: React.FormEvent) {
     e.preventDefault();
-    if (!evidenceText.trim()) return;
+    if (isClosed || !evidenceText.trim()) return;
     void onPost(
       row.paymentId,
       'evidence',
@@ -273,8 +299,8 @@ function CaseDetail({
         <div className="space-y-3 lg:col-span-2">
           <div className="grid grid-cols-2 gap-3 text-[12px] sm:grid-cols-4">
             <Info label="Case kind" value={currentCase?.kind ?? row.caseKind} />
-            <Info label="Payment status" value={row.paymentStatus} />
-            <Info label="Allocations" value={`${row.activeAllocationCount} active`} />
+            <Info label="Payment status" value={payment.status} />
+            <Info label="Allocations" value={`${activeAllocationCount} active`} />
             <Info
               label="Assigned"
               value={row.assignedTo ? row.assignedTo.slice(0, 8) : 'Unassigned'}
@@ -310,6 +336,11 @@ function CaseDetail({
                 ))}
               </ul>
             )}
+            {isClosed && (
+              <div className="mt-3 text-[12px]" style={{ color: 'var(--color-text-faint)' }}>
+                This case is closed; the server will not accept new evidence or decisions.
+              </div>
+            )}
             <form
               onSubmit={submitEvidence}
               className="mt-3 grid gap-2 sm:grid-cols-[150px_1fr_auto]"
@@ -317,6 +348,7 @@ function CaseDetail({
               <select
                 value={evidenceKind}
                 onChange={(e) => setEvidenceKind(e.target.value)}
+                disabled={isClosed}
                 className="rounded-md border px-2 py-2 text-[12px]"
                 style={{ borderColor: 'var(--color-border)', background: 'var(--color-bg-page)' }}
               >
@@ -329,13 +361,14 @@ function CaseDetail({
               <input
                 value={evidenceText}
                 onChange={(e) => setEvidenceText(e.target.value)}
+                disabled={isClosed}
                 placeholder="Reference or observation"
                 className="rounded-md border px-2 py-2 text-[12px]"
                 style={{ borderColor: 'var(--color-border)', background: 'var(--color-bg-page)' }}
               />
               <button
                 type="submit"
-                disabled={!evidenceText.trim() || actionBusy('evidence')}
+                disabled={isClosed || !evidenceText.trim() || actionBusy('evidence')}
                 className="rounded-md px-3 py-2 text-[12px] font-medium text-white disabled:opacity-50"
                 style={{ background: 'var(--color-forest)' }}
               >
@@ -394,52 +427,59 @@ function CaseDetail({
           >
             Permitted actions
           </div>
-          {row.paymentStatus === 'PENDING' && (
-            <ActionButton
-              busy={actionBusy('confirm')}
-              onClick={() => void onPost(row.paymentId, 'confirm', {}, 'Confirm payment')}
-            >
-              Confirm payment
-            </ActionButton>
-          )}
-          {row.unallocatedKobo > 0 && state !== 'RECONCILED' && state !== 'ALLOCATED' && (
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                if (matchInvoice && matchBasis)
-                  void onPost(
-                    row.paymentId,
-                    'match',
-                    { invoiceId: matchInvoice, basis: matchBasis },
-                    'Match payment',
-                  );
-              }}
-              className="space-y-2 rounded-md border p-3"
-              style={{ borderColor: 'var(--color-border-subtle)' }}
-            >
-              <div className="text-[12px] font-medium">Establish invoice match</div>
-              <input
-                required
-                value={matchInvoice}
-                onChange={(e) => setMatchInvoice(e.target.value)}
-                placeholder="Invoice UUID"
-                className="w-full rounded-md border px-2 py-2 text-[11px]"
-                style={{ borderColor: 'var(--color-border)' }}
-              />
-              <input
-                required
-                value={matchBasis}
-                onChange={(e) => setMatchBasis(e.target.value)}
-                placeholder="Human basis for match"
-                className="w-full rounded-md border px-2 py-2 text-[11px]"
-                style={{ borderColor: 'var(--color-border)' }}
-              />
-              <ActionButton busy={actionBusy('match')} type="submit">
-                Record match
+          {!isClosed &&
+            (payment.status === 'PENDING' ||
+              (payment.status === 'DUPLICATE_SUSPECT' && payment.unallocatedKobo > 0)) && (
+              <ActionButton
+                busy={actionBusy('confirm')}
+                onClick={() => void onPost(row.paymentId, 'confirm', {}, 'Confirm payment')}
+              >
+                {payment.status === 'DUPLICATE_SUSPECT'
+                  ? 'Confirm after duplicate review'
+                  : 'Confirm payment'}
               </ActionButton>
-            </form>
-          )}
-          {row.unallocatedKobo > 0 && state === 'RECONCILED' && (
+            )}
+          {!isClosed &&
+            payment.unallocatedKobo > 0 &&
+            state !== 'RECONCILED' &&
+            state !== 'ALLOCATED' && (
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  if (matchInvoice && matchBasis)
+                    void onPost(
+                      row.paymentId,
+                      'match',
+                      { invoiceId: matchInvoice, basis: matchBasis },
+                      'Match payment',
+                    );
+                }}
+                className="space-y-2 rounded-md border p-3"
+                style={{ borderColor: 'var(--color-border-subtle)' }}
+              >
+                <div className="text-[12px] font-medium">Establish invoice match</div>
+                <input
+                  required
+                  value={matchInvoice}
+                  onChange={(e) => setMatchInvoice(e.target.value)}
+                  placeholder="Invoice UUID"
+                  className="w-full rounded-md border px-2 py-2 text-[11px]"
+                  style={{ borderColor: 'var(--color-border)' }}
+                />
+                <input
+                  required
+                  value={matchBasis}
+                  onChange={(e) => setMatchBasis(e.target.value)}
+                  placeholder="Human basis for match"
+                  className="w-full rounded-md border px-2 py-2 text-[11px]"
+                  style={{ borderColor: 'var(--color-border)' }}
+                />
+                <ActionButton busy={actionBusy('match')} type="submit">
+                  Record match
+                </ActionButton>
+              </form>
+            )}
+          {!isClosed && payment.unallocatedKobo > 0 && state === 'RECONCILED' && (
             <form
               onSubmit={(e) => {
                 e.preventDefault();
@@ -479,7 +519,7 @@ function CaseDetail({
               <input
                 type="number"
                 min="1"
-                max={row.unallocatedKobo}
+                max={payment.unallocatedKobo}
                 value={allocateAmount}
                 onChange={(e) => setAllocateAmount(e.target.value)}
                 className="w-full rounded-md border px-2 py-2 text-[11px]"
@@ -490,67 +530,69 @@ function CaseDetail({
               </ActionButton>
             </form>
           )}
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              if (reason.trim())
-                void onPost(
-                  row.paymentId,
-                  'flag',
-                  { flagged: true, reason: reason.trim() },
-                  'Flag case',
-                );
-            }}
-            className="space-y-2 rounded-md border p-3"
-            style={{ borderColor: 'var(--color-border-subtle)' }}
-          >
-            <input
-              value={reason}
-              onChange={(e) => setReason(e.target.value)}
-              placeholder="Flag / resolve reason"
-              className="w-full rounded-md border px-2 py-2 text-[11px]"
-              style={{ borderColor: 'var(--color-border)' }}
-            />
-            {state === 'FLAGGED' ? (
-              <>
-                <ActionButton
-                  busy={actionBusy('flag')}
-                  type="button"
-                  onClick={() =>
-                    void onPost(
-                      row.paymentId,
-                      'flag',
-                      { flagged: false, reason: reason.trim() || 'Reviewed and unflagged.' },
-                      'Unflag case',
-                    )
-                  }
-                >
-                  Unflag case
+          {!isClosed && (
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (reason.trim())
+                  void onPost(
+                    row.paymentId,
+                    'flag',
+                    { flagged: true, reason: reason.trim() },
+                    'Flag case',
+                  );
+              }}
+              className="space-y-2 rounded-md border p-3"
+              style={{ borderColor: 'var(--color-border-subtle)' }}
+            >
+              <input
+                value={reason}
+                onChange={(e) => setReason(e.target.value)}
+                placeholder="Flag / resolve reason"
+                className="w-full rounded-md border px-2 py-2 text-[11px]"
+                style={{ borderColor: 'var(--color-border)' }}
+              />
+              {state === 'FLAGGED' ? (
+                <>
+                  <ActionButton
+                    busy={actionBusy('flag')}
+                    type="button"
+                    onClick={() =>
+                      void onPost(
+                        row.paymentId,
+                        'flag',
+                        { flagged: false, reason: reason.trim() || 'Reviewed and unflagged.' },
+                        'Unflag case',
+                      )
+                    }
+                  >
+                    Unflag case
+                  </ActionButton>
+                  <ActionButton
+                    busy={actionBusy('resolve')}
+                    type="button"
+                    onClick={() =>
+                      void onPost(
+                        row.paymentId,
+                        'resolve',
+                        {
+                          resolutionCode: 'NO_FINANCIAL_ACTION',
+                          note: reason.trim() || 'Reviewed with no financial action.',
+                        },
+                        'Resolve case',
+                      )
+                    }
+                  >
+                    Resolve with no financial action
+                  </ActionButton>
+                </>
+              ) : (
+                <ActionButton busy={actionBusy('flag')} type="submit">
+                  Flag for review
                 </ActionButton>
-                <ActionButton
-                  busy={actionBusy('resolve')}
-                  type="button"
-                  onClick={() =>
-                    void onPost(
-                      row.paymentId,
-                      'resolve',
-                      {
-                        resolutionCode: 'NO_FINANCIAL_ACTION',
-                        note: reason.trim() || 'Reviewed with no financial action.',
-                      },
-                      'Resolve case',
-                    )
-                  }
-                >
-                  Resolve with no financial action
-                </ActionButton>
-              </>
-            ) : (
-              <ActionButton busy={actionBusy('flag')} type="submit">
-                Flag for review
-              </ActionButton>
-            )}
-          </form>
+              )}
+            </form>
+          )}
         </div>
       </div>
     </div>

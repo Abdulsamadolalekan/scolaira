@@ -28,7 +28,9 @@ export const reconciliationCases = pgTable(
     organizationId: uuid('organization_id')
       .notNull()
       .references(() => organizations.id, { onDelete: 'cascade' }),
-    paymentId: uuid('payment_id').references(() => payments.id, { onDelete: 'restrict' }),
+    paymentId: uuid('payment_id')
+      .notNull()
+      .references(() => payments.id, { onDelete: 'restrict' }),
     kind: varchar('kind', { length: 32 }).notNull(),
     state: varchar('state', { length: 16 }).notNull(),
     previousState: varchar('previous_state', { length: 16 }),
@@ -36,7 +38,9 @@ export const reconciliationCases = pgTable(
     resolutionCode: varchar('resolution_code', { length: 64 }),
     resolutionNote: text('resolution_note'),
     assignedTo: uuid('assigned_to').references(() => users.id, { onDelete: 'set null' }),
-    createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
+    createdBy: uuid('created_by')
+      .notNull()
+      .references(() => users.id, { onDelete: 'set null' }),
     resolvedBy: uuid('resolved_by').references(() => users.id, { onDelete: 'set null' }),
     resolvedAt: timestamp('resolved_at', { withTimezone: true, mode: 'date' }),
     closedAt: timestamp('closed_at', { withTimezone: true, mode: 'date' }),
@@ -68,7 +72,9 @@ export const reconciliationEvidence = pgTable(
     note: text('note'),
     contentHash: varchar('content_hash', { length: 128 }),
     metadata: jsonb('metadata'),
-    createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
+    createdBy: uuid('created_by')
+      .notNull()
+      .references(() => users.id, { onDelete: 'set null' }),
     ...timestamps(),
   },
   (t) => [
@@ -91,7 +97,9 @@ export const reconciliationCandidates = pgTable(
     invoiceId: uuid('invoice_id').references(() => invoices.id, { onDelete: 'restrict' }),
     basis: text('basis').notNull(),
     state: varchar('state', { length: 16 }).notNull().default('PROPOSED'),
-    createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
+    createdBy: uuid('created_by')
+      .notNull()
+      .references(() => users.id, { onDelete: 'set null' }),
     decidedBy: uuid('decided_by').references(() => users.id, { onDelete: 'set null' }),
     decidedAt: timestamp('decided_at', { withTimezone: true, mode: 'date' }),
     ...timestamps(),
