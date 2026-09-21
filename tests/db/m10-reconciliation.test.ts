@@ -15,6 +15,7 @@ import { reconciliationCases, reconciliationEvidence } from '@/lib/db/schema';
 import {
   addEvidence,
   countEvidence,
+  createAcceptedCandidate,
   getOrCreateCase,
   listQueue,
   updateCaseState,
@@ -275,5 +276,27 @@ describe('M10 reconciliation control plane — concurrent case creation', () => 
         >`SELECT count(*)::text AS n FROM reconciliation_cases WHERE payment_id = ${payment.id}::uuid AND closed_at IS NULL`,
     );
     expect(visible[0]!.n).toBe('1');
+
+    const candidateResults = await Promise.allSettled([
+      createAcceptedCandidate(a.db as any, a.ctx, {
+        caseId: caseA.id as UUID,
+        studentId: fixture.studentId,
+        basis: 'Concurrent operator decision A',
+      }),
+      createAcceptedCandidate(b.db as any, b.ctx, {
+        caseId: caseA.id as UUID,
+        studentId: fixture.studentId,
+        basis: 'Concurrent operator decision B',
+      }),
+    ]);
+    expect(candidateResults.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
+    expect(candidateResults.filter((result) => result.status === 'rejected')).toHaveLength(1);
+    const accepted = await fixture.asTenant(
+      async (sql) =>
+        sql<
+          { n: string }[]
+        >`SELECT count(*)::text AS n FROM reconciliation_candidates WHERE case_id = ${caseA.id}::uuid AND state = 'ACCEPTED'`,
+    );
+    expect(accepted[0]!.n).toBe('1');
   }, 60000);
 });
