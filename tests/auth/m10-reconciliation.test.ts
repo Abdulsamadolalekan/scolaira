@@ -13,6 +13,7 @@ import { POST as confirmPost } from '@/app/api/reconciliation/payments/[id]/conf
 import { POST as matchPost } from '@/app/api/reconciliation/payments/[id]/match/route';
 import { POST as flagPost } from '@/app/api/reconciliation/payments/[id]/flag/route';
 import { getSql } from '@/lib/db';
+import { authorize } from '@/lib/authz/permissions';
 import {
   disableSavepointTransactionsForTest,
   enableSavepointTransactionsForTest,
@@ -76,6 +77,26 @@ describe('M10 reconciliation route contract', () => {
   }, 60000);
   afterAll(async () => {
     await getSql()`SELECT clear_app_context()`.catch(() => {});
+  });
+
+  it('keeps reconciliation permissions explicit and denies STAFF/platform support mutations', () => {
+    for (const role of ['OWNER', 'SCHOOL_ADMIN', 'FINANCE_OFFICER'] as const) {
+      expect(authorize({ role, isPlatformSupport: false }, 'reconciliation.read').allowed).toBe(
+        true,
+      );
+      expect(authorize({ role, isPlatformSupport: false }, 'reconciliation.review').allowed).toBe(
+        true,
+      );
+      expect(authorize({ role, isPlatformSupport: false }, 'reconciliation.resolve').allowed).toBe(
+        true,
+      );
+    }
+    expect(
+      authorize({ role: 'STAFF', isPlatformSupport: false }, 'reconciliation.read').allowed,
+    ).toBe(false);
+    expect(
+      authorize({ role: null, isPlatformSupport: true }, 'reconciliation.review').allowed,
+    ).toBe(false);
   });
 
   it('runs evidence → confirm → explicit student match, with replay and CSRF/idempotency guards', async () => {
