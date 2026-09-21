@@ -52,7 +52,7 @@ export default async function ReconcilePage() {
           <p className="mt-1 max-w-3xl text-sm" style={{ color: 'var(--color-text-secondary)' }}>
             Human-reviewed payment cases with durable evidence and explicit decisions. Financial
             balances remain authoritative in payments, allocations, invoices, reversals, refunds,
-            and receipts.
+            and receipts. Summary cards describe the currently loaded page.
           </p>
         </div>
         <Link
@@ -65,7 +65,7 @@ export default async function ReconcilePage() {
 
       <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Stat
-          label="Open cases"
+          label="Visible open cases"
           value={rows.length.toLocaleString('en-NG')}
           tone={rows.length ? 'warn' : 'muted'}
         />
