@@ -3,11 +3,10 @@
 > One contract. One meaning. One source of truth.
 
 - All API responses are JSON (except CSV/PDF exports and parent payment pages which are HTML).
-- All monetary values in API are **Naira strings**, e.g. `"150000.00"` (regex: `^\d{1,15}\.\d{2}$`).
-- Internal to the service, values are integer kobo.
+- Existing financial APIs return integer `*Kobo` fields (for example `amountKobo`, `unallocatedKobo`); the UI formats those values as Naira. This is the implemented contract, not the earlier aspirational Naira-string example.
 - All authenticated endpoints require a valid session cookie + CSRF token for mutating requests.
-- All tenant endpoints enforce `organization_id` membership; cross-tenant access returns 404 (not 403, to avoid existence leaks where appropriate; 403 is fine for authenticated intra-tenant permission failures).
-- Every mutation is idempotent via `Idempotency-Key` header (UUID string); retries with same key within 24h return original response.
+- All tenant endpoints derive `organization_id` from the authenticated tenant context; clients never choose the organization.
+- M10 reconciliation mutations require an `Idempotency-Key` header; retries with the same key within 24h return the original response. Legacy payment routes retain their documented compatibility behavior until separately migrated.
 - Errors are deterministic: `{ "error": { "code": "ERROR_CODE", "message": "human readable", "detail": {...} } }` with appropriate HTTP status.
 - Pagination: cursor-based for large lists (`cursor`, `limit`); response includes `nextCursor`.
 
@@ -15,7 +14,7 @@
 
 | HTTP | Code                 | Meaning                                                                                                   |
 | ---- | -------------------- | --------------------------------------------------------------------------------------------------------- |
-| 400  | VALIDATION_ERROR     | Request body/params invalid; details include field errors.                                                |
+| 400  | BAD_REQUEST          | Request body/params invalid; details may include field errors.                                            |
 | 401  | UNAUTHENTICATED      | No/invalid session.                                                                                       |
 | 403  | FORBIDDEN            | Authenticated but not allowed for this action.                                                            |
 | 404  | NOT_FOUND            | Resource not found or not accessible in this tenant.                                                      |
@@ -97,32 +96,37 @@ List, detail, PDF/print. Detail response includes lines, allocations, receipts, 
 | POST   | `/api/payments/:id/reverse`  | Reverse/refund (reason required; amount can be partial).                                                                                                                                        |
 | POST   | `/api/payments/:id/allocate` | Manual allocation or reallocation.                                                                                                                                                              |
 | POST   | `/api/payments/:id/receipt`  | Issue/reissue receipt (channel: PRINT/EMAIL/WHATSAPP).                                                                                                                                          |
-| GET    | `/api/payments/unreconciled` | Queue: PENDING + DUPLICATE_SUSPECT + unmatched (student_id null).                                                                                                                               |
+| GET    | `/api/reconciliation/queue`  | Canonical reconciliation queue; replaces the earlier undocumented `/api/payments/unreconciled` concept.                                                                                         |
 
-**POST /api/payments body example:**
+**POST /api/payments body example (implemented kobo contract):**
 
 ```json
 {
-  "student_id": "uuid",
   "method": "CASH",
-  "amount": "100000.00",
-  "paid_at": "2026-09-15T10:30:00+01:00",
-  "external_reference": null,
+  "amountKobo": 10000000,
+  "paidAt": "2026-09-15T10:30:00+01:00",
+  "reference": null,
   "notes": "Paid in person at bursary",
-  "allocations": [{ "invoice_id": "uuid", "amount": "100000.00" }]
+  "allocations": [{ "invoiceId": "uuid", "amountKobo": 10000000 }]
 }
 ```
 
-### J. Reconciliation (`/api/reconciliation*`)
+### J. Reconciliation control plane (`/api/reconciliation*`)
 
-| Method | Path                                        | Purpose                                                                               |
-| ------ | ------------------------------------------- | ------------------------------------------------------------------------------------- |
-| GET    | `/api/reconciliation/queue`                 | Payments TO CONFIRM / TO ALLOCATE / DUPLICATE_SUSPECT / FLAGGED.                      |
-| POST   | `/api/reconciliation/:id/confirm`           | Confirm a pending payment (matching bank evidence).                                   |
-| POST   | `/api/reconciliation/:id/match-student`     | Attach student to an unmatched transfer (suggestions shown based on amount/ref/name). |
-| POST   | `/api/reconciliation/:id/resolve-duplicate` | Mark as duplicate (link to original) or not duplicate.                                |
-| POST   | `/api/reconciliation/:id/allocate`          | Allocate (same as payments/:id/allocate but in reconciliation context).               |
-| POST   | `/api/reconciliation/:id/flag`              | Flag for follow-up with reason.                                                       |
+Reconciliation is an operational control plane over the existing authoritative financial tables. It never stores payment, allocation, invoice, receipt, reversal, or refund totals. `paymentId` is the resource identity; the organization is always derived from the authenticated session.
+
+| Method | Path                                               | Permission               | Purpose                                                                                                                                                                                                                                                        |
+| ------ | -------------------------------------------------- | ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/api/reconciliation/queue`                        | `reconciliation.read`    | Cursor-paginated queue of derived unresolved payments and open cases. Filters: `state`, `kind`, `paymentStatus`, `unallocatedOnly`.                                                                                                                            |
+| GET    | `/api/reconciliation/payments/:paymentId`          | `reconciliation.read`    | Payment detail plus authoritative allocations, the latest reconciliation case, append-only evidence, explicit candidates, and audit history.                                                                                                                   |
+| POST   | `/api/reconciliation/payments/:paymentId/evidence` | `reconciliation.review`  | Append one human-entered evidence item. Requires an Idempotency-Key and reference or note. Evidence cannot be edited or deleted.                                                                                                                               |
+| POST   | `/api/reconciliation/payments/:paymentId/confirm`  | `reconciliation.review`  | Require evidence, then use the existing payment state machine for `PENDING → CONFIRMED` (or a safe `DUPLICATE_SUSPECT → CONFIRMED` when an unallocated balance exists). Fully allocated duplicate-suspect payments must use the existing reversal/refund path. |
+| POST   | `/api/reconciliation/payments/:paymentId/match`    | `reconciliation.review`  | Require evidence and record one explicit human student/invoice candidate; transitions the case to `RECONCILED`. No matching heuristic or automatic decision is performed.                                                                                      |
+| POST   | `/api/reconciliation/payments/:paymentId/allocate` | `reconciliation.review`  | Require an accepted candidate, then call the existing allocation repository/triggers. A fully allocated case becomes closed `ALLOCATED`; no balance is written by reconciliation.                                                                              |
+| POST   | `/api/reconciliation/payments/:paymentId/flag`     | `reconciliation.review`  | Transition `UNMATCHED` or `RECONCILED` to `FLAGGED`, or return a flagged case to its previous review state. Reason required.                                                                                                                                   |
+| POST   | `/api/reconciliation/payments/:paymentId/resolve`  | `reconciliation.resolve` | Close a reviewed exception as `RECONCILED` with a resolution code and note, explicitly recording that reconciliation performed no financial action.                                                                                                            |
+
+All POST endpoints require the existing session, CSRF, centralized authorization, tenant RLS, audit event, and M10 idempotency protections. The authoritative payment-recording path opens an explicit `UNMATCHED` case for new `PENDING` or unallocated payments; the queue also derives legacy unresolved payments that predate a case. Financial consequences remain on the existing payment/allocate/reverse/refund/receipt paths; bank ingestion, fuzzy matching, confidence scores, and automatic financial decisions are out of scope.
 
 ### K. Payment Links (`/api/payment-links*`)
 
@@ -199,8 +203,8 @@ Separate route segment; requires PLATFORM_ADMIN role; every request audited.
 
 ## IV. Idempotency
 
-- Header: `Idempotency-Key: <uuid>` recommended on all POST/PATCH/PUT/DELETE.
-- Repeated requests with same key return the stored response (status + body) within 24h (API) or 30 days (webhooks).
+- Header: `Idempotency-Key: <uuid>` is required on M10 reconciliation mutations and on the existing payment-recording path; other frozen legacy mutations retain their route-specific compatibility behavior.
+- Repeated requests with the same key return the stored response (status + body) within 24h (API) or 30 days (webhooks).
 - If request body differs (hash mismatch), return `409 IDEMPOTENCY_KEY_REUSE_WITH_DIFFERENT_BODY`.
 - Webhook idempotency is additionally keyed by `(provider, event_id)`.
 

@@ -159,7 +159,8 @@ export function withAuthorizedRoute(
         body = options.bodySchema ? options.bodySchema.parse(await readJson(req)) : undefined;
         if (options.querySchema) {
           const q: Record<string, string> = {};
-          req.nextUrl.searchParams.forEach((v, k) => { q[k] = v; });
+          const searchParams = req.nextUrl?.searchParams ?? new URL(req.url).searchParams;
+          searchParams.forEach((v, k) => { q[k] = v; });
           query = options.querySchema.parse(q);
         } else {
           query = undefined;

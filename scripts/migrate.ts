@@ -18,14 +18,20 @@ for (const file of ['.env', '.env.local']) {
       if (eq === -1) continue;
       const key = line.slice(0, eq).trim();
       let val = line.slice(eq + 1).trim();
-      if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) val = val.slice(1, -1);
+      if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'")))
+        val = val.slice(1, -1);
       if (process.env[key] === undefined) process.env[key] = val;
     }
-  } catch { /* ok */ }
+  } catch {
+    /* ok */
+  }
 }
 
 const url: string = (process.env.DATABASE_MIGRATION_URL ?? process.env.DATABASE_URL) as string;
-if (!url) { console.error('Set DATABASE_MIGRATION_URL.'); process.exit(1); }
+if (!url) {
+  console.error('Set DATABASE_MIGRATION_URL.');
+  process.exit(1);
+}
 process.env.SCOLAIRA_BOOTSTRAP = '1';
 
 async function run() {
@@ -48,6 +54,11 @@ async function run() {
     await sql`REVOKE ALL PRIVILEGES ON waivers FROM scolaira_app`;
     await sql`GRANT SELECT, INSERT ON waivers TO scolaira_app`;
     await sql`REVOKE DELETE ON invoices, invoice_lines, payments, payment_allocations, receipts, class_enrollments FROM scolaira_app`;
+    await sql`REVOKE DELETE, TRUNCATE, REFERENCES, TRIGGER ON reconciliation_cases, reconciliation_candidates, reconciliation_evidence FROM scolaira_app`;
+    await sql`REVOKE UPDATE ON reconciliation_cases, reconciliation_candidates, reconciliation_evidence FROM scolaira_app`;
+    await sql`GRANT UPDATE (kind, state, previous_state, reason, resolution_code, resolution_note, resolved_by, resolved_at, closed_at, version) ON reconciliation_cases TO scolaira_app`;
+    await sql`GRANT UPDATE (state, decided_by, decided_at) ON reconciliation_candidates TO scolaira_app`;
+    await sql`REVOKE UPDATE, DELETE ON reconciliation_evidence FROM scolaira_app`;
     // NOTE: EXECUTE on functions is NOT granted wholesale. Each SECURITY
     // DEFINER helper GRANTs EXECUTE explicitly inside its own migration
     // (see 0010_lockdown_secdef.sql §7 for the whitelist). Granting EXECUTE
@@ -64,4 +75,7 @@ async function run() {
     await sql.end({ timeout: 5 }).catch(() => {});
   }
 }
-run().catch((e) => { console.error('[db] migration failed:', e); process.exit(1); });
+run().catch((e) => {
+  console.error('[db] migration failed:', e);
+  process.exit(1);
+});

@@ -21,7 +21,11 @@
     { "idx": 16, "version": "7", "when": 1790000006000, "tag": "0017_resolver_sets_token_guc", "breakpoints": true },
     { "idx": 17, "version": "7", "when": 1790000007000, "tag": "0018_probe_sets_token_guc", "breakpoints": true },
     { "idx": 18, "version": "7", "when": 1790000008000, "tag": "0019_reminders", "breakpoints": true },
-    { "idx": 19, "version": "7", "when": 1790000009000, "tag": "0020_term_billing", "breakpoints": true }
+    { "idx": 19, "version": "7", "when": 1790000009000, "tag": "0020_term_billing", "breakpoints": true },
+    { "idx": 20, "version": "7", "when": 1790000010000, "tag": "0021_academic_roster_control", "breakpoints": true },
+    { "idx": 21, "version": "7", "when": 1790000011000, "tag": "0022_m9_tenant_guard_order", "breakpoints": true },
+    { "idx": 22, "version": "7", "when": 1790000012000, "tag": "0023_m10_reconciliation_control_plane", "breakpoints": true },
+    { "idx": 23, "version": "7", "when": 1790000013000, "tag": "0024_m10_decision_shape_guards", "breakpoints": true }
   ]
 }
 

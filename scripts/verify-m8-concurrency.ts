@@ -29,6 +29,11 @@ async function main() {
   await owner`REVOKE ALL PRIVILEGES ON waivers FROM scolaira_app`;
   await owner`GRANT SELECT, INSERT ON waivers TO scolaira_app`;
   await owner`REVOKE DELETE ON invoices, invoice_lines, payments, payment_allocations, receipts, class_enrollments FROM scolaira_app`;
+  await owner`REVOKE DELETE, TRUNCATE, REFERENCES, TRIGGER ON reconciliation_cases, reconciliation_candidates, reconciliation_evidence FROM scolaira_app`;
+  await owner`REVOKE UPDATE ON reconciliation_cases, reconciliation_candidates, reconciliation_evidence FROM scolaira_app`;
+  await owner`GRANT UPDATE (kind, state, previous_state, reason, resolution_code, resolution_note, resolved_by, resolved_at, closed_at, version) ON reconciliation_cases TO scolaira_app`;
+  await owner`GRANT UPDATE (state, decided_by, decided_at) ON reconciliation_candidates TO scolaira_app`;
+  await owner`REVOKE UPDATE, DELETE ON reconciliation_evidence FROM scolaira_app`;
   await owner`REVOKE UPDATE ON payment_allocations FROM scolaira_app`;
 
   const orgId = randomUUID() as UUID;
@@ -107,12 +112,32 @@ async function main() {
       (SELECT billed FROM terms WHERE id = ${termId}::uuid) AS billed
   `;
   const row = check[0]!;
-  if (Number(row.invoices) !== 1 || Number(row.lines) !== 1 || row.status !== 'BILLED' || row.billed !== true) {
+  if (
+    Number(row.invoices) !== 1 ||
+    Number(row.lines) !== 1 ||
+    row.status !== 'BILLED' ||
+    row.billed !== true
+  ) {
     throw new Error(`Concurrency invariant failed: ${JSON.stringify(row)}`);
   }
-  console.log(JSON.stringify({ migrated, concurrentResults: results.map((result) => result.status === 'fulfilled' ? { createdInvoices: result.value.createdInvoices, unchanged: result.value.unchanged } : result), invariant: row }));
+  console.log(
+    JSON.stringify({
+      migrated,
+      concurrentResults: results.map((result) =>
+        result.status === 'fulfilled'
+          ? { createdInvoices: result.value.createdInvoices, unchanged: result.value.unchanged }
+          : result,
+      ),
+      invariant: row,
+    }),
+  );
 
-  await sqlA.end(); await sqlB.end(); await owner.end();
+  await sqlA.end();
+  await sqlB.end();
+  await owner.end();
 }
 
-main().catch(async (error) => { console.error(error); process.exit(1); });
+main().catch(async (error) => {
+  console.error(error);
+  process.exit(1);
+});

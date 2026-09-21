@@ -118,7 +118,12 @@ export type Action =
 
   // Accounts-receivable / debtors
   | 'debtor.read'         // view aging/debtor workbench and reminders
-  | 'reminder.send';      // send/record a payment reminder
+  | 'reminder.send'       // send/record a payment reminder
+
+  // Reconciliation control plane
+  | 'reconciliation.read'
+  | 'reconciliation.review'
+  | 'reconciliation.resolve';
 
 // ---------------------------------------------------------------------------
 // Policy matrix
@@ -160,6 +165,7 @@ const POLICY: Record<MembershipRole, ReadonlySet<Action>> = {
     'audit.read',
     'communication.send',
     'debtor.read', 'reminder.send',
+    'reconciliation.read', 'reconciliation.review', 'reconciliation.resolve',
   ]),
   SCHOOL_ADMIN: new Set<Action>([
     'org.settings.read', 'org.settings.update',
@@ -177,6 +183,7 @@ const POLICY: Record<MembershipRole, ReadonlySet<Action>> = {
     'audit.read',
     'communication.send',
     'debtor.read', 'reminder.send',
+    'reconciliation.read', 'reconciliation.review', 'reconciliation.resolve',
   ]),
   FINANCE_OFFICER: new Set<Action>([
     'org.settings.read',
@@ -197,6 +204,7 @@ const POLICY: Record<MembershipRole, ReadonlySet<Action>> = {
     'dashboard.read',
     'communication.send',
     'debtor.read', 'reminder.send',
+    'reconciliation.read', 'reconciliation.review', 'reconciliation.resolve',
     // FINANCE_OFFICER may NOT: manage staff, change org settings, archive/
     // restore students, manage academic sessions/terms/classes, read audit,
     // transfer ownership, delete the org.

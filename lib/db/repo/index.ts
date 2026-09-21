@@ -32,4 +32,5 @@ export * as paymentLinks from './payment-links';
 export * as auditEvents from './audit-events';
 export * as idempotencyKeys from './idempotency-keys';
 export * as webhookEvents from './webhook-events';
+export * as reconciliation from './reconciliation';
 export * from './_context';

@@ -11,3 +11,4 @@ export * from './academic';
 export * from './financials';
 export * from './communications';
 export * from './platform';
+export * from './reconciliation';

@@ -15,6 +15,7 @@ import * as payRepo from '@/lib/db/repo/payments';
 import * as invRepo from '@/lib/db/repo/invoices';
 import * as allocRepo from '@/lib/db/repo/payment-allocations';
 import * as auditRepo from '@/lib/db/repo/audit-events';
+import * as reconciliationRepo from '@/lib/db/repo/reconciliation';
 import * as idemRepo from '@/lib/db/repo/idempotency-keys';
 import { RepoInvariantError } from '@/lib/db/repo/_context';
 import type { UUID } from '@/lib/db/repo/_context';
@@ -210,6 +211,14 @@ export const POST = withAuthorizedRoute(
       });
 
       const reRead = await payRepo.get(tx, ctx, payment.id);
+      if (reRead && (reRead.status === 'PENDING' || Number(reRead.unallocatedKobo) > 0)) {
+        await reconciliationRepo.ensureOpenCase(tx, ctx, {
+          paymentId: reRead.id,
+          kind: reRead.status === 'PENDING' ? 'TO_CONFIRM' : 'TO_MATCH',
+          state: 'UNMATCHED',
+          reason: 'Opened from the authoritative payment record; review evidence before deciding.',
+        });
+      }
       const response = {
         payment: {
           id: reRead!.id,
