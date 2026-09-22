@@ -319,6 +319,13 @@ describe('M11 collections operational control plane', () => {
         expectedVersion: 3,
       }),
     ).rejects.toMatchObject({ code: 'CONFLICT' });
+    await expect(
+      collectionsRepo.transitionCase(testDb(), ctx, caseRow.id, {
+        toState: 'OPEN',
+        note: 'Closed cases cannot reopen.',
+        expectedVersion: 3,
+      }),
+    ).rejects.toMatchObject({ code: 'BAD_REQUEST' });
 
     const eventRows = await testDb()
       .select()
@@ -332,6 +339,26 @@ describe('M11 collections operational control plane', () => {
     );
     const deleteCause = deleteError as { code?: string; cause?: { code?: string } };
     expect(deleteCause.code ?? deleteCause.cause?.code).toMatch(/42501|insufficient_privilege/);
+
+    const updateError = await expectPgFailure(async () => {
+      await testSql()`
+        UPDATE collections_case_events
+           SET note = 'forged historical rewrite'
+         WHERE id = ${eventRows[0]!.id}::uuid
+      `;
+    });
+    const updateCause = updateError as { code?: string; cause?: { code?: string } };
+    expect(updateCause.code ?? updateCause.cause?.code).toMatch(/42501|insufficient_privilege/);
+
+    const closedCaseError = await expectPgFailure(async () => {
+      await testSql()`
+        UPDATE collections_cases
+           SET priority = 'URGENT', version = version + 1
+         WHERE id = ${caseRow.id}::uuid
+      `;
+    });
+    const closedCaseCause = closedCaseError as { code?: string; cause?: { code?: string } };
+    expect(closedCaseCause.code ?? closedCaseCause.cause?.code).toBe('23514');
   });
 
   it('does not expose or accept another tenant case, even with a valid foreign UUID', async () => {
@@ -516,13 +543,21 @@ describe('M11 case concurrency', () => {
     expect(assignmentOutcomes.filter((value) => value === 'won')).toHaveLength(1);
     expect(assignmentOutcomes.filter((value) => value === 'CONFLICT')).toHaveLength(1);
 
-    await withRepoConnection(fixtures.orgId, fixtures.userId, (db) =>
-      collectionsRepo.transitionCase(db, ctx, created.id, {
-        toState: 'RESOLVED',
-        note: 'Resolve before close race.',
-        expectedVersion: 1,
-      }),
+    const resolutionOutcomes = await Promise.all(
+      [1, 2].map(() =>
+        withRepoConnection(fixtures!.orgId, fixtures!.userId, (db) =>
+          collectionsRepo.transitionCase(db, ctx, created.id, {
+            toState: 'RESOLVED',
+            note: 'Concurrent resolution worker.',
+            expectedVersion: 1,
+          }),
+        )
+          .then(() => 'won')
+          .catch((error) => (error as { code?: string }).code ?? 'failed'),
+      ),
     );
+    expect(resolutionOutcomes.filter((value) => value === 'won')).toHaveLength(1);
+    expect(resolutionOutcomes.filter((value) => value === 'CONFLICT')).toHaveLength(1);
 
     const closeOutcomes = await Promise.all(
       [1, 2].map(() =>
