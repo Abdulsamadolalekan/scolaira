@@ -84,7 +84,32 @@ LANGUAGE plpgsql
 VOLATILE
 SET search_path = pg_catalog, public
 AS $$
+DECLARE
+  current_actor uuid := NULLIF(current_setting('app.user_id', true), '')::uuid;
+  bootstrap boolean := current_setting('app.auth_bootstrap', true) = '1';
 BEGIN
+  IF NOT bootstrap AND current_actor IS NOT NULL AND TG_OP = 'INSERT'
+     AND NEW.created_by IS DISTINCT FROM current_actor THEN
+    RAISE EXCEPTION 'Collections creator must be the authenticated actor'
+      USING ERRCODE = 'check_violation';
+  END IF;
+
+  IF NOT bootstrap AND current_actor IS NOT NULL AND TG_OP = 'UPDATE'
+     AND NEW.resolved_by IS DISTINCT FROM OLD.resolved_by
+     AND NEW.resolved_by IS NOT NULL
+     AND NEW.resolved_by IS DISTINCT FROM current_actor THEN
+    RAISE EXCEPTION 'Collections resolver must be the authenticated actor'
+      USING ERRCODE = 'check_violation';
+  END IF;
+
+  IF NOT bootstrap AND current_actor IS NOT NULL AND TG_OP = 'UPDATE'
+     AND NEW.closed_by IS DISTINCT FROM OLD.closed_by
+     AND NEW.closed_by IS NOT NULL
+     AND NEW.closed_by IS DISTINCT FROM current_actor THEN
+    RAISE EXCEPTION 'Collections closer must be the authenticated actor'
+      USING ERRCODE = 'check_violation';
+  END IF;
+
   IF NOT EXISTS (
     SELECT 1 FROM students s
      WHERE s.id = NEW.student_id
@@ -251,7 +276,15 @@ SET search_path = pg_catalog, public
 AS $$
 DECLARE
   case_student uuid;
+  current_actor uuid := NULLIF(current_setting('app.user_id', true), '')::uuid;
+  bootstrap boolean := current_setting('app.auth_bootstrap', true) = '1';
 BEGIN
+  IF NOT bootstrap AND current_actor IS NOT NULL
+     AND NEW.created_by IS DISTINCT FROM current_actor THEN
+    RAISE EXCEPTION 'Collections event actor must be the authenticated actor'
+      USING ERRCODE = 'check_violation';
+  END IF;
+
   SELECT c.student_id
     INTO case_student
     FROM collections_cases c

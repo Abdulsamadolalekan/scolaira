@@ -25,6 +25,11 @@ const CreateSchema = z.object({
   nextActionAt: z.string().datetime({ offset: true }).nullable().optional(),
 });
 
+function postgresCode(error: unknown): unknown {
+  const typed = error as { code?: unknown; cause?: { code?: unknown } } | null;
+  return typed?.code ?? typed?.cause?.code;
+}
+
 function errorBody(error: unknown) {
   if (error instanceof AuthzError) {
     return {
@@ -32,7 +37,7 @@ function errorBody(error: unknown) {
       body: { error: { code: error.code, message: error.message, details: error.details } },
     };
   }
-  const code = (error as { code?: unknown } | null)?.code;
+  const code = postgresCode(error);
   if (code === '23505') {
     return {
       status: 409,
@@ -102,7 +107,7 @@ export const POST = withAuthorizedRoute(
       const mapped = errorBody(error);
       if (begun.key) await idempotency.complete(db, ctx, begun.key, mapped.status, mapped.body);
       if (error instanceof AuthzError) throw error;
-      if ((error as { code?: unknown } | null)?.code === '23505') {
+      if (postgresCode(error) === '23505') {
         throw new AuthzError(AuthzErrorCode.CONFLICT, mapped.body.error.message, 409);
       }
       throw error;

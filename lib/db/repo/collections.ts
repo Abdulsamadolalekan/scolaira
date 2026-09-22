@@ -754,20 +754,46 @@ export async function getCaseDetail(db: TenantScopedDb, ctx: TenantCtx, caseId: 
            )})
          ORDER BY r.issued_at DESC, r.id DESC
       `)) as unknown as Array<Record<string, unknown>>);
-  const reconciliation =
-    paymentIdList.length === 0
-      ? []
-      : ((await db.execute(sql`
-        SELECT DISTINCT rc.id, rc.payment_id AS "paymentId", rc.kind, rc.state, rc.reason,
-               rc.assigned_to AS "assignedTo", rc.created_at AS "createdAt",
-               rc.resolved_at AS "resolvedAt", rc.closed_at AS "closedAt"
-          FROM reconciliation_cases rc
-          JOIN payment_allocations pa ON pa.payment_id = rc.payment_id
-          JOIN invoices i ON i.id = pa.invoice_id AND i.organization_id = pa.organization_id
-         WHERE rc.organization_id = ${ctx.organizationId}::uuid
-           AND i.student_id = ${current.studentId}::uuid
-         ORDER BY rc.created_at DESC, rc.id DESC
-      `)) as unknown as Array<Record<string, unknown>>);
+  const reconciliation = (await db.execute(sql`
+    SELECT DISTINCT
+           rc.id,
+           rc.payment_id AS "paymentId",
+           p.payment_number AS "paymentNumber",
+           p.status AS "paymentStatus",
+           p.amount_kobo AS "amountKobo",
+           p.unallocated_kobo AS "unallocatedKobo",
+           rc.kind,
+           rc.state,
+           rc.reason,
+           rc.assigned_to AS "assignedTo",
+           rc.created_at AS "createdAt",
+           rc.resolved_at AS "resolvedAt",
+           rc.closed_at AS "closedAt",
+           candidate.state AS "candidateState"
+      FROM reconciliation_cases rc
+      LEFT JOIN payments p
+        ON p.id = rc.payment_id
+       AND p.organization_id = rc.organization_id
+      LEFT JOIN reconciliation_candidates candidate
+        ON candidate.case_id = rc.id
+       AND candidate.organization_id = rc.organization_id
+      LEFT JOIN invoices candidate_invoice
+        ON candidate_invoice.id = candidate.invoice_id
+       AND candidate_invoice.organization_id = candidate.organization_id
+      LEFT JOIN payment_allocations pa
+        ON pa.payment_id = rc.payment_id
+       AND pa.organization_id = rc.organization_id
+      LEFT JOIN invoices allocated_invoice
+        ON allocated_invoice.id = pa.invoice_id
+       AND allocated_invoice.organization_id = pa.organization_id
+     WHERE rc.organization_id = ${ctx.organizationId}::uuid
+       AND (
+         allocated_invoice.student_id = ${current.studentId}::uuid
+         OR candidate.student_id = ${current.studentId}::uuid
+         OR candidate_invoice.student_id = ${current.studentId}::uuid
+       )
+     ORDER BY rc.created_at DESC, rc.id DESC
+  `)) as unknown as Array<Record<string, unknown>>;
 
   return {
     case: normalizeCase(current),
@@ -807,6 +833,8 @@ export async function getCaseDetail(db: TenantScopedDb, ctx: TenantCtx, caseId: 
     })),
     reconciliation: reconciliation.map((row) => ({
       ...row,
+      amountKobo: numberValue(row.amountKobo),
+      unallocatedKobo: numberValue(row.unallocatedKobo),
       createdAt: iso(row.createdAt),
       resolvedAt: iso(row.resolvedAt),
       closedAt: iso(row.closedAt),

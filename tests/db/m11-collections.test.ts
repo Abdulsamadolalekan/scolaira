@@ -20,7 +20,8 @@ import * as paymentsRepo from '@/lib/db/repo/payments';
 import * as allocationsRepo from '@/lib/db/repo/payment-allocations';
 import * as collectionsRepo from '@/lib/db/repo/collections';
 import * as reminderRepo from '@/lib/db/repo/reminders';
-import { collectionsCaseEvents } from '@/lib/db/schema';
+import * as reconciliationRepo from '@/lib/db/repo/reconciliation';
+import { collectionsCaseEvents, reconciliationCandidates } from '@/lib/db/schema';
 import { kobo } from '@/lib/money';
 import type { Database } from '@/lib/db';
 import type { TenantCtx, UUID } from '@/lib/db/repo/_context';
@@ -112,6 +113,45 @@ describe('M11 collections operational control plane', () => {
     expect(detail.payments[0]?.allocationAmountKobo).toBe(40_000);
   });
 
+  it('shows candidate-linked unallocated M10 context without closing or allocating the collections case', async () => {
+    enableSavepointTransactionsForTest();
+    const ids = await withSystemContext(null, null, async () => seedTwoOrgs(testSql()));
+    const { ctx, caseRow } = await seedOutstanding(ids);
+    const payment = await paymentsRepo.record(testDb(), ctx, {
+      method: 'BANK_TRANSFER',
+      amountKobo: kobo(25_000),
+      reference: `M11-UNALLOCATED-${randomUUID()}`,
+    });
+    const reconciliationCase = await reconciliationRepo.ensureOpenCase(testDb(), ctx, {
+      paymentId: payment.id,
+      kind: 'TO_MATCH',
+      reason: 'Candidate-linked unallocated payment audit',
+    });
+    await testDb().insert(reconciliationCandidates).values({
+      organizationId: ids.orgId,
+      caseId: reconciliationCase.id,
+      studentId: ids.studentAId,
+      basis: 'Explicit student candidate for M11 audit',
+      createdBy: ids.aliceId,
+    });
+
+    const detail = await collectionsRepo.getCaseDetail(testDb(), ctx, caseRow.id);
+    expect(detail.case.state).toBe('OPEN');
+    expect(detail.case.outstandingKobo).toBe(100_000);
+    expect(detail.reconciliation).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: reconciliationCase.id,
+          paymentNumber: payment.paymentNumber,
+          paymentStatus: 'CONFIRMED',
+          unallocatedKobo: 25_000,
+        }),
+      ]),
+    );
+    const unchangedPayment = await paymentsRepo.get(testDb(), ctx, payment.id);
+    expect(unchangedPayment?.unallocatedKobo).toBe(25_000);
+  });
+
   it('enforces one active student case per episode and allows a new case after immutable closure', async () => {
     enableSavepointTransactionsForTest();
     const ids = await withSystemContext(null, null, async () => seedTwoOrgs(testSql()));
@@ -186,6 +226,52 @@ describe('M11 collections operational control plane', () => {
     });
     const directCause = directSentError as { code?: string; cause?: { code?: string } };
     expect(directCause.code ?? directCause.cause?.code).toBe('23514');
+  });
+
+  it('rejects forged same-tenant actors at the database boundary', async () => {
+    enableSavepointTransactionsForTest();
+    const ids = await withSystemContext(null, null, async () => seedTwoOrgs(testSql()));
+    const { caseRow } = await seedOutstanding(ids);
+    const forgedActorId = randomUUID() as UUID;
+
+    await withSystemContext(null, null, async () => {
+      await testSql()`
+        INSERT INTO users (id, email, first_name, last_name)
+        VALUES (${forgedActorId}::uuid, ${`forged-${forgedActorId}@example.test`}, 'Forged', 'Actor')
+      `;
+      await testSql()`
+        INSERT INTO organization_members (organization_id, user_id, role, status, joined_at)
+        VALUES (${ids.orgId}::uuid, ${forgedActorId}::uuid, 'FINANCE_OFFICER', 'ACTIVE', now())
+      `;
+    });
+    await testSql()`SELECT set_tenant_context(${ids.orgId}::uuid, ${ids.aliceId}::uuid)`;
+
+    const forgedEventError = await expectPgFailure(async () => {
+      await testSql()`
+        INSERT INTO collections_case_events (
+          organization_id, case_id, event_type, note, created_by
+        ) VALUES (
+          ${ids.orgId}::uuid, ${caseRow.id}::uuid, 'NOTE',
+          'forged actor event', ${forgedActorId}::uuid
+        )
+      `;
+    });
+    const forgedEventCause = forgedEventError as { code?: string; cause?: { code?: string } };
+    expect(forgedEventCause.code ?? forgedEventCause.cause?.code).toBe('23514');
+
+    const forgedResolutionError = await expectPgFailure(async () => {
+      await testSql()`
+        UPDATE collections_cases
+           SET state = 'RESOLVED', resolved_by = ${forgedActorId}::uuid,
+               resolved_at = now(), version = version + 1
+         WHERE id = ${caseRow.id}::uuid
+      `;
+    });
+    const forgedResolutionCause = forgedResolutionError as {
+      code?: string;
+      cause?: { code?: string };
+    };
+    expect(forgedResolutionCause.code ?? forgedResolutionCause.cause?.code).toBe('23514');
   });
 
   it('enforces the explicit lifecycle, optimistic versions, append-only history, and audit rows', async () => {
@@ -297,6 +383,47 @@ describe('M11 case concurrency', () => {
 
   afterEach(async () => {
     if (fixtures) await fixtures.teardown();
+  });
+
+  it('serializes concurrent opens for one student across independent connections', async () => {
+    fixtures = await setupConcurrencyFixtures();
+    const ctx: TenantCtx = { organizationId: fixtures.orgId, userId: fixtures.userId };
+    await withRepoConnection(fixtures.orgId, fixtures.userId, async (db) => {
+      const invoice = await invoicesRepo.createDraft(db, ctx, {
+        studentId: fixtures!.studentId,
+        termId: fixtures!.termId,
+        sessionId: fixtures!.sessionId,
+      });
+      await invoiceLinesRepo.addLines(db, ctx, invoice.id, [
+        {
+          description: 'Concurrent case open',
+          quantity: 1,
+          unitRateKobo: kobo(15_000),
+          amountKobo: kobo(15_000),
+        },
+      ]);
+      await invoicesRepo.issue(db, ctx, invoice.id);
+    });
+
+    const outcomes = await Promise.all(
+      [1, 2].map((worker) =>
+        withRepoConnection(fixtures!.orgId, fixtures!.userId, (db) =>
+          collectionsRepo.createCase(db, ctx, {
+            studentId: fixtures!.studentId,
+            priority: 'NORMAL',
+            reason: `Concurrent open worker ${worker}`,
+          }),
+        )
+          .then(() => 'won')
+          .catch((error: unknown) => {
+            const typed = error as { code?: string; cause?: { code?: string } };
+            return typed.code ?? typed.cause?.code ?? 'failed';
+          }),
+      ),
+    );
+
+    expect(outcomes.filter((value) => value === 'won')).toHaveLength(1);
+    expect(outcomes.filter((value) => value === '23505')).toHaveLength(1);
   });
 
   it('serializes two stale transitions: exactly one request wins', async () => {

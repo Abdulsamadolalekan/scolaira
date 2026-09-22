@@ -937,9 +937,18 @@ function CaseDetail({
                   style={{ borderColor: 'var(--color-border-subtle)' }}
                 >
                   <span>
-                    {String(row.kind)} · {String(row.paymentId).slice(0, 8)}…
+                    {String(row.kind)} ·{' '}
+                    {row.paymentNumber
+                      ? String(row.paymentNumber)
+                      : `${String(row.paymentId).slice(0, 8)}…`}
+                    {row.unallocatedKobo
+                      ? ` · unallocated ${formatMoney(Number(row.unallocatedKobo))}`
+                      : ''}
                   </span>
-                  <span style={{ color: 'var(--color-text-faint)' }}>{String(row.state)}</span>
+                  <span style={{ color: 'var(--color-text-faint)' }}>
+                    {String(row.state)}
+                    {row.candidateState ? ` · candidate ${String(row.candidateState)}` : ''}
+                  </span>
                 </div>
               ))}
             </div>

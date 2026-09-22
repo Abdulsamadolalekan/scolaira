@@ -172,6 +172,35 @@ describe('M11 collection routes', () => {
     expect(events.filter((event) => event.eventType === 'CREATED')).toHaveLength(1);
   });
 
+  it('returns a safe conflict rather than an internal error for a second open student case', async () => {
+    enableSavepointTransactionsForTest();
+    const { jar, ctx } = await ownerWithOutstanding();
+    const studentRows =
+      await getSql()`SELECT id FROM students WHERE organization_id = ${ctx.organizationId}::uuid LIMIT 1`;
+    const body = {
+      studentId: String(studentRows[0]!.id),
+      priority: 'NORMAL',
+      reason: 'Duplicate open-case audit',
+    };
+    const first = await call(createCasePost as never, jar, {
+      method: 'POST',
+      path: '/api/collections',
+      headers: { 'Idempotency-Key': randomUUID() },
+      body,
+      csrf: true,
+    });
+    expect(first.status).toBe(201);
+    const second = await call(createCasePost as never, jar, {
+      method: 'POST',
+      path: '/api/collections',
+      headers: { 'Idempotency-Key': randomUUID() },
+      body,
+      csrf: true,
+    });
+    expect(second.status).toBe(409);
+    expect(second.data.error.code).toBe('CONFLICT');
+  });
+
   it('requires the current optimistic version for state changes', async () => {
     enableSavepointTransactionsForTest();
     const { jar, ctx } = await ownerWithOutstanding();
