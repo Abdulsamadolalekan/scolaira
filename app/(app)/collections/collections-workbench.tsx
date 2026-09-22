@@ -12,10 +12,6 @@ type QueueCase = {
   studentId: string;
   studentIdCode: string;
   studentName: string;
-  invoiceId: string | null;
-  invoiceNumber: string | null;
-  invoiceStatus: string | null;
-  invoiceDueDate: string | null;
   state: State;
   priority: Priority;
   reason: string;
@@ -51,6 +47,16 @@ type Detail = {
     closedAt: string | null;
   };
   events: Event[];
+  reminders: Array<{
+    id: string;
+    invoiceId: string | null;
+    channel: string;
+    status: string;
+    balanceKobo: number;
+    agingBucket: string;
+    sentAt: string | null;
+    createdAt: string;
+  }>;
   obligations: Array<{
     id: string;
     invoiceNumber: string;
@@ -125,10 +131,13 @@ export default function CollectionsWorkbench({ canMutate = true }: { canMutate?:
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState('');
   const [eventType, setEventType] = useState<'NOTE' | 'ACTION'>('NOTE');
+  const [noteReminderId, setNoteReminderId] = useState('');
+  const [nextActionAt, setNextActionAt] = useState('');
   const [transitionNote, setTransitionNote] = useState('');
   const [newStudentId, setNewStudentId] = useState('');
   const [newPriority, setNewPriority] = useState<Priority>('NORMAL');
   const [newReason, setNewReason] = useState('');
+  const [newNextActionAt, setNewNextActionAt] = useState('');
   const [showCreate, setShowCreate] = useState(false);
 
   const activeMembers = useMemo(
@@ -163,6 +172,8 @@ export default function CollectionsWorkbench({ canMutate = true }: { canMutate?:
   async function refreshDetail(id: string) {
     const data = await readJson<Detail>(`/api/collections/${id}`);
     setDetail(data);
+    setNextActionAt(toDateTimeLocal(data.case.nextActionAt));
+    setNoteReminderId('');
   }
 
   useEffect(() => {
@@ -253,6 +264,7 @@ export default function CollectionsWorkbench({ canMutate = true }: { canMutate?:
           studentId: newStudentId,
           priority: newPriority,
           reason: newReason.trim(),
+          nextActionAt: newNextActionAt ? new Date(newNextActionAt).toISOString() : null,
         }),
       });
       const data = await response.json().catch(() => ({}));
@@ -260,6 +272,7 @@ export default function CollectionsWorkbench({ canMutate = true }: { canMutate?:
       setShowCreate(false);
       setNewReason('');
       setNewStudentId('');
+      setNewNextActionAt('');
       await loadQueue();
       if (data.case?.id) await selectCase(data.case.id as string);
     } catch (reason) {
@@ -282,9 +295,14 @@ export default function CollectionsWorkbench({ canMutate = true }: { canMutate?:
     const result = await mutate(`/api/collections/${detail.case.id}/events`, {
       eventType,
       note: note.trim(),
+      reminderId: noteReminderId || null,
+      nextActionAt: nextActionAt ? new Date(nextActionAt).toISOString() : null,
       expectedVersion: detail.case.version,
     });
-    if (result) setNote('');
+    if (result) {
+      setNote('');
+      setNoteReminderId('');
+    }
   }
 
   async function transition(toState: State) {
@@ -483,6 +501,10 @@ export default function CollectionsWorkbench({ canMutate = true }: { canMutate?:
               setNote={setNote}
               eventType={eventType}
               setEventType={setEventType}
+              noteReminderId={noteReminderId}
+              setNoteReminderId={setNoteReminderId}
+              nextActionAt={nextActionAt}
+              setNextActionAt={setNextActionAt}
               transitionNote={transitionNote}
               setTransitionNote={setTransitionNote}
               onAssign={(id) => void assign(id)}
@@ -503,6 +525,8 @@ export default function CollectionsWorkbench({ canMutate = true }: { canMutate?:
           setStudentId={setNewStudentId}
           reason={newReason}
           setReason={setNewReason}
+          nextActionAt={newNextActionAt}
+          setNextActionAt={setNewNextActionAt}
           busy={busy}
           onClose={() => setShowCreate(false)}
           onCreate={() => void createCase()}
@@ -537,7 +561,7 @@ function QueueRowView({
             {row.studentName}
           </div>
           <div className="truncate text-[11px]" style={{ color: 'var(--color-text-faint)' }}>
-            {row.studentIdCode} · {row.invoiceNumber ?? 'Student account'} · {row.reason}
+            {row.studentIdCode} · Student account · {row.reason}
           </div>
         </div>
         <div>
@@ -572,6 +596,10 @@ function CaseDetail({
   setNote,
   eventType,
   setEventType,
+  noteReminderId,
+  setNoteReminderId,
+  nextActionAt,
+  setNextActionAt,
   transitionNote,
   setTransitionNote,
   onAssign,
@@ -587,6 +615,10 @@ function CaseDetail({
   setNote: (value: string) => void;
   eventType: 'NOTE' | 'ACTION';
   setEventType: (value: 'NOTE' | 'ACTION') => void;
+  noteReminderId: string;
+  setNoteReminderId: (value: string) => void;
+  nextActionAt: string;
+  setNextActionAt: (value: string) => void;
   transitionNote: string;
   setTransitionNote: (value: string) => void;
   onAssign: (id: string) => void;
@@ -676,31 +708,33 @@ function CaseDetail({
           >
             Add operational note or action
           </label>
-          <div className="flex gap-2">
-            <select
-              disabled={!canMutate || busy || detail.case.state === 'CLOSED'}
-              value={eventType}
-              onChange={(event) => setEventType(event.target.value as 'NOTE' | 'ACTION')}
-              className="rounded-md border px-2 text-xs"
-              style={{
-                borderColor: 'var(--color-border-subtle)',
-                background: 'var(--color-bg-page)',
-              }}
-            >
-              <option value="NOTE">Note</option>
-              <option value="ACTION">Action</option>
-            </select>
-            <input
-              value={note}
-              onChange={(event) => setNote(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter') onAddEvent();
-              }}
-              disabled={!canMutate || busy || detail.case.state === 'CLOSED'}
-              placeholder="What happened or what should happen next?"
-              className="min-w-0 flex-1 rounded-md border px-3 py-2 text-sm"
-              style={{ borderColor: 'var(--color-border-subtle)' }}
-            />
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <div className="flex min-w-0 flex-1 gap-2">
+              <select
+                disabled={!canMutate || busy || detail.case.state === 'CLOSED'}
+                value={eventType}
+                onChange={(event) => setEventType(event.target.value as 'NOTE' | 'ACTION')}
+                className="rounded-md border px-2 text-xs"
+                style={{
+                  borderColor: 'var(--color-border-subtle)',
+                  background: 'var(--color-bg-page)',
+                }}
+              >
+                <option value="NOTE">Note</option>
+                <option value="ACTION">Action</option>
+              </select>
+              <input
+                value={note}
+                onChange={(event) => setNote(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') onAddEvent();
+                }}
+                disabled={!canMutate || busy || detail.case.state === 'CLOSED'}
+                placeholder="What happened or what should happen next?"
+                className="min-w-0 flex-1 rounded-md border px-3 py-2 text-sm"
+                style={{ borderColor: 'var(--color-border-subtle)' }}
+              />
+            </div>
             <button
               type="button"
               onClick={onAddEvent}
@@ -710,6 +744,39 @@ function CaseDetail({
             >
               Add
             </button>
+          </div>
+          <div className="mt-2 grid gap-2 sm:grid-cols-2">
+            <label className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>
+              Next action
+              <input
+                type="datetime-local"
+                value={nextActionAt}
+                onChange={(event) => setNextActionAt(event.target.value)}
+                disabled={!canMutate || busy || detail.case.state === 'CLOSED'}
+                className="mt-1 w-full rounded-md border px-2 py-1.5 text-xs"
+                style={{ borderColor: 'var(--color-border-subtle)' }}
+              />
+            </label>
+            <label className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>
+              Link reminder
+              <select
+                value={noteReminderId}
+                onChange={(event) => setNoteReminderId(event.target.value)}
+                disabled={!canMutate || busy || detail.case.state === 'CLOSED'}
+                className="mt-1 w-full rounded-md border px-2 py-1.5 text-xs"
+                style={{
+                  borderColor: 'var(--color-border-subtle)',
+                  background: 'var(--color-bg-page)',
+                }}
+              >
+                <option value="">No reminder linked</option>
+                {detail.reminders.map((reminder) => (
+                  <option key={reminder.id} value={reminder.id}>
+                    {reminder.channel} · {reminder.status} · {formatDate(reminder.createdAt)}
+                  </option>
+                ))}
+              </select>
+            </label>
           </div>
         </div>
 
@@ -748,6 +815,34 @@ function CaseDetail({
               </button>
             ))}
           </div>
+        </div>
+
+        <div>
+          <h3 className="mb-2 text-sm font-semibold" style={{ color: 'var(--color-text-primary)' }}>
+            Reminder history
+          </h3>
+          {detail.reminders.length === 0 ? (
+            <p className="text-xs" style={{ color: 'var(--color-text-faint)' }}>
+              No reminders recorded for this student account.
+            </p>
+          ) : (
+            <div className="space-y-1">
+              {detail.reminders.slice(0, 8).map((reminder) => (
+                <div
+                  key={reminder.id}
+                  className="flex items-center justify-between rounded-md border px-3 py-2 text-xs"
+                  style={{ borderColor: 'var(--color-border-subtle)' }}
+                >
+                  <span>
+                    {reminder.channel} · {reminder.status}
+                  </span>
+                  <span style={{ color: 'var(--color-text-faint)' }}>
+                    {formatDate(reminder.sentAt ?? reminder.createdAt)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         <div>
@@ -913,6 +1008,8 @@ function CreateCaseModal({
   setStudentId,
   reason,
   setReason,
+  nextActionAt,
+  setNextActionAt,
   busy,
   onClose,
   onCreate,
@@ -924,6 +1021,8 @@ function CreateCaseModal({
   setStudentId: (value: string) => void;
   reason: string;
   setReason: (value: string) => void;
+  nextActionAt: string;
+  setNextActionAt: (value: string) => void;
   busy: boolean;
   onClose: () => void;
   onCreate: () => void;
@@ -997,6 +1096,16 @@ function CreateCaseModal({
               rows={3}
               maxLength={2000}
               placeholder="What requires follow-up?"
+              className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
+              style={{ borderColor: 'var(--color-border-subtle)' }}
+            />
+          </label>
+          <label className="block text-xs font-medium">
+            Next action (optional)
+            <input
+              type="datetime-local"
+              value={nextActionAt}
+              onChange={(event) => setNextActionAt(event.target.value)}
               className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
               style={{ borderColor: 'var(--color-border-subtle)' }}
             />
@@ -1116,6 +1225,14 @@ function labelState(state: State | null) {
 function labelPriority(priority: Priority) {
   return priority.charAt(0) + priority.slice(1).toLowerCase();
 }
+function toDateTimeLocal(value: string | null) {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  const offset = date.getTimezoneOffset();
+  return new Date(date.getTime() - offset * 60_000).toISOString().slice(0, 16);
+}
+
 function formatDate(value: string | null) {
   if (!value) return '—';
   const date = new Date(value);

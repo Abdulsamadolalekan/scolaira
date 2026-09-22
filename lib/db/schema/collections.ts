@@ -1,5 +1,5 @@
 /**
- * M11 collections workbench.
+ * M11 student-level collections workbench.
  *
  * These tables are operational control records only. They deliberately do not
  * store invoice balances, payment balances, allocation amounts, receipts, or
@@ -11,7 +11,6 @@ import { relations } from 'drizzle-orm';
 import { pk, timestamps } from './_columns';
 import { organizations, users } from './tenancy';
 import { students } from './academic';
-import { invoices } from './financials';
 import { reminders } from './communications';
 
 export const collectionsCases = pgTable(
@@ -24,8 +23,6 @@ export const collectionsCases = pgTable(
     studentId: uuid('student_id')
       .notNull()
       .references(() => students.id, { onDelete: 'restrict' }),
-    /** Optional operator focus; invoice truth remains in invoices. */
-    invoiceId: uuid('invoice_id').references(() => invoices.id, { onDelete: 'restrict' }),
     state: varchar('state', { length: 16 }).notNull().default('OPEN'),
     priority: varchar('priority', { length: 16 }).notNull().default('NORMAL'),
     reason: text('reason').notNull(),
@@ -46,7 +43,6 @@ export const collectionsCases = pgTable(
     index('m11_collections_org_priority_idx').on(t.organizationId, t.priority, t.createdAt),
     index('m11_collections_org_assignee_idx').on(t.organizationId, t.assignedTo, t.state),
     index('m11_collections_org_student_idx').on(t.organizationId, t.studentId, t.createdAt),
-    index('m11_collections_org_invoice_idx').on(t.organizationId, t.invoiceId),
   ],
 );
 
@@ -87,7 +83,6 @@ export const collectionsCasesRelations = relations(collectionsCases, ({ one, man
     references: [organizations.id],
   }),
   student: one(students, { fields: [collectionsCases.studentId], references: [students.id] }),
-  invoice: one(invoices, { fields: [collectionsCases.invoiceId], references: [invoices.id] }),
   assignee: one(users, { fields: [collectionsCases.assignedTo], references: [users.id] }),
   creator: one(users, { fields: [collectionsCases.createdBy], references: [users.id] }),
   resolver: one(users, { fields: [collectionsCases.resolvedBy], references: [users.id] }),

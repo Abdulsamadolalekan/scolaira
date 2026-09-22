@@ -9,7 +9,6 @@ CREATE TABLE collections_cases (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   organization_id uuid NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
   student_id uuid NOT NULL REFERENCES students(id) ON DELETE RESTRICT,
-  invoice_id uuid REFERENCES invoices(id) ON DELETE RESTRICT,
   state varchar(16) NOT NULL DEFAULT 'OPEN' CHECK (state IN (
     'OPEN', 'IN_PROGRESS', 'ESCALATED', 'RESOLVED', 'CLOSED'
   )),
@@ -30,13 +29,9 @@ CREATE TABLE collections_cases (
 );
 --> statement-breakpoint
 
-CREATE UNIQUE INDEX m11_collections_open_invoice_unique_idx
-  ON collections_cases (organization_id, invoice_id)
-  WHERE invoice_id IS NOT NULL AND state <> 'CLOSED';
---> statement-breakpoint
 CREATE UNIQUE INDEX m11_collections_open_student_unique_idx
   ON collections_cases (organization_id, student_id)
-  WHERE invoice_id IS NULL AND state <> 'CLOSED';
+  WHERE state <> 'CLOSED';
 --> statement-breakpoint
 CREATE INDEX m11_collections_org_state_idx
   ON collections_cases (organization_id, state, created_at DESC);
@@ -49,9 +44,6 @@ CREATE INDEX m11_collections_org_assignee_idx
 --> statement-breakpoint
 CREATE INDEX m11_collections_org_student_idx
   ON collections_cases (organization_id, student_id, created_at DESC);
---> statement-breakpoint
-CREATE INDEX m11_collections_org_invoice_idx
-  ON collections_cases (organization_id, invoice_id);
 --> statement-breakpoint
 
 CREATE TABLE collections_case_events (
@@ -102,16 +94,6 @@ BEGIN
       USING ERRCODE = 'check_violation';
   END IF;
 
-  IF NEW.invoice_id IS NOT NULL AND NOT EXISTS (
-    SELECT 1 FROM invoices i
-     WHERE i.id = NEW.invoice_id
-       AND i.organization_id = NEW.organization_id
-       AND i.student_id = NEW.student_id
-  ) THEN
-    RAISE EXCEPTION 'Collections invoice must belong to the same organization and student'
-      USING ERRCODE = 'check_violation';
-  END IF;
-
   IF NEW.assigned_to IS NOT NULL AND NOT EXISTS (
     SELECT 1 FROM organization_members om
      WHERE om.organization_id = NEW.organization_id
@@ -157,7 +139,7 @@ END;
 $$;
 --> statement-breakpoint
 CREATE TRIGGER m11_collections_case_tenant_guard
-BEFORE INSERT OR UPDATE OF organization_id, student_id, invoice_id, assigned_to,
+BEFORE INSERT OR UPDATE OF organization_id, student_id, assigned_to,
   created_by, resolved_by, closed_by ON collections_cases
 FOR EACH ROW EXECUTE FUNCTION m11_collections_case_tenant_guard();
 --> statement-breakpoint
@@ -183,7 +165,6 @@ BEGIN
 
   IF OLD.organization_id IS DISTINCT FROM NEW.organization_id
      OR OLD.student_id IS DISTINCT FROM NEW.student_id
-     OR OLD.invoice_id IS DISTINCT FROM NEW.invoice_id
      OR OLD.created_by IS DISTINCT FROM NEW.created_by
      OR OLD.created_at IS DISTINCT FROM NEW.created_at THEN
     RAISE EXCEPTION 'Collections case tenant and creation linkage are immutable'
@@ -270,10 +251,9 @@ SET search_path = pg_catalog, public
 AS $$
 DECLARE
   case_student uuid;
-  case_invoice uuid;
 BEGIN
-  SELECT c.student_id, c.invoice_id
-    INTO case_student, case_invoice
+  SELECT c.student_id
+    INTO case_student
     FROM collections_cases c
    WHERE c.id = NEW.case_id
      AND c.organization_id = NEW.organization_id;
@@ -307,9 +287,18 @@ BEGIN
       FROM reminders r
      WHERE r.id = NEW.reminder_id
        AND r.organization_id = NEW.organization_id
-       AND (r.student_id = case_student OR (case_invoice IS NOT NULL AND r.invoice_id = case_invoice))
+       AND (
+         r.student_id = case_student
+         OR EXISTS (
+           SELECT 1
+             FROM invoices i
+            WHERE i.id = r.invoice_id
+              AND i.organization_id = r.organization_id
+              AND i.student_id = case_student
+         )
+       )
   ) THEN
-    RAISE EXCEPTION 'Collections reminder must belong to the case student or focused invoice'
+    RAISE EXCEPTION 'Collections reminder must belong to the case student account'
       USING ERRCODE = 'check_violation';
   END IF;
 
@@ -337,6 +326,31 @@ $$;
 CREATE TRIGGER m11_collections_event_immutable
 BEFORE UPDATE OR DELETE ON collections_case_events
 FOR EACH ROW EXECUTE FUNCTION m11_collections_event_immutable();
+--> statement-breakpoint
+
+-- Correct the future reminder contract without rewriting historical rows:
+-- PRINT may be recorded as delivered, while unsupported external channels
+-- remain PENDING until a provider actually delivers them.
+CREATE OR REPLACE FUNCTION m11_reminder_delivery_shape_guard()
+RETURNS trigger
+LANGUAGE plpgsql
+VOLATILE
+SET search_path = pg_catalog, public
+AS $$
+BEGIN
+  IF TG_OP = 'INSERT'
+     AND NEW.channel <> 'PRINT'
+     AND NEW.status = 'SENT' THEN
+    RAISE EXCEPTION 'Unsupported reminder channels cannot be recorded as SENT without provider delivery'
+      USING ERRCODE = 'check_violation';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+--> statement-breakpoint
+CREATE TRIGGER m11_reminder_delivery_shape_guard
+BEFORE INSERT ON reminders
+FOR EACH ROW EXECUTE FUNCTION m11_reminder_delivery_shape_guard();
 --> statement-breakpoint
 
 ALTER TABLE collections_cases ENABLE ROW LEVEL SECURITY;
@@ -389,6 +403,6 @@ REVOKE UPDATE, DELETE ON collections_case_events FROM scolaira_app;
 --> statement-breakpoint
 
 COMMENT ON TABLE collections_cases IS
-  'M11 operational collections workflow; authoritative financial truth remains in invoices and payment services';
+  'M11 student-level operational collections workflow; authoritative financial truth remains in invoices and payment services';
 COMMENT ON TABLE collections_case_events IS
   'M11 append-only collections history and action ledger';

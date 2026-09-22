@@ -49,8 +49,9 @@ export async function create(
     subject: input.subject ?? null,
     body: input.body,
     createdBy: ctx.userId,
-    // PRINT is synchronously delivered; async channels will later start as PENDING.
-    status: 'SENT',
+    // PRINT is synchronously delivered in this milestone. Unsupported external
+    // channels are queued as PENDING until a provider actually delivers them.
+    status: input.channel === 'PRINT' ? 'SENT' : 'PENDING',
     sentAt: input.channel === 'PRINT' ? new Date() : null,
   } as any).returning();
   return rows[0]!;

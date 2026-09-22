@@ -20,7 +20,6 @@ const QuerySchema = z.object({
 
 const CreateSchema = z.object({
   studentId: z.string().uuid(),
-  invoiceId: z.string().uuid().nullable().optional(),
   priority: z.enum(PRIORITIES).default('NORMAL'),
   reason: z.string().trim().min(1).max(2000),
   nextActionAt: z.string().datetime({ offset: true }).nullable().optional(),
@@ -40,7 +39,7 @@ function errorBody(error: unknown) {
       body: {
         error: {
           code: 'CONFLICT',
-          message: 'An open collections case already exists for this obligation.',
+          message: 'An open collections case already exists for this student account.',
         },
       },
     };
@@ -76,7 +75,6 @@ export const POST = withAuthorizedRoute(
     const input = body as z.infer<typeof CreateSchema>;
     const payload = {
       studentId: input.studentId,
-      invoiceId: input.invoiceId ?? null,
       priority: input.priority,
       reason: input.reason,
       nextActionAt: input.nextActionAt ?? null,
@@ -92,7 +90,6 @@ export const POST = withAuthorizedRoute(
     try {
       const created = await collectionsRepo.createCase(db, ctx, {
         studentId: asUUID(input.studentId),
-        invoiceId: input.invoiceId ? asUUID(input.invoiceId) : null,
         priority: input.priority,
         reason: input.reason,
         nextActionAt: input.nextActionAt ? new Date(input.nextActionAt) : null,

@@ -19,6 +19,7 @@ import * as invoiceLinesRepo from '@/lib/db/repo/invoice-lines';
 import * as paymentsRepo from '@/lib/db/repo/payments';
 import * as allocationsRepo from '@/lib/db/repo/payment-allocations';
 import * as collectionsRepo from '@/lib/db/repo/collections';
+import * as reminderRepo from '@/lib/db/repo/reminders';
 import { collectionsCaseEvents } from '@/lib/db/schema';
 import { kobo } from '@/lib/money';
 import type { Database } from '@/lib/db';
@@ -69,7 +70,6 @@ async function seedOutstanding(ids: Fixture): Promise<{
   const issued = await invoicesRepo.issue(testDb(), ctx, invoice.id);
   const caseRow = await collectionsRepo.createCase(testDb(), ctx, {
     studentId: ids.studentAId,
-    invoiceId: issued.id,
     priority: 'HIGH',
     reason: 'Follow up on open term invoice',
     requestId: 'm11-seed',
@@ -92,7 +92,7 @@ describe('M11 collections operational control plane', () => {
 
     const queueBefore = await collectionsRepo.listQueue(testDb(), ctx);
     expect(queueBefore).toHaveLength(1);
-    expect(queueBefore[0]).toMatchObject({ id: caseRow.id, invoiceId, outstandingKobo: 100_000 });
+    expect(queueBefore[0]).toMatchObject({ id: caseRow.id, outstandingKobo: 100_000 });
 
     const payment = await paymentsRepo.record(testDb(), ctx, {
       method: 'BANK_TRANSFER',
@@ -110,6 +110,82 @@ describe('M11 collections operational control plane', () => {
     const detail = await collectionsRepo.getCaseDetail(testDb(), ctx, caseRow.id);
     expect(detail.obligations[0]?.outstandingKobo).toBe(60_000);
     expect(detail.payments[0]?.allocationAmountKobo).toBe(40_000);
+  });
+
+  it('enforces one active student case per episode and allows a new case after immutable closure', async () => {
+    enableSavepointTransactionsForTest();
+    const ids = await withSystemContext(null, null, async () => seedTwoOrgs(testSql()));
+    const { ctx, caseRow } = await seedOutstanding(ids);
+
+    const duplicateError = await collectionsRepo
+      .createCase(testDb(), ctx, {
+        studentId: ids.studentAId,
+        priority: 'NORMAL',
+        reason: 'Second active episode must be rejected.',
+      })
+      .then(() => null)
+      .catch((error: unknown) => error);
+    const duplicateCause = duplicateError as {
+      code?: string;
+      cause?: { code?: string };
+    };
+    expect(duplicateCause.code ?? duplicateCause.cause?.code).toBe('23505');
+
+    const resolved = await collectionsRepo.transitionCase(testDb(), ctx, caseRow.id, {
+      toState: 'RESOLVED',
+      note: 'First episode resolved.',
+      expectedVersion: 0,
+    });
+    const closed = await collectionsRepo.transitionCase(testDb(), ctx, caseRow.id, {
+      toState: 'CLOSED',
+      note: 'First episode closed.',
+      expectedVersion: resolved.version,
+    });
+    expect(closed.state).toBe('CLOSED');
+
+    const nextEpisode = await collectionsRepo.createCase(testDb(), ctx, {
+      studentId: ids.studentAId,
+      priority: 'HIGH',
+      reason: 'Later collection episode.',
+    });
+    expect(nextEpisode.id).not.toBe(caseRow.id);
+    expect(nextEpisode.state).toBe('OPEN');
+  });
+
+  it('records PRINT as delivered while unsupported reminder channels remain pending', async () => {
+    enableSavepointTransactionsForTest();
+    const ids = await withSystemContext(null, null, async () => seedTwoOrgs(testSql()));
+    const { ctx, invoiceId } = await seedOutstanding(ids);
+    const base = {
+      invoiceId,
+      studentId: ids.studentAId,
+      balanceKobo: 100_000,
+      agingDays: 10,
+      agingBucket: 'OVERDUE_30' as const,
+      body: 'M11 reminder lifecycle test',
+    };
+
+    const sms = await reminderRepo.create(testDb(), ctx, { ...base, channel: 'SMS' });
+    expect(sms.status).toBe('PENDING');
+    expect(sms.sentAt).toBeNull();
+    const print = await reminderRepo.create(testDb(), ctx, { ...base, channel: 'PRINT' });
+    expect(print.status).toBe('SENT');
+    expect(print.sentAt).toBeInstanceOf(Date);
+
+    const directSentError = await expectPgFailure(async () => {
+      await testSql()`
+        INSERT INTO reminders (
+          id, organization_id, invoice_id, student_id, channel, status,
+          balance_kobo, aging_days, aging_bucket, body, created_by
+        ) VALUES (
+          ${randomUUID()}::uuid, ${ids.orgId}::uuid, ${invoiceId}::uuid,
+          ${ids.studentAId}::uuid, 'EMAIL', 'SENT', 100000, 10,
+          'OVERDUE_30', 'unsupported direct send', ${ids.aliceId}::uuid
+        )
+      `;
+    });
+    const directCause = directSentError as { code?: string; cause?: { code?: string } };
+    expect(directCause.code ?? directCause.cause?.code).toBe('23514');
   });
 
   it('enforces the explicit lifecycle, optimistic versions, append-only history, and audit rows', async () => {
@@ -235,10 +311,9 @@ describe('M11 case concurrency', () => {
       await invoiceLinesRepo.addLines(db, ctx, invoice.id, [
         { description: 'Race', quantity: 1, unitRateKobo: kobo(20_000), amountKobo: kobo(20_000) },
       ]);
-      const issued = await invoicesRepo.issue(db, ctx, invoice.id);
+      await invoicesRepo.issue(db, ctx, invoice.id);
       return collectionsRepo.createCase(db, ctx, {
         studentId: fixtures!.studentId,
-        invoiceId: issued.id,
         priority: 'NORMAL',
         reason: 'Race test',
       });
@@ -291,10 +366,9 @@ describe('M11 case concurrency', () => {
           amountKobo: kobo(30_000),
         },
       ]);
-      const issued = await invoicesRepo.issue(db, ctx, invoice.id);
+      await invoicesRepo.issue(db, ctx, invoice.id);
       return collectionsRepo.createCase(db, ctx, {
         studentId: fixtures!.studentId,
-        invoiceId: issued.id,
         priority: 'HIGH',
         reason: 'Assignment and closure race',
       });

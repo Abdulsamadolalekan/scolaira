@@ -9,7 +9,7 @@ import { and, desc, eq } from 'drizzle-orm';
 import { sql } from 'drizzle-orm';
 import { AuthzError, AuthzErrorCode } from '@/lib/authz';
 import * as auditRepo from '@/lib/db/repo/audit-events';
-import { collectionsCases, collectionsCaseEvents } from '../schema';
+import { collectionsCases, collectionsCaseEvents, reminders } from '../schema';
 import type { TenantCtx, TenantScopedDb, UUID } from './_context';
 import { asUUID } from './_context';
 
@@ -75,7 +75,6 @@ function numberValue(value: unknown): number {
 interface QueueDbRow {
   id: string;
   studentId: string;
-  invoiceId: string | null;
   state: CollectionsState;
   priority: CollectionsPriority;
   reason: string;
@@ -86,10 +85,6 @@ interface QueueDbRow {
   updatedAt: unknown;
   studentIdCode: string;
   studentName: string;
-  invoiceNumber: string | null;
-  invoiceStatus: string | null;
-  invoiceDueDate: unknown;
-  invoiceOutstandingKobo: unknown;
   studentOutstandingKobo: unknown;
   openInvoiceCount: unknown;
 }
@@ -99,10 +94,6 @@ export interface CollectionsQueueRow {
   studentId: string;
   studentIdCode: string;
   studentName: string;
-  invoiceId: string | null;
-  invoiceNumber: string | null;
-  invoiceStatus: string | null;
-  invoiceDueDate: string | null;
   state: CollectionsState;
   priority: CollectionsPriority;
   reason: string;
@@ -145,7 +136,6 @@ export async function listQueue(
     SELECT
       c.id,
       c.student_id AS "studentId",
-      c.invoice_id AS "invoiceId",
       c.state,
       c.priority,
       c.reason,
@@ -156,19 +146,12 @@ export async function listQueue(
       c.updated_at AS "updatedAt",
       s.student_id AS "studentIdCode",
       trim(coalesce(s.first_name, '') || ' ' || coalesce(s.middle_name, '') || ' ' || coalesce(s.last_name, '')) AS "studentName",
-      i.invoice_number AS "invoiceNumber",
-      i.status AS "invoiceStatus",
-      i.due_date AS "invoiceDueDate",
-      CASE WHEN i.id IS NULL THEN 0 ELSE greatest(0, i.total_kobo - i.paid_kobo) END AS "invoiceOutstandingKobo",
       coalesce(debt.student_outstanding_kobo, 0) AS "studentOutstandingKobo",
       coalesce(debt.open_invoice_count, 0)::int AS "openInvoiceCount"
     FROM collections_cases c
     JOIN students s
       ON s.id = c.student_id
      AND s.organization_id = c.organization_id
-    LEFT JOIN invoices i
-      ON i.id = c.invoice_id
-     AND i.organization_id = c.organization_id
     LEFT JOIN LATERAL (
       SELECT
         coalesce(sum(greatest(0, i2.total_kobo - i2.paid_kobo)), 0) AS student_outstanding_kobo,
@@ -177,6 +160,7 @@ export async function listQueue(
       WHERE i2.organization_id = c.organization_id
         AND i2.student_id = c.student_id
         AND i2.status IN ('ISSUED', 'PARTIALLY_PAID')
+        AND greatest(0, i2.total_kobo - i2.paid_kobo) > 0
     ) debt ON true
     WHERE ${sql.join(conditions, sql` AND `)}
     ORDER BY
@@ -192,18 +176,12 @@ export async function listQueue(
     studentId: row.studentId,
     studentIdCode: row.studentIdCode,
     studentName: row.studentName.replace(/\s+/g, ' ').trim(),
-    invoiceId: row.invoiceId,
-    invoiceNumber: row.invoiceNumber,
-    invoiceStatus: row.invoiceStatus,
-    invoiceDueDate: iso(row.invoiceDueDate),
     state: row.state,
     priority: row.priority,
     reason: row.reason,
     assignedTo: row.assignedTo,
     nextActionAt: iso(row.nextActionAt),
-    outstandingKobo: row.invoiceId
-      ? numberValue(row.invoiceOutstandingKobo)
-      : numberValue(row.studentOutstandingKobo),
+    outstandingKobo: numberValue(row.studentOutstandingKobo),
     studentOutstandingKobo: numberValue(row.studentOutstandingKobo),
     openInvoiceCount: numberValue(row.openInvoiceCount),
     version: Number(row.version),
@@ -216,7 +194,6 @@ interface LockedCaseRow {
   id: string;
   organization_id: string;
   student_id: string;
-  invoice_id: string | null;
   state: CollectionsState;
   priority: CollectionsPriority;
   reason: string;
@@ -234,7 +211,7 @@ interface LockedCaseRow {
 
 async function lockCase(db: TenantScopedDb, ctx: TenantCtx, caseId: UUID): Promise<LockedCaseRow> {
   const rows = (await db.execute(sql`
-    SELECT id, organization_id, student_id, invoice_id, state, priority, reason,
+    SELECT id, organization_id, student_id, state, priority, reason,
            assigned_to, next_action_at, resolved_by, resolved_at,
            closed_by, closed_at, created_by, version, created_at, updated_at
       FROM collections_cases
@@ -282,49 +259,25 @@ async function insertEvent(
 async function verifyStudentAndObligation(
   db: TenantScopedDb,
   ctx: TenantCtx,
-  input: { studentId: UUID; invoiceId?: UUID | null },
+  studentId: UUID,
 ): Promise<void> {
   const studentRows = (await db.execute(sql`
     SELECT id
       FROM students
-     WHERE id = ${input.studentId}::uuid
+     WHERE id = ${studentId}::uuid
        AND organization_id = ${ctx.organizationId}::uuid
        AND status = 'ACTIVE'
      LIMIT 1
   `)) as unknown as Array<{ id: string }>;
   if (!studentRows[0]) throw notFound();
 
-  if (input.invoiceId) {
-    const invoiceRows = (await db.execute(sql`
-      SELECT id, total_kobo, paid_kobo, status
-        FROM invoices
-       WHERE id = ${input.invoiceId}::uuid
-         AND organization_id = ${ctx.organizationId}::uuid
-         AND student_id = ${input.studentId}::uuid
-       LIMIT 1
-    `)) as unknown as Array<{
-      id: string;
-      total_kobo: unknown;
-      paid_kobo: unknown;
-      status: string;
-    }>;
-    const invoice = invoiceRows[0];
-    if (!invoice) throw notFound();
-    if (
-      !['ISSUED', 'PARTIALLY_PAID'].includes(invoice.status) ||
-      numberValue(invoice.total_kobo) <= numberValue(invoice.paid_kobo)
-    ) {
-      throw invalid('The focused invoice has no outstanding balance.');
-    }
-    return;
-  }
-
   const debtRows = (await db.execute(sql`
     SELECT coalesce(sum(greatest(0, total_kobo - paid_kobo)), 0) AS outstanding
       FROM invoices
      WHERE organization_id = ${ctx.organizationId}::uuid
-       AND student_id = ${input.studentId}::uuid
+       AND student_id = ${studentId}::uuid
        AND status IN ('ISSUED', 'PARTIALLY_PAID')
+       AND greatest(0, total_kobo - paid_kobo) > 0
   `)) as unknown as Array<{ outstanding: unknown }>;
   if (numberValue(debtRows[0]?.outstanding) <= 0) {
     throw invalid('The student has no outstanding obligation.');
@@ -350,7 +303,6 @@ export async function createCase(
   ctx: TenantCtx,
   input: {
     studentId: UUID;
-    invoiceId?: UUID | null;
     priority: CollectionsPriority;
     reason: string;
     nextActionAt?: Date | null;
@@ -358,17 +310,16 @@ export async function createCase(
   },
 ): Promise<CollectionsCase> {
   const actor = actorId(ctx);
-  await verifyStudentAndObligation(db, ctx, input);
+  await verifyStudentAndObligation(db, ctx, input.studentId);
   return db.transaction(async (tx) => {
     // Re-check inside the transaction immediately before insert. The financial
     // columns are authoritative and may change between a queue read and create.
-    await verifyStudentAndObligation(tx, ctx, input);
+    await verifyStudentAndObligation(tx, ctx, input.studentId);
     const rows = await tx
       .insert(collectionsCases)
       .values({
         organizationId: ctx.organizationId,
         studentId: input.studentId,
-        invoiceId: input.invoiceId ?? null,
         state: 'OPEN',
         priority: input.priority,
         reason: input.reason.trim(),
@@ -391,7 +342,6 @@ export async function createCase(
         state: created.state,
         priority: created.priority,
         studentId: created.studentId,
-        invoiceId: created.invoiceId,
         version: created.version,
       },
       reason: created.reason,
@@ -644,10 +594,6 @@ function normalizeCase(row: DetailCaseDbRow) {
     studentId: row.studentId,
     studentIdCode: row.studentIdCode,
     studentName: row.studentName.replace(/\s+/g, ' ').trim(),
-    invoiceId: row.invoiceId,
-    invoiceNumber: row.invoiceNumber,
-    invoiceStatus: row.invoiceStatus,
-    invoiceDueDate: iso(row.invoiceDueDate),
     state: row.state,
     priority: row.priority,
     reason: row.reason,
@@ -658,9 +604,7 @@ function normalizeCase(row: DetailCaseDbRow) {
     closedBy: row.closedBy,
     closedAt: iso(row.closedAt),
     createdBy: row.createdBy,
-    outstandingKobo: row.invoiceId
-      ? numberValue(row.invoiceOutstandingKobo)
-      : numberValue(row.studentOutstandingKobo),
+    outstandingKobo: numberValue(row.studentOutstandingKobo),
     studentOutstandingKobo: numberValue(row.studentOutstandingKobo),
     openInvoiceCount: numberValue(row.openInvoiceCount),
     version: Number(row.version),
@@ -674,7 +618,6 @@ export async function getCaseDetail(db: TenantScopedDb, ctx: TenantCtx, caseId: 
     SELECT
       c.id,
       c.student_id AS "studentId",
-      c.invoice_id AS "invoiceId",
       c.state,
       c.priority,
       c.reason,
@@ -690,15 +633,10 @@ export async function getCaseDetail(db: TenantScopedDb, ctx: TenantCtx, caseId: 
       c.updated_at AS "updatedAt",
       s.student_id AS "studentIdCode",
       trim(coalesce(s.first_name, '') || ' ' || coalesce(s.middle_name, '') || ' ' || coalesce(s.last_name, '')) AS "studentName",
-      i.invoice_number AS "invoiceNumber",
-      i.status AS "invoiceStatus",
-      i.due_date AS "invoiceDueDate",
-      CASE WHEN i.id IS NULL THEN 0 ELSE greatest(0, i.total_kobo - i.paid_kobo) END AS "invoiceOutstandingKobo",
       coalesce(debt.student_outstanding_kobo, 0) AS "studentOutstandingKobo",
       coalesce(debt.open_invoice_count, 0)::int AS "openInvoiceCount"
     FROM collections_cases c
     JOIN students s ON s.id = c.student_id AND s.organization_id = c.organization_id
-    LEFT JOIN invoices i ON i.id = c.invoice_id AND i.organization_id = c.organization_id
     LEFT JOIN LATERAL (
       SELECT
         coalesce(sum(greatest(0, i2.total_kobo - i2.paid_kobo)), 0) AS student_outstanding_kobo,
@@ -707,6 +645,7 @@ export async function getCaseDetail(db: TenantScopedDb, ctx: TenantCtx, caseId: 
       WHERE i2.organization_id = c.organization_id
         AND i2.student_id = c.student_id
         AND i2.status IN ('ISSUED', 'PARTIALLY_PAID')
+        AND greatest(0, i2.total_kobo - i2.paid_kobo) > 0
     ) debt ON true
     WHERE c.id = ${caseId}::uuid
       AND c.organization_id = ${ctx.organizationId}::uuid
@@ -714,6 +653,32 @@ export async function getCaseDetail(db: TenantScopedDb, ctx: TenantCtx, caseId: 
   `)) as unknown as DetailCaseDbRow[];
   const current = caseRows[0];
   if (!current) throw notFound();
+
+  const caseReminders = await db
+    .select({
+      id: reminders.id,
+      invoiceId: reminders.invoiceId,
+      channel: reminders.channel,
+      status: reminders.status,
+      balanceKobo: reminders.balanceKobo,
+      agingBucket: reminders.agingBucket,
+      sentAt: reminders.sentAt,
+      createdAt: reminders.createdAt,
+    })
+    .from(reminders)
+    .where(
+      and(
+        eq(reminders.organizationId, ctx.organizationId),
+        sql`(reminders.student_id = ${current.studentId}::uuid OR EXISTS (
+          SELECT 1 FROM invoices reminder_invoice
+           WHERE reminder_invoice.id = reminders.invoice_id
+             AND reminder_invoice.organization_id = reminders.organization_id
+             AND reminder_invoice.student_id = ${current.studentId}::uuid
+        ))`,
+      ),
+    )
+    .orderBy(desc(reminders.createdAt))
+    .limit(25);
 
   const events = await db
     .select()
@@ -807,6 +772,12 @@ export async function getCaseDetail(db: TenantScopedDb, ctx: TenantCtx, caseId: 
   return {
     case: normalizeCase(current),
     events,
+    reminders: caseReminders.map((row) => ({
+      ...row,
+      balanceKobo: numberValue(row.balanceKobo),
+      sentAt: iso(row.sentAt),
+      createdAt: iso(row.createdAt),
+    })),
     obligations: obligations.map((row) => ({
       ...row,
       totalKobo: numberValue(row.totalKobo),
