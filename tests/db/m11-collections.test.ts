@@ -110,7 +110,24 @@ describe('M11 collections operational control plane', () => {
     expect(queueAfter[0]?.outstandingKobo).toBe(60_000);
     const detail = await collectionsRepo.getCaseDetail(testDb(), ctx, caseRow.id);
     expect(detail.obligations[0]?.outstandingKobo).toBe(60_000);
-    expect(detail.payments[0]?.allocationAmountKobo).toBe(40_000);
+    expect(detail.payments.map((row) => row.allocationAmountKobo)).toContain(40_000);
+
+    const finalPayment = await paymentsRepo.record(testDb(), ctx, {
+      method: 'BANK_TRANSFER',
+      amountKobo: kobo(60_000),
+      reference: `M11-FINAL-${randomUUID()}`,
+    });
+    await allocationsRepo.allocate(testDb(), ctx, {
+      paymentId: finalPayment.id,
+      invoiceId,
+      amountKobo: kobo(60_000),
+    });
+    const zeroBalanceQueue = await collectionsRepo.listQueue(testDb(), ctx);
+    expect(zeroBalanceQueue[0]?.outstandingKobo).toBe(0);
+    const zeroBalanceDetail = await collectionsRepo.getCaseDetail(testDb(), ctx, caseRow.id);
+    expect(zeroBalanceDetail.case.state).toBe('OPEN');
+    expect(zeroBalanceDetail.case.outstandingKobo).toBe(0);
+    expect(zeroBalanceDetail.obligations[0]?.outstandingKobo).toBe(0);
   });
 
   it('shows candidate-linked unallocated M10 context without closing or allocating the collections case', async () => {
