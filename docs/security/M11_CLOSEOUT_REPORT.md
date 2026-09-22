@@ -247,9 +247,9 @@ readiness was assessed:
 
 All three findings were corrected in implementation commit
 `a4d421c0062f7589bf1ebd7517ae8b6a328f3862`; the expanded concurrent/terminal
-adversarial tests are in `05f81f84ad00b5851ef963e1692c109dfb32769d`. They are
-covered by the final verification counts. No material implementation finding
-remains.
+adversarial tests are in `05f81f84ad00b5851ef963e1692c109dfb32769d` and
+`77437460041a53ee9eb98e6ddb1c24dab86ad4eb`. They are covered by the final
+verification counts. No material implementation finding remains.
 
 ## 10. Files and migration surface
 
