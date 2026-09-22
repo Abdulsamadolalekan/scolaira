@@ -288,11 +288,20 @@ describe('M11 collections operational control plane', () => {
     expect(inProgress.state).toBe('IN_PROGRESS');
     expect(inProgress.version).toBe(1);
 
+    const escalated = await collectionsRepo.transitionCase(testDb(), ctx, caseRow.id, {
+      toState: 'ESCALATED',
+      note: 'Escalate after first-line follow-up.',
+      expectedVersion: 1,
+      requestId: 'm11-escalate',
+    });
+    expect(escalated.state).toBe('ESCALATED');
+    expect(escalated.version).toBe(2);
+
     await expect(
       collectionsRepo.transitionCase(testDb(), ctx, caseRow.id, {
         toState: 'CLOSED',
         note: 'Invalid close attempt.',
-        expectedVersion: 1,
+        expectedVersion: 2,
         requestId: 'm11-invalid',
       }),
     ).rejects.toMatchObject({ code: 'BAD_REQUEST' });
@@ -300,14 +309,14 @@ describe('M11 collections operational control plane', () => {
     const resolved = await collectionsRepo.transitionCase(testDb(), ctx, caseRow.id, {
       toState: 'RESOLVED',
       note: 'Payment arrangement recorded.',
-      expectedVersion: 1,
+      expectedVersion: 2,
       requestId: 'm11-t2',
     });
     expect(resolved.resolvedBy).toBe(ids.aliceId);
     const closed = await collectionsRepo.transitionCase(testDb(), ctx, caseRow.id, {
       toState: 'CLOSED',
       note: 'Obligation follow-up completed.',
-      expectedVersion: 2,
+      expectedVersion: 3,
       requestId: 'm11-t3',
     });
     expect(closed.state).toBe('CLOSED');
@@ -316,14 +325,14 @@ describe('M11 collections operational control plane', () => {
       collectionsRepo.addCaseEvent(testDb(), ctx, caseRow.id, {
         eventType: 'NOTE',
         note: 'Should be rejected after closure.',
-        expectedVersion: 3,
+        expectedVersion: 4,
       }),
     ).rejects.toMatchObject({ code: 'CONFLICT' });
     await expect(
       collectionsRepo.transitionCase(testDb(), ctx, caseRow.id, {
         toState: 'OPEN',
         note: 'Closed cases cannot reopen.',
-        expectedVersion: 3,
+        expectedVersion: 4,
       }),
     ).rejects.toMatchObject({ code: 'BAD_REQUEST' });
 
