@@ -53,7 +53,9 @@ The repository reads current financial truth from the existing `students`,
 `invoices`, `payment_allocations`, `payments`, `receipts`, `reversals`, and M10
 `reconciliation_cases` tables. The queue and account detail compute current
 student debt from the existing trigger-maintained invoice columns at read time.
-A financial action is not implemented in M11; any future payment, allocation,
+Candidate-linked M10 context includes confirmed but unallocated payment state
+when an M10 candidate identifies the student. A financial action is not
+implemented in M11; any future payment, allocation,
 reversal, refund, or receipt action must call its existing authoritative service
 rather than mutating a case or financial column directly.
 
@@ -146,10 +148,11 @@ Every mutable case operation:
 5. writes an audit event with before/after workflow snapshots.
 
 The database independently rejects invalid state changes, version skips,
-tenant/linkage rewrites, resolution/closure shape violations, and post-closure
-updates. The student-level partial unique index prevents two concurrent open
-collection episodes for one student. A trigger and least-privilege grants
-reject updates or deletes to case history.
+tenant/linkage rewrites, forged same-tenant creator/resolver/closer/event actors,
+resolution/closure shape violations, and post-closure updates. The
+student-level partial unique index prevents two concurrent open collection
+episodes for one student. A trigger and least-privilege grants reject updates
+or deletes to case history.
 
 ## 7. Reminder correction
 
@@ -169,11 +172,11 @@ state machine.
 ## 8. Migration and least privilege
 
 `0037_m11_collections_control_plane.sql` is forward-only and creates only M11
-objects plus the non-destructive future-reminder delivery guard. Migrations
-`0000`–`0036` are not modified. The migration creates both case tables,
-indexes, the one-open-student uniqueness boundary, tenant/actor guards,
-transition and append-only triggers, RLS and FORCE RLS policies, and comments
-documenting the financial boundary.
+objects plus authenticated actor-attribution and non-destructive future-
+reminder delivery guards. Migrations `0000`–`0036` are not modified. The
+migration creates both case tables, indexes, the one-open-student uniqueness
+boundary, tenant/actor guards, transition and append-only triggers, RLS and
+FORCE RLS policies, and comments documenting the financial boundary.
 
 The production migration runner and the test migration bootstrap reapply M11
 grants after the existing broad bootstrap grant:
@@ -190,11 +193,12 @@ The migration journal terminal entry is index `36` with tag
 
 Final verification completed before closeout:
 
-- targeted M11 DB integration: `7/7` passing;
-- targeted M11 route integration: `4/4` passing;
+- targeted M11 DB integration: `10/10` passing;
+- targeted M11 route integration: `5/5` passing;
 - M11 authorization suite: `2/2` passing;
 - unit suite: `4` files / `30` tests passing;
-- full Vitest suite: `31` files / `275` tests passing;
+- full Vitest suite: `31` files / `279` tests passing;
+- explicit M10 regression surface: `11/11` tests passing;
 - `tsc --noEmit`: pass;
 - `npm run lint`: pass with existing repository warnings only;
 - `npm run build`: pass; `48/48` static pages generated;

@@ -3,7 +3,7 @@
 **Date:** 2026-09-22 (Africa/Lagos)
 **Status:** **M11 IMPLEMENTATION COMPLETE — AWAITING FREEZE**
 **Baseline:** M10 frozen at `5841f2e94ff4ee9a908ef6963662feca4a6ec37c`
-**Implementation commit:** `ba318386f62dd65c8fdb7da03b0c594a3420e220`
+**Implementation commit:** `a4d421c0062f7589bf1ebd7517ae8b6a328f3862`
 **Migration:** `0037_m11_collections_control_plane.sql`
 **Freeze/tag status:** no M11 tag or freeze has been created or authorized
 
@@ -100,9 +100,10 @@ All unsafe mutations require CSRF and an `Idempotency-Key`; same-key changed
 payloads are rejected by the shared idempotency hash boundary.
 
 Database defense in depth includes tenant guards, RLS, FORCE RLS, actor and
-linkage checks, and least-privilege runtime grants. Direct SQL cannot rewrite
-case linkage, skip versions, change append-only history, or mutate a terminal
-case through the runtime principal.
+linkage checks, authenticated actor attribution, and least-privilege runtime
+grants. Direct SQL cannot rewrite case linkage, forge same-tenant creator or
+resolution actors, skip versions, change append-only history, or mutate a
+terminal case through the runtime principal.
 
 ## 4. Concurrency, auditability, and financial integrity
 
@@ -124,7 +125,9 @@ Focused tests and database guards cover:
 - append-only event and closed-case mutation attempts.
 
 The workbench reads current truth from the existing invoice, allocation,
-payment, receipt, reversal, and M10 reconciliation records. No amount, paid,
+payment, receipt, reversal, and M10 reconciliation records. Candidate-linked
+M10 reconciliation context also exposes confirmed but unallocated payment state
+when an M10 candidate identifies the student. No amount, paid,
 outstanding, balance, allocation, refund, reversal, receipt, or reconciliation
 decision column was added to the M11 model. Existing trigger-maintained
 financial truth, payment/allocation services, public payment-link boundaries,
@@ -145,9 +148,9 @@ proves both the repository and direct-SQL boundaries.
 transactional per migration runner. It creates the two M11 tables, the one-open-
 student uniqueness boundary, indexes, tenant/linkage/actor guards, lifecycle
 and append-only triggers, RLS/FORCE RLS policies, and financial-boundary
-comments. It does not rewrite or delete prior records. It also adds a
-non-destructive insert guard so unsupported future reminder channels cannot be
-recorded as delivered.
+comments. It does not rewrite or delete prior records. It also adds
+authenticated actor-attribution guards and a non-destructive insert guard so
+unsupported future reminder channels cannot be recorded as delivered.
 
 The migration runner, test bootstrap, and concurrency verification harness
 reapply M11 restrictions after the existing broad bootstrap grant:
@@ -165,11 +168,12 @@ Migration journal entry `0037_m11_collections_control_plane` is terminal index `
 
 | Gate                           | Result                                                                                                   |
 | ------------------------------ | -------------------------------------------------------------------------------------------------------- |
-| Targeted M11 DB integration    | **7/7 passed**                                                                                           |
-| Targeted M11 route integration | **4/4 passed**                                                                                           |
+| Targeted M11 DB integration    | **10/10 passed**                                                                                         |
+| Targeted M11 route integration | **5/5 passed**                                                                                           |
 | M11 authorization suite        | **2/2 passed**                                                                                           |
 | Unit suite                     | **4 files / 30 tests passed**                                                                            |
-| Full Vitest suite              | **31 files / 275 tests passed**                                                                          |
+| Explicit M10 regression        | **11/11 tests passed**                                                                                   |
+| Full Vitest suite              | **31 files / 279 tests passed**                                                                          |
 | TypeScript                     | `tsc --noEmit` passed                                                                                    |
 | Lint                           | `npm run lint` passed; existing non-fatal `any`/unused-variable warnings only                            |
 | Production build               | `npm run build` passed; **48/48** static pages generated                                                 |
@@ -215,7 +219,39 @@ forged context, invalid roles, CSRF, duplicate requests, stale versions,
 concurrent updates, closure/reassignment races, and direct financial-boundary
 attacks.
 
-## 9. Files and migration surface
+## 9. Independent adversarial findings and remediation
+
+The final audit found and corrected the following defects before freeze
+readiness was assessed:
+
+1. **Medium — duplicate open-case API conflict mapping.** Two different
+   idempotency keys attempting to open a second case for the same student hit
+   the database unique index, but Drizzle exposed PostgreSQL `23505` through
+   `error.cause`, so the route initially returned `500` instead of a safe
+   `409 CONFLICT`. `app/api/collections/route.ts` now unwraps the PostgreSQL
+   code, and the route test proves the safe conflict response.
+2. **High — direct runtime actor attribution.** The initial M11 database guard
+   checked that creator/resolver/closer/event actors were active tenant
+   members, but did not require them to equal the authenticated `app.user_id`.
+   A same-tenant direct SQL write could therefore forge an active member as the
+   actor. `0037_m11_collections_control_plane.sql` now enforces authenticated
+   creator, resolver, closer, and event actors, with bootstrap-only exceptions;
+   direct SQL adversarial tests cover forged event and resolution actors.
+3. **Medium — incomplete unallocated M10 account context.** The initial detail
+   query followed only allocated payments, omitting an unallocated payment
+   whose M10 candidate explicitly identified the student. The read path now
+   includes candidate-linked M10 cases and authoritative payment status,
+   amount, and unallocated projection without writing M10 or financial truth.
+   A focused test proves the case remains open and the payment remains
+   unallocated.
+
+All three findings were corrected in implementation commit
+`a4d421c0062f7589bf1ebd7517ae8b6a328f3862`; the expanded concurrent/terminal
+adversarial tests are in `05f81f84ad00b5851ef963e1692c109dfb32769d`. They are
+covered by the final verification counts. No material implementation finding
+remains.
+
+## 10. Files and migration surface
 
 The implementation commit contains the following M11 surface:
 
@@ -247,9 +283,9 @@ The implementation commit contains the following M11 surface:
 No M9 or M10 implementation file or migration was changed. M11 is additive on
 top of frozen M10. The M11 implementation series begins at
 `4f1d2a4c0c24ebd39b41406a59af017019f0ab72`, whose exact parent is the frozen M10
-commit; the final student-episode correction is `ba318386f62dd65c8fdb7da03b0c594a3420e220`.
+commit; the final audit-hardening correction is `a4d421c0062f7589bf1ebd7517ae8b6a328f3862`.
 
-## 10. Limitations and staging implications
+## 11. Limitations and staging implications
 
 M11 intentionally does not implement bank/provider integration, payment-gateway
 replacement, automated debt collection, contact delivery, CRM, accounting
@@ -279,11 +315,11 @@ Before staging enablement:
 No M11 tag, freeze, or production enablement is implied by this report. Explicit
 user authorization is still required for the freeze decision.
 
-## 11. Final handoff
+## 12. Final handoff
 
 **M11 IMPLEMENTATION COMPLETE — AWAITING FREEZE**
 
-Implementation commit: `ba318386f62dd65c8fdb7da03b0c594a3420e220`
+Implementation commit: `a4d421c0062f7589bf1ebd7517ae8b6a328f3862`
 Frozen M10 parent: `5841f2e94ff4ee9a908ef6963662feca4a6ec37c`
 M10 tag preserved: `m10-reconciliation-control-plane`
 
