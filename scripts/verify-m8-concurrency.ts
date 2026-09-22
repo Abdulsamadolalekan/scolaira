@@ -34,6 +34,10 @@ async function main() {
   await owner`GRANT UPDATE (kind, state, previous_state, reason, resolution_code, resolution_note, resolved_by, resolved_at, closed_at, version) ON reconciliation_cases TO scolaira_app`;
   await owner`GRANT UPDATE (state, decided_by, decided_at) ON reconciliation_candidates TO scolaira_app`;
   await owner`REVOKE UPDATE, DELETE ON reconciliation_evidence FROM scolaira_app`;
+  await owner`REVOKE DELETE, TRUNCATE, REFERENCES, TRIGGER ON collections_cases, collections_case_events FROM scolaira_app`;
+  await owner`REVOKE UPDATE ON collections_cases, collections_case_events FROM scolaira_app`;
+  await owner`GRANT UPDATE (state, priority, assigned_to, next_action_at, resolved_by, resolved_at, closed_by, closed_at, version) ON collections_cases TO scolaira_app`;
+  await owner`REVOKE UPDATE, DELETE ON collections_case_events FROM scolaira_app`;
   await owner`REVOKE UPDATE ON payment_allocations FROM scolaira_app`;
 
   const orgId = randomUUID() as UUID;

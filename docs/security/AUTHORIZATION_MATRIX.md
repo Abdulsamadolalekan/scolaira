@@ -131,6 +131,23 @@ Additional constraints noted per row:
 | GET    | /api/search?q=…             | ✓   | ✓   | ✓   | ✓*  | S   | R; TCH scoped to own classes; STU self-only. |
 | GET    | /api/exports/:kind          | ✓   | ✓†  | ✓   | —   | —   | R; †ADM can export non-financial (students); A (downloads logged). |
 
+## Collections Workbench and Case Control Plane (M11)
+
+| Method | Path | OWN | ADM | BUR | TCH | STU | PLT | Notes |
+|--------|------|:---:|:---:|:---:|:---:|:---:|:---:|-------|
+| GET | /api/collections | ✓ | ✓ | ✓ | — | — | ✓ | R; live financial reads; platform support read-only. |
+| POST | /api/collections | ✓ | ✓ | ✓ | — | — | — | R, F-read, A, I; creates workflow state only when a live obligation is outstanding. |
+| GET | /api/collections/:id | ✓ | ✓ | ✓ | — | — | ✓ | R; detail joins authoritative payment/allocation/receipt/reversal and M10 context. |
+| POST | /api/collections/:id/assign | ✓ | ✓ | ✓ | — | — | — | R, A, I; active-member assignee; optimistic version required. |
+| POST | /api/collections/:id/events | ✓ | ✓ | ✓ | — | — | — | R, A, I; append-only note/action history; CSRF. |
+| POST | /api/collections/:id/transition | ✓ | ✓ | ✓ | — | — | — | R, A, I; explicit state graph; CSRF; optimistic version required. |
+
+M11 cases are operational records, not a second financial truth. No collections
+route accepts a client organization ID, writes invoice/payment/allocation/
+receipt/reversal columns, or bypasses the existing financial services. All
+unsafe routes require CSRF and an `Idempotency-Key`; tenant scope comes from
+the authenticated context and database RLS/FORCE RLS.
+
 ## Audit log
 
 | Method | Path                        | OWN | ADM | BUR | TCH | STU | Notes |

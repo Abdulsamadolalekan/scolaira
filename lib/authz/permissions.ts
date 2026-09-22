@@ -123,7 +123,14 @@ export type Action =
   // Reconciliation control plane
   | 'reconciliation.read'
   | 'reconciliation.review'
-  | 'reconciliation.resolve';
+  | 'reconciliation.resolve'
+
+  // Collections workbench / operational cases
+  | 'collections.read'
+  | 'collections.create'
+  | 'collections.assign'
+  | 'collections.note'
+  | 'collections.transition';
 
 // ---------------------------------------------------------------------------
 // Policy matrix
@@ -166,6 +173,7 @@ const POLICY: Record<MembershipRole, ReadonlySet<Action>> = {
     'communication.send',
     'debtor.read', 'reminder.send',
     'reconciliation.read', 'reconciliation.review', 'reconciliation.resolve',
+    'collections.read', 'collections.create', 'collections.assign', 'collections.note', 'collections.transition',
   ]),
   SCHOOL_ADMIN: new Set<Action>([
     'org.settings.read', 'org.settings.update',
@@ -184,6 +192,7 @@ const POLICY: Record<MembershipRole, ReadonlySet<Action>> = {
     'communication.send',
     'debtor.read', 'reminder.send',
     'reconciliation.read', 'reconciliation.review', 'reconciliation.resolve',
+    'collections.read', 'collections.create', 'collections.assign', 'collections.note', 'collections.transition',
   ]),
   FINANCE_OFFICER: new Set<Action>([
     'org.settings.read',
@@ -205,6 +214,7 @@ const POLICY: Record<MembershipRole, ReadonlySet<Action>> = {
     'communication.send',
     'debtor.read', 'reminder.send',
     'reconciliation.read', 'reconciliation.review', 'reconciliation.resolve',
+    'collections.read', 'collections.create', 'collections.assign', 'collections.note', 'collections.transition',
     // FINANCE_OFFICER may NOT: manage staff, change org settings, archive/
     // restore students, manage academic sessions/terms/classes, read audit,
     // transfer ownership, delete the org.
@@ -257,6 +267,7 @@ const PLATFORM_SUPPORT_ACTIONS: ReadonlySet<Action> = new Set<Action>([
   'payment_link.read',
   'report.financial.read',
   'dashboard.read',
+  'collections.read',
   'audit.read',
   // NO mutations in support mode.
 ]);

@@ -50,6 +50,10 @@ export default async function globalSetup(_ctx: GlobalSetupContext) {
     await sql`GRANT UPDATE (kind, state, previous_state, reason, resolution_code, resolution_note, resolved_by, resolved_at, closed_at, version) ON reconciliation_cases TO scolaira_app`;
     await sql`GRANT UPDATE (state, decided_by, decided_at) ON reconciliation_candidates TO scolaira_app`;
     await sql`REVOKE UPDATE, DELETE ON reconciliation_evidence FROM scolaira_app`;
+    await sql`REVOKE DELETE, TRUNCATE, REFERENCES, TRIGGER ON collections_cases, collections_case_events FROM scolaira_app`;
+    await sql`REVOKE UPDATE ON collections_cases, collections_case_events FROM scolaira_app`;
+    await sql`GRANT UPDATE (state, priority, assigned_to, next_action_at, resolved_by, resolved_at, closed_by, closed_at, version) ON collections_cases TO scolaira_app`;
+    await sql`REVOKE UPDATE, DELETE ON collections_case_events FROM scolaira_app`;
     // Do NOT grant EXECUTE ON ALL FUNCTIONS. Migrations 0010+ explicitly
     // GRANT EXECUTE per-function on a whitelist; blanket grants re-expose
     // restricted SECURITY DEFINER helpers to the runtime role.

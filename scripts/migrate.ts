@@ -59,6 +59,12 @@ async function run() {
     await sql`GRANT UPDATE (kind, state, previous_state, reason, resolution_code, resolution_note, resolved_by, resolved_at, closed_at, version) ON reconciliation_cases TO scolaira_app`;
     await sql`GRANT UPDATE (state, decided_by, decided_at) ON reconciliation_candidates TO scolaira_app`;
     await sql`REVOKE UPDATE, DELETE ON reconciliation_evidence FROM scolaira_app`;
+    // M11 collections cases are mutable only through workflow columns; their
+    // history is append-only even after the broad post-migration grant.
+    await sql`REVOKE DELETE, TRUNCATE, REFERENCES, TRIGGER ON collections_cases, collections_case_events FROM scolaira_app`;
+    await sql`REVOKE UPDATE ON collections_cases, collections_case_events FROM scolaira_app`;
+    await sql`GRANT UPDATE (state, priority, assigned_to, next_action_at, resolved_by, resolved_at, closed_by, closed_at, version) ON collections_cases TO scolaira_app`;
+    await sql`REVOKE UPDATE, DELETE ON collections_case_events FROM scolaira_app`;
     // NOTE: EXECUTE on functions is NOT granted wholesale. Each SECURITY
     // DEFINER helper GRANTs EXECUTE explicitly inside its own migration
     // (see 0010_lockdown_secdef.sql §7 for the whitelist). Granting EXECUTE

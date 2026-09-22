@@ -12,3 +12,4 @@ export * from './financials';
 export * from './communications';
 export * from './platform';
 export * from './reconciliation';
+export * from './collections';

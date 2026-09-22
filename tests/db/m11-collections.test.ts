@@ -1,0 +1,342 @@
+// @vitest-environment node
+/** M11 collections workflow, tenant isolation, live-financial reads, and races. */
+import { afterEach, describe, expect, it } from 'vitest';
+import postgres from 'postgres';
+import { drizzle } from 'drizzle-orm/postgres-js';
+import { eq } from 'drizzle-orm';
+import { randomUUID } from 'node:crypto';
+import {
+  testDb,
+  testSql,
+  enableSavepointTransactionsForTest,
+  disableSavepointTransactionsForTest,
+} from '../setup-db';
+import { seedTwoOrgs } from '../support/seed';
+import { setupConcurrencyFixtures, type ConcurrencyFixtures } from '../support/concurrent-seed';
+import { withSystemContext } from '@/lib/db/tenant';
+import * as invoicesRepo from '@/lib/db/repo/invoices';
+import * as invoiceLinesRepo from '@/lib/db/repo/invoice-lines';
+import * as paymentsRepo from '@/lib/db/repo/payments';
+import * as allocationsRepo from '@/lib/db/repo/payment-allocations';
+import * as collectionsRepo from '@/lib/db/repo/collections';
+import { collectionsCaseEvents } from '@/lib/db/schema';
+import { kobo } from '@/lib/money';
+import type { Database } from '@/lib/db';
+import type { TenantCtx, UUID } from '@/lib/db/repo/_context';
+
+type Fixture = Awaited<ReturnType<typeof seedTwoOrgs>>;
+
+const runtimeUrl =
+  process.env.DATABASE_URL ??
+  'postgresql://scolaira_app:scolaira_app_pw@localhost:5432/scolaira_test';
+
+async function expectPgFailure(fn: () => Promise<unknown>): Promise<unknown> {
+  const name = `m11_${randomUUID().replaceAll('-', '')}`;
+  await testSql().unsafe(`SAVEPOINT ${name}`);
+  let error: unknown;
+  try {
+    await fn();
+  } catch (caught) {
+    error = caught;
+  }
+  await testSql().unsafe(`ROLLBACK TO SAVEPOINT ${name}`);
+  await testSql().unsafe(`RELEASE SAVEPOINT ${name}`);
+  expect(error).toBeTruthy();
+  return error;
+}
+
+async function seedOutstanding(ids: Fixture): Promise<{
+  ids: Fixture;
+  ctx: TenantCtx;
+  invoiceId: UUID;
+  caseRow: collectionsRepo.CollectionsCase;
+}> {
+  await testSql()`SELECT set_tenant_context(${ids.orgId}::uuid, ${ids.aliceId}::uuid)`;
+  const ctx: TenantCtx = { organizationId: ids.orgId, userId: ids.aliceId };
+  const invoice = await invoicesRepo.createDraft(testDb(), ctx, {
+    studentId: ids.studentAId,
+    termId: ids.termId,
+    sessionId: ids.sessionId,
+  });
+  await invoiceLinesRepo.addLines(testDb(), ctx, invoice.id, [
+    {
+      description: 'M11 tuition',
+      quantity: 1,
+      unitRateKobo: kobo(100_000),
+      amountKobo: kobo(100_000),
+    },
+  ]);
+  const issued = await invoicesRepo.issue(testDb(), ctx, invoice.id);
+  const caseRow = await collectionsRepo.createCase(testDb(), ctx, {
+    studentId: ids.studentAId,
+    invoiceId: issued.id,
+    priority: 'HIGH',
+    reason: 'Follow up on open term invoice',
+    requestId: 'm11-seed',
+  });
+  return { ids, ctx, invoiceId: issued.id, caseRow };
+}
+
+describe('M11 collections operational control plane', () => {
+  afterEach(() => disableSavepointTransactionsForTest());
+
+  it('creates only against a live outstanding obligation and reads current financial truth without shadow balances', async () => {
+    enableSavepointTransactionsForTest();
+    const ids = await withSystemContext(null, null, async () => seedTwoOrgs(testSql()));
+    const { ctx, invoiceId, caseRow } = await seedOutstanding(ids);
+
+    expect(caseRow.state).toBe('OPEN');
+    expect(caseRow.version).toBe(0);
+    expect(caseRow).not.toHaveProperty('balanceKobo');
+    expect(caseRow).not.toHaveProperty('paidKobo');
+
+    const queueBefore = await collectionsRepo.listQueue(testDb(), ctx);
+    expect(queueBefore).toHaveLength(1);
+    expect(queueBefore[0]).toMatchObject({ id: caseRow.id, invoiceId, outstandingKobo: 100_000 });
+
+    const payment = await paymentsRepo.record(testDb(), ctx, {
+      method: 'BANK_TRANSFER',
+      amountKobo: kobo(40_000),
+      reference: `M11-${randomUUID()}`,
+    });
+    await allocationsRepo.allocate(testDb(), ctx, {
+      paymentId: payment.id,
+      invoiceId,
+      amountKobo: kobo(40_000),
+    });
+
+    const queueAfter = await collectionsRepo.listQueue(testDb(), ctx);
+    expect(queueAfter[0]?.outstandingKobo).toBe(60_000);
+    const detail = await collectionsRepo.getCaseDetail(testDb(), ctx, caseRow.id);
+    expect(detail.obligations[0]?.outstandingKobo).toBe(60_000);
+    expect(detail.payments[0]?.allocationAmountKobo).toBe(40_000);
+  });
+
+  it('enforces the explicit lifecycle, optimistic versions, append-only history, and audit rows', async () => {
+    enableSavepointTransactionsForTest();
+    const ids = await withSystemContext(null, null, async () => seedTwoOrgs(testSql()));
+    const { ctx, caseRow } = await seedOutstanding(ids);
+
+    const inProgress = await collectionsRepo.transitionCase(testDb(), ctx, caseRow.id, {
+      toState: 'IN_PROGRESS',
+      note: 'Bursary has started review.',
+      expectedVersion: 0,
+      requestId: 'm11-t1',
+    });
+    expect(inProgress.state).toBe('IN_PROGRESS');
+    expect(inProgress.version).toBe(1);
+
+    await expect(
+      collectionsRepo.transitionCase(testDb(), ctx, caseRow.id, {
+        toState: 'CLOSED',
+        note: 'Invalid close attempt.',
+        expectedVersion: 1,
+        requestId: 'm11-invalid',
+      }),
+    ).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+
+    const resolved = await collectionsRepo.transitionCase(testDb(), ctx, caseRow.id, {
+      toState: 'RESOLVED',
+      note: 'Payment arrangement recorded.',
+      expectedVersion: 1,
+      requestId: 'm11-t2',
+    });
+    expect(resolved.resolvedBy).toBe(ids.aliceId);
+    const closed = await collectionsRepo.transitionCase(testDb(), ctx, caseRow.id, {
+      toState: 'CLOSED',
+      note: 'Obligation follow-up completed.',
+      expectedVersion: 2,
+      requestId: 'm11-t3',
+    });
+    expect(closed.state).toBe('CLOSED');
+
+    await expect(
+      collectionsRepo.addCaseEvent(testDb(), ctx, caseRow.id, {
+        eventType: 'NOTE',
+        note: 'Should be rejected after closure.',
+        expectedVersion: 3,
+      }),
+    ).rejects.toMatchObject({ code: 'CONFLICT' });
+
+    const eventRows = await testDb()
+      .select()
+      .from(collectionsCaseEvents)
+      .where(eq(collectionsCaseEvents.caseId, caseRow.id));
+    expect(eventRows.map((row) => row.eventType)).toEqual(
+      expect.arrayContaining(['CREATED', 'STATE_CHANGE', 'RESOLVED', 'CLOSED']),
+    );
+    const deleteError = await expectPgFailure(() =>
+      testDb().delete(collectionsCaseEvents).where(eq(collectionsCaseEvents.id, eventRows[0]!.id)),
+    );
+    const deleteCause = deleteError as { code?: string; cause?: { code?: string } };
+    expect(deleteCause.code ?? deleteCause.cause?.code).toMatch(/42501|insufficient_privilege/);
+  });
+
+  it('does not expose or accept another tenant case, even with a valid foreign UUID', async () => {
+    enableSavepointTransactionsForTest();
+    const ids = await withSystemContext(null, null, async () => seedTwoOrgs(testSql()));
+    const { caseRow } = await seedOutstanding(ids);
+
+    await testSql()`SELECT set_tenant_context(${ids.orgBId}::uuid, ${ids.bobId}::uuid)`;
+    const bobCtx: TenantCtx = { organizationId: ids.orgBId, userId: ids.bobId };
+    await expect(collectionsRepo.getCaseDetail(testDb(), bobCtx, caseRow.id)).rejects.toMatchObject(
+      { code: 'NOT_FOUND' },
+    );
+    await expect(
+      collectionsRepo.createCase(testDb(), bobCtx, {
+        studentId: ids.studentAId,
+        priority: 'NORMAL',
+        reason: 'Forged cross-tenant create',
+      }),
+    ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+
+    await testSql()`SELECT set_tenant_context(${ids.orgId}::uuid, ${ids.aliceId}::uuid)`;
+    const rows = await testDb()
+      .select()
+      .from(collectionsCaseEvents)
+      .where(eq(collectionsCaseEvents.caseId, caseRow.id));
+    expect(rows.length).toBeGreaterThan(0);
+  });
+});
+
+async function withRepoConnection<T>(
+  orgId: UUID,
+  userId: UUID,
+  fn: (db: Database) => Promise<T>,
+): Promise<T> {
+  const sql = postgres(runtimeUrl, { max: 1 });
+  try {
+    await sql`SELECT set_tenant_context(${orgId}::uuid, ${userId}::uuid)`;
+    return await fn(drizzle(sql) as unknown as Database);
+  } finally {
+    await sql`SELECT set_config('app.organization_id', '', false), set_config('app.user_id', '', false), set_config('app.is_platform_admin', '0', false)`.catch(
+      () => {},
+    );
+    await sql.end({ timeout: 5 });
+  }
+}
+
+describe('M11 case concurrency', () => {
+  let fixtures: ConcurrencyFixtures | undefined;
+
+  afterEach(async () => {
+    if (fixtures) await fixtures.teardown();
+  });
+
+  it('serializes two stale transitions: exactly one request wins', async () => {
+    fixtures = await setupConcurrencyFixtures();
+    const ctx: TenantCtx = { organizationId: fixtures.orgId, userId: fixtures.userId };
+    const created = await withRepoConnection(fixtures.orgId, fixtures.userId, async (db) => {
+      const invoice = await invoicesRepo.createDraft(db, ctx, {
+        studentId: fixtures!.studentId,
+        termId: fixtures!.termId,
+        sessionId: fixtures!.sessionId,
+      });
+      await invoiceLinesRepo.addLines(db, ctx, invoice.id, [
+        { description: 'Race', quantity: 1, unitRateKobo: kobo(20_000), amountKobo: kobo(20_000) },
+      ]);
+      const issued = await invoicesRepo.issue(db, ctx, invoice.id);
+      return collectionsRepo.createCase(db, ctx, {
+        studentId: fixtures!.studentId,
+        invoiceId: issued.id,
+        priority: 'NORMAL',
+        reason: 'Race test',
+      });
+    });
+
+    const outcomes = await Promise.all(
+      [
+        withRepoConnection(fixtures.orgId, fixtures.userId, (db) =>
+          collectionsRepo.transitionCase(db, ctx, created.id, {
+            toState: 'IN_PROGRESS',
+            note: 'Worker one',
+            expectedVersion: 0,
+          }),
+        ),
+        withRepoConnection(fixtures.orgId, fixtures.userId, (db) =>
+          collectionsRepo.transitionCase(db, ctx, created.id, {
+            toState: 'IN_PROGRESS',
+            note: 'Worker two',
+            expectedVersion: 0,
+          }),
+        ),
+      ].map(async (promise) => {
+        try {
+          await promise;
+          return 'won';
+        } catch (error) {
+          return (error as { code?: string }).code ?? 'failed';
+        }
+      }),
+    );
+
+    expect(outcomes.filter((value) => value === 'won')).toHaveLength(1);
+    expect(outcomes.filter((value) => value === 'CONFLICT')).toHaveLength(1);
+  });
+
+  it('serializes reassignment and closure races with the same optimistic version guard', async () => {
+    fixtures = await setupConcurrencyFixtures();
+    const ctx: TenantCtx = { organizationId: fixtures.orgId, userId: fixtures.userId };
+    const created = await withRepoConnection(fixtures.orgId, fixtures.userId, async (db) => {
+      const invoice = await invoicesRepo.createDraft(db, ctx, {
+        studentId: fixtures!.studentId,
+        termId: fixtures!.termId,
+        sessionId: fixtures!.sessionId,
+      });
+      await invoiceLinesRepo.addLines(db, ctx, invoice.id, [
+        {
+          description: 'Assignment race',
+          quantity: 1,
+          unitRateKobo: kobo(30_000),
+          amountKobo: kobo(30_000),
+        },
+      ]);
+      const issued = await invoicesRepo.issue(db, ctx, invoice.id);
+      return collectionsRepo.createCase(db, ctx, {
+        studentId: fixtures!.studentId,
+        invoiceId: issued.id,
+        priority: 'HIGH',
+        reason: 'Assignment and closure race',
+      });
+    });
+
+    const assignmentOutcomes = await Promise.all(
+      [1, 2].map(() =>
+        withRepoConnection(fixtures!.orgId, fixtures!.userId, (db) =>
+          collectionsRepo.assignCase(db, ctx, created.id, {
+            assigneeId: fixtures!.userId,
+            expectedVersion: 0,
+          }),
+        )
+          .then(() => 'won')
+          .catch((error) => (error as { code?: string }).code ?? 'failed'),
+      ),
+    );
+    expect(assignmentOutcomes.filter((value) => value === 'won')).toHaveLength(1);
+    expect(assignmentOutcomes.filter((value) => value === 'CONFLICT')).toHaveLength(1);
+
+    await withRepoConnection(fixtures.orgId, fixtures.userId, (db) =>
+      collectionsRepo.transitionCase(db, ctx, created.id, {
+        toState: 'RESOLVED',
+        note: 'Resolve before close race.',
+        expectedVersion: 1,
+      }),
+    );
+
+    const closeOutcomes = await Promise.all(
+      [1, 2].map(() =>
+        withRepoConnection(fixtures!.orgId, fixtures!.userId, (db) =>
+          collectionsRepo.transitionCase(db, ctx, created.id, {
+            toState: 'CLOSED',
+            note: 'Concurrent close worker.',
+            expectedVersion: 2,
+          }),
+        )
+          .then(() => 'won')
+          .catch((error) => (error as { code?: string }).code ?? 'failed'),
+      ),
+    );
+    expect(closeOutcomes.filter((value) => value === 'won')).toHaveLength(1);
+    expect(closeOutcomes.filter((value) => value === 'CONFLICT')).toHaveLength(1);
+  });
+});
