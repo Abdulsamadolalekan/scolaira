@@ -245,8 +245,9 @@ The implementation commit contains the following M11 surface:
 - this closeout report
 
 No M9 or M10 implementation file or migration was changed. M11 is additive on
-top of frozen M10 and its implementation commit has frozen M10 as its exact
-parent.
+top of frozen M10. The M11 implementation series begins at
+`4f1d2a4c0c24ebd39b41406a59af017019f0ab72`, whose exact parent is the frozen M10
+commit; the final student-episode correction is `ba318386f62dd65c8fdb7da03b0c594a3420e220`.
 
 ## 10. Limitations and staging implications
 
