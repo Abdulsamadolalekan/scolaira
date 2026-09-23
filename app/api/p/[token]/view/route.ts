@@ -1,14 +1,6 @@
 /**
  * GET /api/p/[token]/view — public (no auth) link resolution.
  *
- * Returns enough information to render the payment-link landing page:
- *   - link status/amount/note/expiry
- *   - related invoice (number + student first name + last initial + balances)
- *   - related student (if link is student-scoped rather than invoice-scoped)
- *   - organization name/address/phone
- *
- * The response is PII-minimized by design (first name + last initial only).
- *
  * R1 (C-3) — the bearer token is the ONLY thing that establishes tenant scope:
  *
  *   1. the token is resolved with NO tenant context (the resolver is a
@@ -20,6 +12,15 @@
  *   3. the RLS policies that expose invoice/student/organization rows to
  *      public traffic require that proof, so a forged `app.public_context`
  *      marker or a caller-chosen `app.organization_id` authorizes nothing.
+ *
+ * R3 (H-3) — the payload says only what a payer needs to make one payment:
+ *   - the amounts DUE (never the invoice's total or already-paid history),
+ *   - the invoice number and the student's first name + last initial,
+ *   - the school's name and a contact phone.
+ * It deliberately no longer echoes the token, the student's internal
+ * identifier, the student's full surname, the school's address, or the
+ * invoice's total/paid amounts: holding the URL is not a licence to read a
+ * family's financial history (measured before R3: all of those were returned).
  *
  * The scope re-resolves the token, so a link revoked or expired between (1)
  * and (2) fails closed.
@@ -37,60 +38,59 @@ export const runtime = 'nodejs';
 export async function GET(_req: Request, { params }: { params: Promise<{ token: string }> }) {
   const { token } = await params;
 
-  // (1) Bearer resolution with no tenant context.
-  const link = await withScopedDb({ kind: 'none' }, async (_db, sql) => {
+  // (1) Bearer resolution with no tenant context, plus the single authoritative
+  //     "what is due" rule (the same function the submission entry point uses).
+  const resolved = await withScopedDb({ kind: 'none' }, async (_db, sql) => {
     const rows = await sql<any[]>`
-      select organization_id, id, token, status, invoice_id, student_id,
-             amount_kobo, note, expires_at
+      select organization_id, id, invoice_id, student_id, note, expires_at
         from auth_resolve_public_link(${token})`;
-    return rows[0] ?? null;
+    if (!rows[0]) return null;
+    const due = (await sql<any[]>`select auth_public_amount_due(${token}) as due_kobo`) as any[];
+    return { ...rows[0], due_kobo: due[0]?.due_kobo ?? null };
   });
 
-  if (!link) {
+  if (!resolved) {
     return missResponse(token);
   }
+  const link = resolved;
 
   try {
     // (2) Public context derived from the bearer token itself.
     const payload = await withPublicScope(token, async (_db, sql) => {
       const [orgRows, invRows, stuRows] = await Promise.all([
-        sql<{ name: string; address: string | null; phone: string | null }[]>`
-          select name, address, phone from organizations where id = ${link.organization_id}::uuid limit 1`,
+        sql<{ name: string; phone: string | null }[]>`
+          select name, phone from organizations where id = ${link.organization_id}::uuid limit 1`,
         link.invoice_id
           ? sql<any[]>`
-              select i.invoice_number, i.total_kobo, i.paid_kobo, s.first_name, s.last_name
+              select i.invoice_number, s.first_name, s.last_name
                 from invoices i left join students s on s.id = i.student_id
                where i.id = ${link.invoice_id}::uuid limit 1`
           : Promise.resolve([] as any[]),
         link.student_id
           ? sql<any[]>`
-              select student_id, first_name, last_name from students
+              select first_name, last_name from students
                where id = ${link.student_id}::uuid and status = 'ACTIVE' limit 1`
           : Promise.resolve([] as any[]),
       ]);
-      const org = orgRows[0] ?? { name: 'SCOLAIRA', address: null, phone: null };
+      const org = orgRows[0] ?? { name: 'SCOLAIRA', phone: null };
       const inv = invRows[0] ?? null;
       const stu = stuRows[0] ?? null;
+      const initial = (name: string | null | undefined) =>
+        name && name.length > 0 ? name.slice(0, 1).toUpperCase() : '';
       return {
-        token: link.token,
-        status: link.status,
-        amountKobo: link.amount_kobo ? Number(link.amount_kobo) : null,
+        amountDueKobo: link.due_kobo === null ? null : Number(link.due_kobo),
         expiresAt: link.expires_at,
         note: link.note,
-        organization: { name: org.name, address: org.address, phone: org.phone },
+        organization: { name: org.name, phone: org.phone },
         invoice: inv
           ? {
               invoiceNumber: inv.invoice_number,
               studentFirstName: inv.first_name,
-              studentLastName: inv.last_name,
-              studentInitial: inv.last_name ? inv.last_name.slice(0, 1) : '',
-              totalKobo: Number(inv.total_kobo),
-              paidKobo: Number(inv.paid_kobo),
-              remainingKobo: Math.max(0, Number(inv.total_kobo) - Number(inv.paid_kobo)),
+              studentInitial: initial(inv.last_name),
             }
           : null,
         student: stu
-          ? { studentId: stu.student_id, firstName: stu.first_name, lastName: stu.last_name }
+          ? { firstName: stu.first_name, initial: initial(stu.last_name) }
           : null,
       };
     });
@@ -107,7 +107,8 @@ export async function GET(_req: Request, { params }: { params: Promise<{ token: 
 
 /**
  * 404 for missing/revoked and 410 for expired, matching the historical
- * behaviour: revoked deliberately reports 404 to minimise disclosure.
+ * behaviour: revoked deliberately reports 404 to minimise disclosure. No
+ * miss response carries any tenant, invoice or amount information.
  */
 async function missResponse(token: string): Promise<NextResponse> {
   const status = await probePublicLinkStatus(token);

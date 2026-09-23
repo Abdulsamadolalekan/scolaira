@@ -452,8 +452,14 @@ describe('re-audit D — write authority is the minimum required', () => {
     }
   });
 
-  it('the public audit trail may only be written for the link\'s own organization', async () => {
-    // The public submission legitimately writes one audit row for ITS tenant…
+  it('the public audit trail cannot be written from public context at all (R3: owner-only)', async () => {
+    // R3 (H-3) — STRENGTHENED. Before R3, public context could write an audit
+    // row for its own tenant directly (the 0012/0040 policies applied to every
+    // role), which is how a bearer could produce an audit trail of its own
+    // choosing. 0046 narrowed `audit_events_public_insert` to the owner role,
+    // so public context held by the runtime role has NO audit write path at
+    // all: the entry point writes the row as the owner, with the context it
+    // derived from the bearer, and nothing else can.
     const own = await withPublicScope(A.link, async (_db, sql) =>
       probe(
         sql,
@@ -462,12 +468,11 @@ describe('re-audit D — write authority is the minimum required', () => {
         [A.org],
       ),
     );
-    expect(own.ok, own.message).toBe(true);
-    expect(own.rows!.length).toBe(1);
+    expect(own.ok, 'public context must not write the audit trail directly').toBe(false);
 
-    // …and a row that NAMES another tenant is either refused outright or
-    // attributed to the link's own tenant: the tenant of a row is decided by
-    // the authorization context, never by the value the caller supplied.
+    // …and a row that NAMES another tenant is refused as well. The tenant of a
+    // row is decided by the authorization context and never by the value the
+    // caller supplied; with R3 there is no caller-supplied audit write left.
     const before = await withScopedDb(
       { kind: 'tenant', organizationId: B.org, userId: B.user },
       async (_db, sql) => probe(sql, `SELECT count(*)::int AS n FROM audit_events`),
@@ -588,15 +593,22 @@ describe('re-audit E — authority does not outlive the request', () => {
     const submitted = await withPublicScope(A.link, async (_db, sql) =>
       probe(
         sql,
-        `SELECT * FROM auth_public_submit_payment($1, 250000::bigint, $2, 'Re-audit payer')`,
-        [A.link, `RA-${randomUUID().slice(0, 8)}`],
+        // The claim is the authoritative amount due (R3/H-3 binding): a
+        // submission whose amount disagrees with the database's decision is
+        // refused, so a re-audit of context restoration must submit the value
+        // the database itself derives.
+        `SELECT * FROM auth_public_submit_payment($1, $2, auth_public_amount_due($1), $3, 'Re-audit payer')`,
+        [A.link, `ra-key-${randomUUID().slice(0, 8)}`, `RA-${randomUUID().slice(0, 8)}`],
       ),
     );
     expect(submitted.ok, submitted.message).toBe(true);
 
     // A deliberately invalid call (negative amount) must fail…
     const bad = await withPublicScope(A.link, async (_db, sql) =>
-      probe(sql, `SELECT * FROM auth_public_submit_payment($1, -5::bigint, 'R', 'P')`, [A.link]),
+      probe(sql, `SELECT * FROM auth_public_submit_payment($1, $2, -5::bigint, 'R', 'P')`, [
+        A.link,
+        `ra-bad-${randomUUID().slice(0, 8)}`,
+      ]),
     );
     expect(bad.ok).toBe(false);
 
@@ -695,6 +707,9 @@ describe('re-audit F — the runtime role cannot widen its own authority', () =>
       .filter((r) => r.app_can)
       .map((r) => r.proname)
       .sort();
-    expect(callable).toEqual(['auth_public_submit_payment']);
+    // R3 (H-3) added exactly one more app-callable public function: a
+    // read-only resolver for the authoritative amount due. The write path is
+    // still a single credential-gated entry point.
+    expect(callable).toEqual(['auth_public_amount_due', 'auth_public_submit_payment']);
   });
 });

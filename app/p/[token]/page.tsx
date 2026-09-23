@@ -14,10 +14,10 @@ import SubmitForm from './submit-form';
 export const runtime = 'nodejs';
 
 type LinkView = {
-  token: string; status: string; amountKobo: number|null; expiresAt: string|null; note: string|null;
-  invoice: { invoiceNumber: string; studentFirstName: string; studentLastName: string; studentInitial: string; totalKobo: number; paidKobo: number; remainingKobo: number } | null;
-  student: { studentId: string; firstName: string; lastName: string } | null;
-  organization: { name: string; address: string|null; phone: string|null };
+  amountDueKobo: number|null; expiresAt: string|null; note: string|null;
+  invoice: { invoiceNumber: string; studentFirstName: string; studentInitial: string } | null;
+  student: { firstName: string; initial: string } | null;
+  organization: { name: string; phone: string|null };
 };
 
 async function loadLink(token: string): Promise<LinkView | null> {
@@ -44,9 +44,8 @@ export default async function PublicPaymentPage({ params }: { params: Promise<{ 
   if (!link) notFound();
   const studentName = link.invoice?.studentFirstName
     ? `${link.invoice.studentFirstName} ${link.invoice.studentInitial || ''}.`
-    : (link.student ? `${link.student.firstName} ${link.student.lastName.slice(0,1)}.` : 'a student');
-  const due = link.invoice ? link.invoice.remainingKobo : (link.amountKobo ?? 0);
-  const amount = due;
+    : (link.student ? `${link.student.firstName} ${link.student.initial || ''}.` : 'a student');
+  const amount = link.amountDueKobo ?? 0;
   return (
     <main className="min-h-screen" style={{ background: 'var(--color-ivory, #faf7f1)' }}>
       <div className="mx-auto max-w-xl px-4 py-10">
@@ -71,7 +70,7 @@ export default async function PublicPaymentPage({ params }: { params: Promise<{ 
             )}
             {!link.invoice && link.student && (
               <div className="mt-2 text-sm" style={{ color: 'var(--color-forest-deep)' }}>
-                For {link.student.firstName} {link.student.lastName} ({link.student.studentId})
+                For {link.student.firstName} {link.student.initial}.
               </div>
             )}
             {link.note && <div className="mt-2 text-xs" style={{ color: 'var(--color-text-secondary)' }}>{link.note}</div>}

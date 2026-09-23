@@ -44,7 +44,8 @@ export const PATCH = withAuthorizedRoute(
       updated = await linkRepo.revoke(db, ctx, rows[0].id as any);
       await auditRepo.record(db, ctx, {
         action: 'payment_link.revoke', entityType: 'payment_link', entityId: updated.id,
-        after: { status: updated.status, token },
+        // R3 (H-3): identifier, not bearer secret (see payment-links/route.ts).
+        after: { linkId: updated.id, status: updated.status },
         metadata: { requestId, reason: data?.reason ?? null },
       });
     }

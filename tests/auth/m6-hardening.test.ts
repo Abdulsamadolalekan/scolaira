@@ -459,9 +459,19 @@ describe('M6 — endpoint hardening', () => {
       expect(v.status).toBe(200);
       expect(v.data.organization.name).toBeTruthy();
       expect(v.data.invoice.studentFirstName).toBeTruthy();
-      expect(v.data.invoice.studentLastName.length).toBeGreaterThan(0);
+      expect(v.data.invoice.studentInitial.length).toBeGreaterThan(0);
       expect(v.data.invoice.invoiceNumber).toBe(inv.invoiceNumber);
-      expect(v.data.invoice.remainingKobo).toBe(4500000);
+      expect(v.data.amountDueKobo).toBe(4500000);
+      // R3 (H-3) minimisation, asserted rather than assumed: holding the URL
+      // must not disclose the bearer token, the student's full surname, the
+      // student's internal identifier, or the family's payment history.
+      expect(v.data.token).toBeUndefined();
+      expect(v.data.status).toBeUndefined();
+      expect(v.data.invoice.studentLastName).toBeUndefined();
+      expect(v.data.invoice.totalKobo).toBeUndefined();
+      expect(v.data.invoice.paidKobo).toBeUndefined();
+      expect(v.data.invoice.remainingKobo).toBeUndefined();
+      expect(v.data.organization.address).toBeUndefined();
     });
 
     it('invalid / revoked / expired tokens return 404/410 (no information disclosure)', async () => {
@@ -674,11 +684,20 @@ async function callPublicView(token: string) {
   let data: any = null; try { data = text ? JSON.parse(text) : null; } catch { data = text; }
   return { status: res.status, data };
 }
-async function callPublicSubmit(token: string, _jar: InstanceType<typeof CookieJar>, body: any) {
+async function callPublicSubmit(
+  token: string,
+  _jar: InstanceType<typeof CookieJar>,
+  body: any,
+  key?: string,
+) {
   const mod: any = await import(/* @vite-ignore */ `@/app/api/p/[token]/submit/route`);
   const handler: Function = (mod?.default ?? mod).POST;
+  // R3 (H-3): every public submission carries a submission key; retrying the
+  // same key returns the original outcome instead of a second PENDING row.
   const req = new Request(`http://test.local/api/p/${token}/submit`, {
-    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'idempotency-key': key ?? `m6-${randomUUID()}` },
+    body: JSON.stringify(body),
   });
   await resetGuc();
   let res: Response;

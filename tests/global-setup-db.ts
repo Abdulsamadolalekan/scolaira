@@ -45,6 +45,9 @@ export default async function globalSetup(_ctx: GlobalSetupContext) {
     await sql`GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO scolaira_app`;
     await sql`GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO scolaira_app`;
     await sql`REVOKE ALL ON app_meta FROM scolaira_app`;
+    // R3: the public submission replay cache is reachable only through the
+    // SECURITY DEFINER entry point.
+    await sql`REVOKE ALL ON public_submission_keys FROM scolaira_app`;
     // Mirror the production migration runner's post-grant hardening. Tests
     // must exercise the same append-only privilege boundary as runtime.
     await sql`REVOKE UPDATE, DELETE ON audit_events, reversals FROM scolaira_app`;

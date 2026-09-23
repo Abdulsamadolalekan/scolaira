@@ -20,13 +20,21 @@ export default function SubmitForm({ token }: { token: string }) {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [confirmed, setConfirmed] = useState<string | null>(null);
+  // One submission key per rendered form. Retrying the same submission (a lost
+  // response, a flaky network, a double click) is then a REPLAY of the original
+  // outcome instead of a second PENDING row for the bursar to clean up.
+  const [idempotencyKey] = useState(() => {
+    if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) return crypto.randomUUID();
+    return `k-${Date.now()}-${Math.random().toString(36).slice(2, 12)}`;
+  });
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true); setError(null);
     try {
       const res = await fetch(`/api/p/${token}/submit`, {
-        method: 'POST', headers: { 'content-type': 'application/json' },
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'idempotency-key': idempotencyKey },
         body: JSON.stringify({
           payerName: name.trim(),
           payerPhone: phone.trim() || undefined,

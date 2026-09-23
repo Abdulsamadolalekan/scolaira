@@ -316,6 +316,13 @@
       "when": 1790000029005,
       "tag": "0045_r2_exceptional_path_integrity",
       "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "7",
+      "when": 1790000029006,
+      "tag": "0046_r3_public_surface_hardening",
+      "breakpoints": true
     }
   ]
 }

@@ -176,6 +176,11 @@ export const payments = pgTable('payments', {
   paidAt: timestamp('paid_at', { withTimezone: true, mode: 'date' }),
   recordedBy: uuid('recorded_by').references(() => users.id, { onDelete: 'set null' }),
   notes: text('notes'),
+  // R3 (H-3) — provenance for submissions that arrived through a public payment
+  // link. Nullable and additive: existing rows keep NULL and no financial
+  // meaning changes. The composite FK (organization_id, link_id) is added in
+  // migration 0046.
+  linkId: uuid('link_id'),
   ...timestamps(),
 }, (t) => [
   uniqueIndex('payments_org_number_idx').on(t.organizationId, t.paymentNumber),

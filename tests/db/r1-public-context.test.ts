@@ -356,17 +356,27 @@ describe('R1 C-3 — a valid bearer token authorises exactly its own link', () =
   it('the sanctioned entry point records the PENDING submission and returns its identifiers', async () => {
     const outcome = await withPublicScope(A.link, async (_db, sql) => {
       const before = (await sql.unsafe(`select count(*)::int as n from payments`)) as any[];
+      // R3 (H-3): the amount recorded is the database's authoritative amount
+      // due for this link (`auth_public_amount_due`), and the caller's claim
+      // must agree with it. The claim here IS that derived value, which is the
+      // normal production case (the form sends no amount at all).
       const rows = (await sql.unsafe(
         `select payment_id, payment_number, amount_kobo, status
-           from auth_public_submit_payment($1, $2::bigint, $3, $4, $5, $6)`,
-        [A.link, 500_000, `R1REF-${randomUUID().slice(0, 8)}`, 'Parent Payer', null, null],
+           from auth_public_submit_payment($1, $2, auth_public_amount_due($1), $3, 'Parent Payer', $4, $5)`,
+        [
+          A.link,
+          `r1-ctx-${randomUUID().slice(0, 8)}`,
+          `R1REF-${randomUUID().slice(0, 8)}`,
+          null,
+          null,
+        ],
       )) as any[];
       const after = (await sql.unsafe(`select count(*)::int as n from payments`)) as any[];
       return { before: Number(before[0].n), row: rows[0], after: Number(after[0].n) };
     });
 
     expect(outcome.row?.payment_number).toMatch(/^PMT-\d{4}-\d{6}$/);
-    expect(Number(outcome.row?.amount_kobo)).toBe(500_000);
+    expect(Number(outcome.row?.amount_kobo)).toBe(1_000_000);
     expect(outcome.row?.status).toBe('PENDING');
     // Public context could not read the ledger before or after the write —
     // that is the point of the entry point returning the identifiers.
@@ -388,7 +398,7 @@ describe('R1 C-3 — a valid bearer token authorises exactly its own link', () =
       },
     );
     expect(stored?.status).toBe('PENDING');
-    expect(Number(stored?.amount_kobo)).toBe(500_000);
+    expect(Number(stored?.amount_kobo)).toBe(1_000_000);
     expect(Number(stored?.unallocated_kobo)).toBe(0);
     expect(stored?.organization_id).toBe(A.org);
 
@@ -428,7 +438,13 @@ describe('R1 C-3 — a valid bearer token authorises exactly its own link', () =
       ),
       directSelect: await attempt('select', (s) => s.unsafe(`SELECT count(*)::int AS n FROM payments`)),
     }));
-    expect(outcome.plainInsert.ok).toBe(true);
+    // R3 (H-3) — STRENGTHENED. Before R3 this bare INSERT was authorized
+    // (0012's proof-gated `payments_public_insert`/`payments_public_insert2`
+    // policies applied to every role), which meant a public bearer could write
+    // to the ledger without an amount binding, without bounds, without an audit
+    // row and without idempotency. 0046 narrowed those policies to the owner
+    // role, so public context — the runtime role — has no write path at all.
+    expect(outcome.plainInsert.ok).toBe(false);
     expect(outcome.returningInsert.ok).toBe(false);
     const read = outcome.directSelect as { ok: true; value: Array<{ n: number }> };
     expect(Number(read.value[0]!.n)).toBe(0);
@@ -440,8 +456,8 @@ describe('R1 C-3 — a valid bearer token authorises exactly its own link', () =
     const before = await countInOrg(B.org);
     const created = await withPublicScope(A.link, async (_db, sql) => {
       const rows = (await sql.unsafe(
-        `select payment_id from auth_public_submit_payment($1, $2::bigint, $3, $4)`,
-        [A.link, 250_000, `R1-ORG-${randomUUID().slice(0, 8)}`, 'Parent Payer'],
+        `select payment_id from auth_public_submit_payment($1, $2, auth_public_amount_due($1), $3, 'Parent Payer')`,
+        [A.link, `r1-org-${randomUUID().slice(0, 8)}`, `R1-ORG-${randomUUID().slice(0, 8)}`],
       )) as any[];
       return rows[0]?.payment_id as string;
     });
@@ -465,7 +481,10 @@ describe('R1 C-3 — a valid bearer token authorises exactly its own link', () =
     for (const token of [A.revokedLink, A.expiredLink, 'no-such-token-000', '']) {
       const outcome = await neutral(async () =>
         attempt('entry', (s) =>
-          s.unsafe(`select * from auth_public_submit_payment($1, 100, 'R', 'P')`, [token]),
+          s.unsafe(`select * from auth_public_submit_payment($1, $2, 100, 'R', 'P')`, [
+            token,
+            `r1-unusable-${randomUUID().slice(0, 8)}`,
+          ]),
         ),
       );
       expect(outcome.ok, `entry point accepted a bearer it must refuse: ${token}`).toBe(false);

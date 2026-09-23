@@ -52,6 +52,10 @@ async function run() {
     await sql`GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO scolaira_app`;
     await sql`REVOKE CREATE ON SCHEMA public FROM scolaira_app`;
     await sql`REVOKE ALL ON app_meta FROM scolaira_app`;
+    // R3: the public submission replay cache is written and read only by the
+    // SECURITY DEFINER entry point; the runtime role must not regain access
+    // to it from the broad bootstrap grant above.
+    await sql`REVOKE ALL ON public_submission_keys FROM scolaira_app`;
     // Re-apply append-only / column-level restrictions after the broad
     // bootstrap grant. The runtime role must not regain mutation privileges
     // merely because a migration was applied.

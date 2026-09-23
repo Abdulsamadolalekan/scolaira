@@ -90,7 +90,18 @@ export const POST = withAuthorizedRoute(
     });
     await auditRepo.record(db, ctx, {
       action: 'payment_link.create', entityType: 'payment_link', entityId: link.id,
-      after: { token: link.token, invoiceId: link.invoiceId, studentId: link.studentId },
+      // R3 (H-3): the audit trail records the link's IDENTIFIER, never the
+      // bearer secret. The token is a credential: the moment it is written to an
+      // append-only row, every backup, replica, log export and support dump of
+      // that row is a live link. The link id answers "which link was created"
+      // without being usable by anyone who reads it.
+      after: {
+        linkId: link.id,
+        invoiceId: link.invoiceId,
+        studentId: link.studentId,
+        amountKobo: link.amountKobo === null ? null : Number(link.amountKobo),
+        expiresAt: link.expiresAt,
+      },
       metadata: { requestId },
     });
     return NextResponse.json({ link: { id: link.id, token: link.token, url: `/p/${link.token}` } }, { status: 201 });
