@@ -268,3 +268,173 @@ R3 is **not started** and must not be started on this repository state. Please c
 - **(D) A different instruction.** Anything else the founder prefers.
 
 **No R3, H-4, H-5, H-6, or M12 work will be started until this is resolved.**
+
+---
+
+# ADDENDUM — Workspace provenance forensics & lineage search
+
+**Added:** 2026-09-23, follow-up to the founder's assertion that *this* workspace is the original SCOLAIRA
+engineering workspace that produced R1/R2.
+
+**Finding:** This workspace is **not** the original engineering workspace. It is a freshly provisioned
+sandbox created earlier today that **shallow-cloned** `Abdulsamadolalekan/scolaira` from GitHub. The R1/R2/M10/M11
+objects are **absent from the sandbox's entire filesystem and from the remote**, so there is **no local
+lineage to preserve and no ref that can be pushed**. Nothing was pushed, because there is nothing to push.
+
+---
+
+## 9. Proof this is not the original workspace (filesystem forensics)
+
+Sandbox base image vs. repository provisioning timelines:
+
+| Path                                   | Created (filesystem birth)  | Meaning                                     |
+| -------------------------------------- | --------------------------- | ------------------------------------------- |
+| `/`                                    | 2026-06-15 16:59:02 UTC     | sandbox base image                          |
+| `/usr`, `/etc`                         | 2026-06-15 16:59:03 UTC     | sandbox base image                          |
+| `/home/user/scolaira`                  | **2026-09-23 14:11:32 UTC** | repo dir created today                      |
+| `/home/user/scolaira/README.md`        | **2026-09-23 14:11:34 UTC** | clone checkout                              |
+| `/home/user/scolaira/.git/{HEAD,config,shallow}` | **2026-09-23 14:11:35 UTC** | clone metadata — **all born today** |
+| `/home/user/scolaira/node_modules`     | 2026-09-23 14:12:15 UTC     | this session's `npm ci`                     |
+| `/home/user/scolaira/.next`            | 2026-09-23 14:12:48 UTC     | this session's `npm run build`              |
+| `docs/recovery/RECOVERY_REPORT_*.md`   | 2026-09-23 14:14:07 UTC     | this session's report                       |
+
+Every git-related file in the repository has a **birth timestamp from today's session**, not from the
+`2026-09-15` milestone window in which M0/M1 (and, per the report, M10/M11/R1/R2) were produced. There is
+**no `.bash_history`**, no pre-existing build output, and no artifact in the sandbox predating today's
+provisioning other than the base image. A workspace that had produced R1/R2 would necessarily contain git
+objects, reflogs, and working files from that era; none exist.
+
+### Clone shape — depth-1 shallow graft
+
+```
+.git/shallow           2c5a50644da86f77ccd1ad9ce21a8b80bad7b21a
+.git/FETCH_HEAD        2c5a50644da86f77ccd1ad9ce21a8b80bad7b21a  branch 'main' of .../scolaira.git
+.git/config            [remote "origin"] url = https://github.com/Abdulsamadolalekan/scolaira.git
+                       fetch = +refs/heads/main:refs/remotes/origin/main
+```
+
+The `shallow` marker grafted at M1 is definitive: the repository was obtained by a **`--depth 1` clone of
+`main` only**, made today. A shallow clone by construction contains exactly one commit's closure, so the
+absence of M2–M11/R1/R2 is a consequence of *how this workspace was provisioned*, not of data loss —
+and critically, **it means this sandbox never held that work.**
+
+### Identity / account checks
+
+- Only one `.git` directory exists on the whole filesystem: `/home/user/scolaira/.git`.
+- Only one scolaira checkout exists: `/home/user/scolaira` (plus `docs/SCOLAIRA_SPEC.md` matching the name).
+- `/home/` contains only `user` (plus the base-image `node` user). `/code`, `/mnt`, `/srv`, `/media`, `/root`, `/var/tmp` contain no repositories.
+- No `.bundle`, `.patch`, or `.diff` files exist anywhere except this session's own
+  `/tmp/arena-workspace/coding.{patch,diff}` (19 KB), which were inspected: they contain **only** the diff
+  that created this report, and they reference the four SHAs **solely because this report quotes them**.
+
+---
+
+## 10. Exhaustive search for the four commits — results
+
+### 10.1 Local object database
+
+| Probe                                                        | Result                                                |
+| ------------------------------------------------------------ | ----------------------------------------------------- |
+| `git cat-file -t 5841f2e9…` (M10)                            | `fatal: could not get object info`                    |
+| `git cat-file -t cc0f6af3…` (M11)                            | `fatal: could not get object info`                    |
+| `git cat-file -t 0683702` (R1)                               | `fatal: Not a valid object name`                      |
+| `git cat-file -t 02525053…` (R2)                             | `fatal: could not get object info`                    |
+| `git log --all --oneline`                                    | 2 commits — M1 and this report's commit               |
+| `git rev-list --all --count`                                 | `2`                                                   |
+| `git reflog --all`                                           | clone + branch-create + report commit only; no R1/R2  |
+| `git fsck --lost-found --unreachable --dangling`             | **empty** — no unreachable or dangling objects        |
+| `git stash list` / `git worktree list`                       | empty / single worktree                               |
+| `.git/refs/tags`                                             | empty                                                 |
+| `.git/objects/pack/`                                         | 1 pack, 318 KB, 140 objects = one commit's closure    |
+| Filesystem-wide packfile/bundle sweep (`find / -xdev`)        | only the single scolaira pack; no stray objects anywhere |
+| Filesystem-wide content grep for all four SHA strings         | only this report + its derived `/tmp` patch artifacts |
+
+### 10.2 Remote (`Abdulsamadolalekan/scolaira`)
+
+| Probe                                                        | Result                                                |
+| ------------------------------------------------------------ | ----------------------------------------------------- |
+| `git ls-remote origin`                                        | `HEAD`, `refs/heads/main` (M1), `refs/heads/arena/01a0ce9b-scolaira` (this report) — **no other refs** |
+| `git ls-remote origin 'refs/pull/*'`                          | empty — no PR refs were ever created                  |
+| `git fetch origin <M10 SHA>`                                  | `remote error: upload-pack: not our ref`              |
+| `git fetch origin <M11 SHA>`                                  | `remote error: upload-pack: not our ref`              |
+| `git fetch origin <R2 SHA>`                                   | `remote error: upload-pack: not our ref`              |
+| `GET /repos/.../commits/<M10 SHA>`                            | `422 No commit found for SHA`                          |
+| `GET /repos/.../commits/<M11 SHA>`                            | `422 No commit found for SHA`                          |
+| `GET /repos/.../commits/<R2 SHA>`                             | `422 No commit found for SHA`                          |
+| `GET /repos/.../compare/main...<R2 SHA>`                      | `404 Not Found`                                        |
+| `GET /repos/.../commits?per_page=100`                         | `7` — the full M0/M1/docs history, nothing more        |
+| Branches API / Tags API                                       | `main` only / `[]`                                    |
+| Pull requests API (all states) / Issues / Forks               | `[]` / `[]` / `[]`                                    |
+| Actions runs (all) / Artifacts                                | 2 runs, both M0+M1 pushes on **2026-09-15**, both `failure`; **0 artifacts** |
+| Repo `pushed_at`                                              | `2026-09-15T21:48:12Z` before this session's report push |
+
+`upload-pack: not our ref` is the decisive signal: GitHub's server does not merely lack a *ref* to these
+objects — **the objects are not in the repository at all**, and its commit API confirms this per SHA. Since
+R1 (`0683702…`) is the **parent** of R2, and a child commit cannot exist in a git object database without
+its parent, R2's absence on the server **logically establishes R1's absence** even though only R1's 7-character
+short form was supplied (a prefix insufficient to probe directly).
+
+**Total pushes ever made to this remote: M0 and M1, on 2026-09-15.** Two CI runs, both that evening, both
+failing, and no CI activity in the seven days since. Nothing beyond M1 has ever reached GitHub, so the
+"reported complete and independently re-audited" R2 state was **never pushed to `Abdusamadolalekan/scolaira`**
+by any session.
+
+---
+
+## 11. What this means, and the only remaining recovery routes
+
+### 11.1 There is nothing to preserve from this workspace
+
+The instruction was to push the lineage to the connected GitHub repository as soon as the commits were
+found. They were not found, because **they were never in this sandbox**. Consequently:
+
+- **No branch, tag, or ref was pushed** — there is no local lineage to publish. (The only push made in this
+  session is `refs/heads/arena/01a0ce9b-scolaira` carrying this report, which is why the repo's `pushed_at`
+  moved to `2026-09-23T14:14:14Z`.)
+- **No reset, rebuild, rebase, delete, or overwrite was performed.** `main` remains at M1 and the working
+  tree is clean.
+- Creating a ref pointing at a fabricated or reconstructed commit would have been a **false attestation** of
+  lineage, so none was created.
+
+### 11.2 Why the work is not here — the architectural cause
+
+Arena sandboxes are **ephemeral and provisioned per session**. This session's sandbox was created today and
+cloned only `main` at depth 1; the previous chat's sandbox — which, if it committed R1/R2, held them in its
+own local `.git` — was torn down when that chat became unavailable. Git objects stored only in a destroyed
+sandbox are unrecoverable from a later sandbox, because **repository content does not transfer between
+Arena sessions except through the remote (GitHub) or an explicit artifact**. Since nothing beyond M1 was ever
+pushed (§10.2), no transfer channel was ever used.
+
+This also explains the discrepancy cleanly: the previous session evidently did substantial work — enough to
+report M10/M11 and two remediations as complete and audited — that **existed only inside that now-destroyed
+sandbox**, or was pushed to a *different* repository/remote that this session's token-scoped access cannot see
+(§1 of the main report: the GitHub token here is scoped to `Abdusamadolalekan/scolaira` alone and returns
+`403 Resource not accessible by integration` for account/org listing).
+
+### 11.3 Recovery routes, in order of likelihood
+
+1. **Ask Arena to restore or duplicate the previous chat's workspace snapshot.** If the prior sandbox's
+   filesystem snapshot still exists server-side, that is the only place the R1/R2 git objects could survive,
+   and restoring it is the only route that recovers the actual commits rather than reconstructions. This must
+   be raised with Arena support/the workspace owner — it cannot be done from inside this sandbox.
+2. **Check the founder's own machines and backups** for a clone that ever fetched that branch or that holds
+   the objects: `git branch -a --contains 02525053`, `git log --all --oneline`, `git tag -l`, and `git reflog`
+   in every local checkout; also any `.git` archive, zip, or VM/Time Machine backup taken during the
+   engineering window.
+3. **Search other remotes/accounts** for a repository that received those pushes — in particular a
+   `scolaira/scolaira` org repository (the name the project's own pre-code checklist, PC-01, recommended).
+   No such org exists today (`GET /orgs/scolaira` → 404), so if it ever existed it was renamed or deleted;
+   a **deleted GitHub repository cannot be recovered via the API** and would require GitHub Support to
+   restore within their retention window.
+4. **If none of the above yields the objects,** the work must be treated as lost and the project re-baselined
+   from M1 (main report, option B), with the previously reported M10/M11/R1/R2 results formally recorded as
+   unrecoverable. Rebuilding them would be a full re-implementation, not a recovery, and must be explicitly
+   authorized as such — it cannot be certified as equivalent to the audited originals.
+
+### 11.4 Integrity attestation for this addendum
+
+No commit, tag, ref, branch, or migration was created, moved, deleted, or rewritten. No history was altered.
+`main` is unchanged at `2c5a50644da86f77ccd1ad9ce21a8b80bad7b21a`. The only repository change in this
+session remains the addition of this report file, committed to `arena/01a0ce9b-scolaira`.
+
+**R3 remains not started. Awaiting the founder's decision on §8 / §11.3.**
