@@ -20,6 +20,8 @@ import * as invRepo from '@/lib/db/repo/invoices';
 import * as allocRepo from '@/lib/db/repo/payment-allocations';
 import * as auditRepo from '@/lib/db/repo/audit-events';
 import { RepoInvariantError } from '@/lib/db/repo/_context';
+import { begin as beginIdempotency, complete as completeIdempotency } from '@/lib/m9/idempotency';
+import { sqlState, pgMessage } from '@/lib/db/pg-error';
 import type { UUID } from '@/lib/db/repo/_context';
 import type { Kobo } from '@/lib/money';
 const asKobo = (n: number) => n as Kobo;
@@ -37,12 +39,24 @@ export const runtime = 'nodejs';
 
 export const POST = withAuthorizedRoute(
   { action: 'payment.allocate', method: 'POST', bodySchema: Schema },
-  async (_req, { db, ctx, requestId, body }, params) => {
+  async (req, { db, ctx, requestId, body }, params) => {
     const { id } = await (params as { params: Promise<{ id: string }> }).params;
     const paymentId = id as UUID;
     const data = Schema.parse(body);
 
     return db.transaction(async (tx) => {
+      // R2/H-7: allocation is a financial mutation and needs the same
+      // Idempotency-Key boundary as payment recording — a double-submitted
+      // allocation would otherwise be applied twice whenever the payment still
+      // has unallocated funds and the invoice still has outstanding balance.
+      const idem = await beginIdempotency(tx, ctx, req, {
+        scope: 'payment.allocate',
+        path: `/api/payments/${id}/allocate`,
+        payload: { id, ...data },
+        required: true,
+      });
+      if (idem.replay) return idem.replay;
+
       const payment = await payRepo.get(tx, ctx, paymentId);
       assertResourceInOrg(ctx, payment, 'Payment');
       if (payment!.status !== 'CONFIRMED') {
@@ -71,9 +85,22 @@ export const POST = withAuthorizedRoute(
             paymentId, invoiceId: a.invoiceId as UUID, amountKobo: asKobo(a.amountKobo), note: a.note,
           });
           out.push({ id: r.allocation.id, invoiceId: r.invoice.id, invoiceNumber: r.invoice.invoiceNumber, amountKobo: Number(r.allocation.amountKobo) });
-        } catch (e) {
+        } catch (e: any) {
           if (e instanceof RepoInvariantError) {
             throw new AuthzError(AuthzErrorCode.BAD_REQUEST, e.message, 400);
+          }
+          // R2/H-7: the allocation guards live in the database triggers
+          // (check_violation for "exceeds unallocated/outstanding", unique
+          // violation for a concurrent duplicate). Surface them as an
+          // operator-readable conflict instead of an internal error — the
+          // message already tells staff what to do.
+          const state = sqlState(e);
+          if (state === '23514' || state === '23505') {
+            throw new AuthzError(
+              AuthzErrorCode.CONFLICT,
+              pgMessage(e) ?? 'The allocation could not be applied.',
+              409,
+            );
           }
           throw e;
         }
@@ -86,7 +113,9 @@ export const POST = withAuthorizedRoute(
         metadata: { requestId, totalAllocated: total },
       });
 
-      return NextResponse.json({ payment: { id: after!.id, status: after!.status, unallocatedKobo: Number(after!.unallocatedKobo) }, allocations: out });
+      const response = { payment: { id: after!.id, status: after!.status, unallocatedKobo: Number(after!.unallocatedKobo) }, allocations: out };
+      await completeIdempotency(tx, ctx, idem.key, 200, response);
+      return NextResponse.json(response);
     });
   },
 );

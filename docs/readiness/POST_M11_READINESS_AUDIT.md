@@ -229,6 +229,32 @@ Individually the medium findings are ordinary scale-up debt. Collectively, the c
 - **Pilot requirement:** **Hard gate.**
 - **ADQ requirement:** Constraint diff + concurrency tests for reversal, receipt, and void.
 
+> **R2 status (closed 2026-09-23) — CLOSED, PROVEN, with one sub-claim corrected.**
+> Verification first disproved part of the finding: `payments_org_reference_unique_idx` has existed since
+> `0001_integrity.sql:126`, so "no unique constraint on payment references" was wrong. The real gaps were
+> narrower and were confirmed by measurement: the predicate omitted method `OTHER` (two `OTHER` payments
+> sharing one reference were created) and carried no status predicate, so a `FAILED` attempt permanently
+> blocked the legitimate retry the application permits — which then surfaced as a raw `23505` and a 500.
+> The reversal claim was confirmed exactly as written: two connections replaying the route's
+> SELECT-then-INSERT both passed the guard and both inserted, reducing a 1,000,000 kobo payment to
+> `paid_kobo = 0 / ISSUED` through two individually-legal half reversals.
+>
+> Remediation: migration `0045` (reversal reference uniqueness; a live-payment reference guard covering
+> every non-CASH method; a write-once `receipts.allocations_snapshot`, all with fail-closed pre-checks),
+> a mandatory `Idempotency-Key` on the five financial mutations, one transaction spanning
+> read → guard → mutate → audit for receipt issuance and invoice void, and a cause-chain SQLSTATE reader
+> after the re-audit proved that Drizzle's error wrapping hid every database-enforced conflict from the
+> route boundary (it answered 500 where it intended 409).
+>
+> Evidence: `docs/security/R2_EXCEPTIONAL_PATH_FINANCIAL_INTEGRITY_CLOSEOUT.md` §3 (measured pre-fix
+> probe), §4 (remediation), §5 (36 new tests), §6 (regression), §7 (financial non-interference);
+> `tests/db/r2-exceptional-path-integrity.test.ts` (20), `tests/db/r2-independent-reaudit.test.ts` (16,
+> which found and forced the fix of two further defects).
+>
+> Remaining and explicitly NOT closed here: the public payment-link surface (H-3) still has no rate limit
+> or submission idempotency, does not bind the payer-supplied amount to the link's fixed amount, and still
+> persists the bearer token in `payments.notes`/audit metadata — it is the recommended next milestone.
+
 ### H-8 — Authenticated shell identity, mobile behaviour, and the platform-support journey are incomplete
 - **Severity:** High · **Location:** `app/(app)/layout.tsx`; `components/ui/app-shell.tsx`
 - **Evidence class:** E1

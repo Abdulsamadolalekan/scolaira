@@ -28,6 +28,7 @@ import {
   withPublicScope,
   withScopedDb,
 } from '@/lib/db/tenant';
+import { sqlState } from '@/lib/db/pg-error';
 
 export const runtime = 'nodejs';
 
@@ -138,6 +139,23 @@ export async function POST(req: Request, { params }: { params: Promise<{ token: 
       return NextResponse.json(
         { error: { code: 'NOT_FOUND', message: 'This payment link is no longer available.' } },
         { status: 404 },
+      );
+    }
+    // R2/H-7: the database now enforces one live payment per (organization,
+    // reference) for every non-CASH method, so a second claim against the same
+    // bank reference is refused. Report that as a stable conflict instead of
+    // echoing the raw constraint name, and do not reveal whether the reference
+    // belongs to another submission on this link.
+    if (sqlState(e) === '23505') {
+      return NextResponse.json(
+        {
+          error: {
+            code: 'CONFLICT',
+            message:
+              'A payment with this reference has already been recorded. Check the reference or contact the school office.',
+          },
+        },
+        { status: 409 },
       );
     }
     return NextResponse.json(

@@ -56,7 +56,9 @@ export default function RecordPaymentForm({ students, invoices, presetStudentId 
         allocations: selected ? [{ invoiceId: selected.id, amountKobo: alloc }] : [],
       };
       const res = await fetch('/api/payments', {
-        method:'POST', headers:{'content-type':'application/json', ...csrfHeaders()}, credentials:'same-origin',
+        // R2/H-7: financial mutations require an Idempotency-Key, so a retried
+        // submit (double click, flaky network) cannot record a second payment.
+        method:'POST', headers:{'content-type':'application/json', 'Idempotency-Key': crypto.randomUUID(), ...csrfHeaders()}, credentials:'same-origin',
         body: JSON.stringify(body),
       });
       const data = await res.json();

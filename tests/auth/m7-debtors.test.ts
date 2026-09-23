@@ -123,6 +123,9 @@ describe('M7 — Debtors / Reminders adversarial', () => {
     const { POST: RecordPayment } = await import('@/app/api/payments/route');
     const rp = await call(RecordPayment as any, ownerA, {
       method: 'POST', csrf: true,
+      // R2: recording a payment is a financial mutation and requires an
+      // Idempotency-Key, exactly like the client sends.
+      headers: { 'idempotency-key': crypto.randomUUID() },
       body: {
         method: 'CASH',
         amountKobo: 100000,

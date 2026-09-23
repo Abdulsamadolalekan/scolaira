@@ -199,31 +199,37 @@ describe('M6 — endpoint hardening', () => {
     it('FINANCE_OFFICER can void an unpaid invoice; replay is idempotent', async () => {
       const stu = await createStudent(admin.jar, { studentId: 'VOID-STU-' + Math.random().toString(36).slice(2,6) });
       const inv = await createInvoice(finance.jar, stu.id, 2000000);
-      const v1 = await callRoute('POST', `/api/invoices/${inv.id}/void`, finance.jar, { reason: 'Issued in error' });
+      const key = 'void-' + Math.random().toString(36).slice(2, 10);
+      const v1 = await callRoute('POST', `/api/invoices/${inv.id}/void`, finance.jar, { reason: 'Issued in error' }, { 'idempotency-key': key });
       expect(v1.status).toBe(200);
-      const v2 = await callRoute('POST', `/api/invoices/${inv.id}/void`, finance.jar, { reason: 'Replay' });
+      // Same key replays the original response without re-deciding (R2).
+      const v2 = await callRoute('POST', `/api/invoices/${inv.id}/void`, finance.jar, { reason: 'Replay' }, { 'idempotency-key': key });
       expect([200, 409]).toContain(v2.status);
+      // A different key still resolves to the already-VOID invoice.
+      const v3 = await callRoute('POST', `/api/invoices/${inv.id}/void`, finance.jar, { reason: 'Second attempt' }, { 'idempotency-key': 'void-' + Math.random().toString(36).slice(2, 10) });
+      expect(v3.status).toBe(200);
+      expect(v3.data.invoice.status).toBe('VOID');
     });
 
     it('void is rejected when invoice has paid amount', async () => {
       const stu = await createStudent(admin.jar, { studentId: 'PAID-STU-' + Math.random().toString(36).slice(2,6) });
       const inv = await createInvoice(finance.jar, stu.id, 3000000);
       await recordConfirmedPayment(finance.jar, { amountKobo: 3000000, allocations: [{ invoiceId: inv.id, amountKobo: 3000000 }] });
-      const v = await callRoute('POST', `/api/invoices/${inv.id}/void`, finance.jar, { reason: 'nope' });
+      const v = await callRoute('POST', `/api/invoices/${inv.id}/void`, finance.jar, { reason: 'nope' }, { 'idempotency-key': 'void-' + Math.random().toString(36).slice(2, 10) });
       expect(v.status).toBe(409);
     });
 
     it('STAFF cannot void invoices (wrong role)', async () => {
       const stu = await createStudent(admin.jar, { studentId: 'WR-STU-' + Math.random().toString(36).slice(2,6) });
       const inv = await createInvoice(finance.jar, stu.id, 500000);
-      const r = await callRoute('POST', `/api/invoices/${inv.id}/void`, staff.jar, { reason: 'x' });
+      const r = await callRoute('POST', `/api/invoices/${inv.id}/void`, staff.jar, { reason: 'x' }, { 'idempotency-key': 'void-' + Math.random().toString(36).slice(2, 10) });
       expect(r.status).toBe(403);
     });
 
     it('foreign org cannot void our invoice (cross-tenant)', async () => {
       const stu = await createStudent(admin.jar, { studentId: 'XT-STU-' + Math.random().toString(36).slice(2,6) });
       const inv = await createInvoice(finance.jar, stu.id, 500000);
-      const r = await callRoute('POST', `/api/invoices/${inv.id}/void`, foreign.jar, { reason: 'x' });
+      const r = await callRoute('POST', `/api/invoices/${inv.id}/void`, foreign.jar, { reason: 'x' }, { 'idempotency-key': 'void-' + Math.random().toString(36).slice(2, 10) });
       expect([403, 404]).toContain(r.status);
     });
 
@@ -318,13 +324,20 @@ describe('M6 — endpoint hardening', () => {
       const stu = await createStudent(admin.jar, { studentId: 'RCP-1-' + Math.random().toString(36).slice(2,6) });
       const inv = await createInvoice(finance.jar, stu.id, 2500000);
       const pay = await recordConfirmedPayment(finance.jar, { amountKobo: 2500000, allocations: [{ invoiceId: inv.id, amountKobo: 2500000 }] });
-      const r1 = await callRoute('POST', '/api/receipts', finance.jar, { paymentId: pay.id });
+      const key = 'rcp-' + Math.random().toString(36).slice(2, 10);
+      const r1 = await callRoute('POST', '/api/receipts', finance.jar, { paymentId: pay.id }, { 'idempotency-key': key });
       expect(r1.status).toBe(201);
       expect(r1.data.receipt.receiptNumber).toMatch(/^RCP-/);
       expect(r1.data.receipt.amountKobo).toBe(2500000);
-      const r2 = await callRoute('POST', '/api/receipts', finance.jar, { paymentId: pay.id });
-      expect(r2.status).toBe(200);
+      // Same key: the stored response is replayed verbatim (R2 requires the key).
+      const r2 = await callRoute('POST', '/api/receipts', finance.jar, { paymentId: pay.id }, { 'idempotency-key': key });
+      expect(r2.status).toBe(201);
       expect(r2.data.receipt.id).toBe(r1.data.receipt.id);
+      expect(r2.response.headers.get('idempotent-replayed')).toBe('true');
+      // A different key still resolves to the one ISSUED receipt (state idempotency).
+      const r3 = await callRoute('POST', '/api/receipts', finance.jar, { paymentId: pay.id }, { 'idempotency-key': 'rcp-' + Math.random().toString(36).slice(2, 10) });
+      expect(r3.status).toBe(200);
+      expect(r3.data.receipt.id).toBe(r1.data.receipt.id);
       const g = await callRoute('GET', `/api/receipts/${r1.data.receipt.id}`, finance.jar);
       expect(g.status).toBe(200);
       expect(g.data.receipt.receiptNumber).toMatch(/^RCP-/);
@@ -340,13 +353,13 @@ describe('M6 — endpoint hardening', () => {
         payerName: 'P', initialStatus: 'PENDING', allocations: [],
       }, { 'idempotency-key': idem });
       expect(pr.status).toBe(201);
-      const r = await callRoute('POST', '/api/receipts', finance.jar, { paymentId: pr.data.payment.id });
+      const r = await callRoute('POST', '/api/receipts', finance.jar, { paymentId: pr.data.payment.id }, { 'idempotency-key': 'rcp-' + Math.random().toString(36).slice(2, 10) });
       expect([400, 409]).toContain(r.status);
     });
 
     it('receipt rejected for CONFIRMED payment with NO ACTIVE allocations', async () => {
       const pay = await recordConfirmedPayment(finance.jar, { amountKobo: 1000000, allocations: [] });
-      const r = await callRoute('POST', '/api/receipts', finance.jar, { paymentId: pay.id });
+      const r = await callRoute('POST', '/api/receipts', finance.jar, { paymentId: pay.id }, { 'idempotency-key': 'rcp-' + Math.random().toString(36).slice(2, 10) });
       expect(r.status).toBe(400);
     });
 
@@ -354,7 +367,7 @@ describe('M6 — endpoint hardening', () => {
       const stu = await createStudent(admin.jar, { studentId: 'RCP-S-' + Math.random().toString(36).slice(2,6) });
       const inv = await createInvoice(finance.jar, stu.id, 500000);
       const pay = await recordConfirmedPayment(finance.jar, { amountKobo: 500000, allocations: [{ invoiceId: inv.id, amountKobo: 500000 }] });
-      const r = await callRoute('POST', '/api/receipts', staff.jar, { paymentId: pay.id });
+      const r = await callRoute('POST', '/api/receipts', staff.jar, { paymentId: pay.id }, { 'idempotency-key': 'rcp-' + Math.random().toString(36).slice(2, 10) });
       expect(r.status).toBe(403);
     });
 
@@ -362,7 +375,7 @@ describe('M6 — endpoint hardening', () => {
       const stu = await createStudent(admin.jar, { studentId: 'RCP-X-' + Math.random().toString(36).slice(2,6) });
       const inv = await createInvoice(finance.jar, stu.id, 500000);
       const pay = await recordConfirmedPayment(finance.jar, { amountKobo: 500000, allocations: [{ invoiceId: inv.id, amountKobo: 500000 }] });
-      const rc = await callRoute('POST', '/api/receipts', finance.jar, { paymentId: pay.id });
+      const rc = await callRoute('POST', '/api/receipts', finance.jar, { paymentId: pay.id }, { 'idempotency-key': 'rcp-' + Math.random().toString(36).slice(2, 10) });
       const r = await callRoute('GET', `/api/receipts/${rc.data.receipt.id}`, foreign.jar);
       expect([403, 404]).toContain(r.status);
     });
@@ -371,7 +384,7 @@ describe('M6 — endpoint hardening', () => {
       const stu = await createStudent(admin.jar, { studentId: 'RCP-U-' + Math.random().toString(36).slice(2,6) });
       const inv = await createInvoice(finance.jar, stu.id, 1500000);
       const pay = await recordConfirmedPayment(finance.jar, { amountKobo: 3000000, allocations: [{ invoiceId: inv.id, amountKobo: 1500000 }] });
-      const r = await callRoute('POST', '/api/receipts', finance.jar, { paymentId: pay.id });
+      const r = await callRoute('POST', '/api/receipts', finance.jar, { paymentId: pay.id }, { 'idempotency-key': 'rcp-' + Math.random().toString(36).slice(2, 10) });
       expect(r.status).toBe(201);
       expect(r.data.receipt.amountKobo).toBe(1500000);
       expect(Number(pay.unallocatedKobo)).toBeGreaterThanOrEqual(1500000);

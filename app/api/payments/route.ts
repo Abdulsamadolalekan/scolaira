@@ -16,7 +16,8 @@ import * as invRepo from '@/lib/db/repo/invoices';
 import * as allocRepo from '@/lib/db/repo/payment-allocations';
 import * as auditRepo from '@/lib/db/repo/audit-events';
 import * as reconciliationRepo from '@/lib/db/repo/reconciliation';
-import * as idemRepo from '@/lib/db/repo/idempotency-keys';
+import { begin as beginIdempotency, complete as completeIdempotency } from '@/lib/m9/idempotency';
+import { sqlState } from '@/lib/db/pg-error';
 import { RepoInvariantError } from '@/lib/db/repo/_context';
 import type { UUID } from '@/lib/db/repo/_context';
 import type { Kobo } from '@/lib/money';
@@ -128,23 +129,19 @@ export const POST = withAuthorizedRoute(
   { action: 'payment.record', method: 'POST', bodySchema: CreateSchema },
   async (req, { db, ctx, requestId, body }) => {
     const data = CreateSchema.parse(body);
-    const idemKey = req.headers.get('idempotency-key')?.trim();
 
     return db.transaction(async (tx) => {
-      if (idemKey) {
-        const existing = await idemRepo.acquire(tx, ctx, {
-          key: idemKey, scope: 'payment.record', requestMethod: 'POST',
-          requestPath: '/api/payments', expiresAt: new Date(Date.now() + 24*60*60*1000),
-        });
-        if (existing && existing.responseStatus) {
-          try {
-            const parsed = (typeof existing.responseBody === "string" ? JSON.parse(existing.responseBody) : existing.responseBody);
-            const resp = NextResponse.json(parsed, { status: existing.responseStatus });
-            resp.headers.set('Idempotent-Replayed', 'true');
-            return resp;
-          } catch { /* fall through */ }
-        }
-      }
+      // R2/H-7: this is a financial mutation, so the Idempotency-Key boundary is
+      // REQUIRED (same contract M9 introduced for academic mutations). A retried
+      // submit can no longer record a second CONFIRMED payment and allocate the
+      // same invoice twice.
+      const idem = await beginIdempotency(tx, ctx, req, {
+        scope: 'payment.record',
+        path: '/api/payments',
+        payload: data,
+        required: true,
+      });
+      if (idem.replay) return idem.replay;
 
       // Reference duplication guard: if method != CASH and reference supplied,
       // refuse if a CONFIRMED payment already exists with same org/method/reference.
@@ -233,13 +230,31 @@ export const POST = withAuthorizedRoute(
         },
       };
 
-      if (idemKey) {
-        await idemRepo.complete(tx, ctx, idemKey, 201, response);
-      }
+      await completeIdempotency(tx, ctx, idem.key, 201, response);
       return NextResponse.json(response, { status: 201 });
-    }).catch((e: unknown) => {
+    }).catch(async (e: any) => {
       if (e instanceof RepoInvariantError) {
         return NextResponse.json({ error: { code: 'BAD_REQUEST', message: e.message } }, { status: 400 });
+      }
+      if (sqlState(e) === '23505') {
+        // R2/H-7: the database now owns the "one live payment per reference"
+        // invariant (payments_org_reference_live_unique_idx), so a concurrent
+        // duplicate loses here. Report it as the conflict the application
+        // already intended, naming the surviving payment when it is visible.
+        const dup = data.method !== 'CASH' && data.reference
+          ? await payRepo.findByReference(db as any, ctx, data.method, data.reference)
+          : null;
+        return NextResponse.json(
+          {
+            error: {
+              code: 'CONFLICT',
+              message: dup
+                ? `A ${dup.status.toLowerCase()} payment with reference ${data.reference} already exists (${dup.paymentNumber}).`
+                : 'A payment with this reference already exists in this organization.',
+            },
+          },
+          { status: 409 },
+        );
       }
       throw e;
     });

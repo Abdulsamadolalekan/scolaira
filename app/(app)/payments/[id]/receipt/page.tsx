@@ -22,16 +22,32 @@ type ReceiptView = {
   organization: { name:string; address:string|null; phone:string|null };
 };
 
+/**
+ * Issue (or resolve) the receipt of record for a payment.
+ *
+ * R2/H-7: receipts are financial documents, so the API requires an
+ * Idempotency-Key, and — like every client-side mutation — the double-submit
+ * CSRF header, which the browser client normally supplies from the cs_csrf
+ * cookie. This server component re-sends the caller's own cookie value as the
+ * header. (It previously sent neither, and read a `receiptId` field the route
+ * never returned, so the printable receipt page could not render at all.)
+ */
 async function issueReceipt(host: string, proto: string, cookie: string, paymentId: string): Promise<string | null> {
+  const csrf = /(?:^|;\s*)sc_csrf=([^;]+)/.exec(cookie)?.[1];
   const res = await fetch(`${proto}://${host}/api/receipts`, {
     method: 'POST',
     cache: 'no-store',
-    headers: { cookie, 'content-type': 'application/json' },
+    headers: {
+      cookie,
+      'content-type': 'application/json',
+      'Idempotency-Key': crypto.randomUUID(),
+      ...(csrf ? { 'x-csrf-token': decodeURIComponent(csrf) } : {}),
+    },
     body: JSON.stringify({ paymentId }),
   });
   if (!res.ok) return null;
   const data = await res.json().catch(() => ({}));
-  return data.receiptId ?? null;
+  return data?.receipt?.id ?? null;
 }
 
 async function fetchReceipt(host: string, proto: string, cookie: string, receiptId: string): Promise<ReceiptView | null> {

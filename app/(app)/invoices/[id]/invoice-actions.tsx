@@ -56,7 +56,9 @@ export default function InvoiceActions({ invoiceId, status, paidKobo, remainingK
     setBusy(label); setError(null);
     try {
       const res = await fetch(path, {
-        method:'POST', headers:{'content-type':'application/json', ...csrfHeaders()}, credentials:'same-origin',
+        // R2/H-7: voiding an invoice is a financial mutation and requires an
+        // Idempotency-Key so a retried request replays instead of re-deciding.
+        method:'POST', headers:{'content-type':'application/json', 'Idempotency-Key': crypto.randomUUID(), ...csrfHeaders()}, credentials:'same-origin',
         body: JSON.stringify(body),
       });
       const data = await res.json().catch(()=>({}));

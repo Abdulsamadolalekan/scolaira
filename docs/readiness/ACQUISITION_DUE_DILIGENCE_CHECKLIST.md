@@ -5,6 +5,14 @@
 **Purpose:** map every diligence question a technical buyer will ask to the current answer, the evidence that exists today, and the finding that must close first.
 **Status at time of writing:** **NOT DILIGENCE-READY.** Architecture is a genuine asset; isolation enforcement, exceptional-path financial controls, and evidence are not.
 
+> **R2 update (2026-09-23).** Rows B2–B6 are now answered by evidence: corrections are unique at the
+> database, financial mutations refuse to run untracked, receipt issuance and invoice void are single
+> transactions, and a receipt cannot drift from what it receipted. See
+> `docs/security/R2_EXCEPTIONAL_PATH_FINANCIAL_INTEGRITY_CLOSEOUT.md`. Section B is not fully closed:
+> B7 (partial reversal) is still unsupported by design, B8 (REFUND accounting treatment) is unchanged, and
+> B9 (KPI/term scope) plus the H-3 public-surface rows remain open — the public payment-link path is the
+> recommended next milestone.
+>
 > **R1 update (2026-09-23).** Section A is now answered by evidence rather than
 > by argument: C-1, C-2 and C-3 are independently demonstrated closed, and a
 > newly discovered privilege defect (C-4) was closed in the same milestone. See
@@ -32,12 +40,12 @@ Legend — **Ready**: evidence exists. **Partial**: exists but incomplete or une
 | # | Diligence question | Status | Evidence today | Must close |
 |---|---|---|---|---|
 | B1 | Is there one authoritative source of financial truth? | **Ready** | Ledger design, append-only tables, trigger-enforced invariants | — |
-| B2 | Are corrections/reversals idempotent at the database? | **Gap** | No unique constraint on `(payment_id, reference)` in `reversals`; SELECT-then-INSERT only (`app/api/payments/[id]/reverse/route.ts:44-57`) | H-7 |
-| B3 | Is receipt issuance atomic with its audit event and amount snapshot? | **Gap** | Read/insert/audit outside a transaction (`app/api/receipts/route.ts:33-107`) | H-7 |
-| B4 | Is a receipt reproducible after later reversals? | **Gap** | Rendered from live ACTIVE allocations vs frozen `amount_kobo` (`app/api/receipts/[id]/route.ts:22-40`) | M-3 |
-| B5 | Is invoice void atomic? | **Gap** | Balance read, void and audit on `db`, not in one transaction (`app/api/invoices/[id]/void/route.ts:28-52`) | M-2 |
-| B6 | Is payment creation idempotent by default? | **Partial** | `Idempotency-Key` is optional (`app/api/payments/route.ts:127-245`) | H-7 |
-| B7 | Are partial refunds supported? | **Gap** | Hard-fails: "Partial allocation reversal not supported in M2" (`0001_integrity.sql:549-551`, `0002_financial_fixes.sql:173-175`) | M-4 |
+| B2 | Are corrections/reversals idempotent at the database? | **Ready** (R2, 2026-09-23) | **Proven:** `reversals_payment_reference_unique_idx` on `(payment_id, reference)`; two connections replaying the pre-R2 sequence now yield one reversal and one invoice movement (`r2-exceptional-path-integrity` D1, B1; re-audit B2/B3). Measured pre-fix: 2 reversals, invoice forced to `paid_kobo=0`. | closed (H-7) |
+| B3 | Is receipt issuance atomic with its audit event and amount snapshot? | **Ready** (R2, 2026-09-23) | **Proven:** one transaction spans read → guard → insert (with snapshot) → audit → idempotency completion; concurrent issues converge on one document with one audit row (`r2` B3; re-audit C3). | closed (H-7) |
+| B4 | Is a receipt reproducible after later reversals? | **Ready** (R2, 2026-09-23) | **Proven:** `receipts.allocations_snapshot` captured at issue time, write-once by trigger; the document still sums to its receipted amount after a full reversal (`r2` C1–C3; re-audit C1/C2). | closed (M-3) |
+| B5 | Is invoice void atomic? | **Ready** (R2, 2026-09-23) | **Proven:** read → balance guard → void → audit inside one transaction; refused voids leave no audit row, accepted voids leave exactly one (`r2` E1–E3). | closed (M-2) |
+| B6 | Is payment creation idempotent by default? | **Ready** (R2, 2026-09-23) | **Proven:** `Idempotency-Key` is **required** on payment creation, allocation, reversal, receipt issuance and void; replay returns the stored response verbatim and key reuse with a different body is a 409 (`r2` A1–A6; re-audit A1–A4). | closed (H-7) |
+| B7 | Are partial refunds supported? | **Partial** (R2, 2026-09-23) | **Unchanged by design**, but the refusal is now an operator-readable 400 carrying the trigger's instruction instead of a 500 (re-audit B4). Capability still absent; staff must reverse in allocation-sized steps. | M-4 open |
 | B8 | Is REFUND accounting treatment documented? | **Gap** | Trigger behaviour only (`0002_financial_fixes.sql:191-212`) | M-5 |
 | B9 | Do KPIs tie to source rows across term boundaries? | **Gap** | Current-term KPIs beside all-term queues (`app/api/dashboard/summary/route.ts:102-250`) | H-2 |
 

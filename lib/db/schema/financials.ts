@@ -21,6 +21,7 @@ import {
   index,
   uniqueIndex,
   timestamp,
+  jsonb,
 } from 'drizzle-orm/pg-core';
 import { relations, sql } from 'drizzle-orm';
 import { pk, timestamps } from './_columns';
@@ -243,6 +244,9 @@ export const receipts = pgTable('receipts', {
   voidedReason: text('voided_reason'),
   issuedBy: uuid('issued_by').references(() => users.id, { onDelete: 'set null' }),
   pdfUrl: text('pdf_url'),
+  // R2/H-7: the allocation set the receipted amount was computed from, captured
+  // at issue time. Written once; immutable thereafter (DB trigger).
+  allocationsSnapshot: jsonb('allocations_snapshot'),
   ...timestamps(),
 }, (t) => [
   uniqueIndex('receipts_org_number_idx').on(t.organizationId, t.receiptNumber),

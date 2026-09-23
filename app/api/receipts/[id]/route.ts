@@ -19,6 +19,12 @@ export const GET = withAuthorizedRoute(
     const r = await receiptRepo.get(db, ctx, id as any);
     assertResourceInOrg(ctx, r, 'Receipt');
 
+    // R2/H-7: the receipt's own frozen allocation snapshot is the document of
+    // record. The live ACTIVE allocations are only used as a legacy fallback
+    // for receipts issued before the snapshot existed.
+    const snapshot = Array.isArray((r as any)?.allocationsSnapshot)
+      ? ((r as any).allocationsSnapshot as Array<Record<string, unknown>>)
+      : null;
     const [payRow, orgRows, allocRows] = await Promise.all([
       db.select().from(payments).where(eq(payments.id, r!.paymentId)).limit(1),
       db.select({ name: organizations.name, address: organizations.address, phone: organizations.phone })
@@ -61,11 +67,18 @@ export const GET = withAuthorizedRoute(
         amountKobo: Number(payRow[0].amountKobo),
         unallocatedKobo: Number(payRow[0].unallocatedKobo ?? 0),
       } : null,
-      allocations: allocRows.map((a:any) => ({
-        invoiceNumber: a.invoiceNumber,
-        studentName: [a.studentFirstName, a.studentLastName].filter(Boolean).join(' ').trim() || '—',
-        amountKobo: Number(a.amountKobo),
-      })),
+      linesSource: snapshot ? ('SNAPSHOT' as const) : ('CURRENT_ALLOCATIONS' as const),
+      allocations: snapshot
+        ? snapshot.map((line: any) => ({
+            invoiceNumber: line.invoiceNumber ?? null,
+            studentName: line.studentName ?? '—',
+            amountKobo: Number(line.amountKobo),
+          }))
+        : allocRows.map((a: any) => ({
+            invoiceNumber: a.invoiceNumber,
+            studentName: [a.studentFirstName, a.studentLastName].filter(Boolean).join(' ').trim() || '—',
+            amountKobo: Number(a.amountKobo),
+          })),
       organization: { name: org.name, address: org.address, phone: org.phone },
     });
   },

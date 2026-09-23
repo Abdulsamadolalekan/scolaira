@@ -12,12 +12,34 @@ import type { Kobo } from '@/lib/money';
 
 export type Receipt = typeof receipts.$inferSelect;
 
+/**
+ * One line of the receipt's frozen allocation snapshot (R2/H-7).
+ *
+ * Stored on the receipt row at issuance so the document of record keeps
+ * showing what was receipted even after a later reversal or re-allocation.
+ */
+export interface ReceiptAllocationSnapshotLine {
+  allocationId: string;
+  invoiceId: string;
+  invoiceNumber: string | null;
+  studentId: string | null;
+  /** Denormalised for the printed document: a reissued receipt must show the
+   *  payer-facing name exactly as it was at issuance. */
+  studentName: string | null;
+  amountKobo: number;
+}
+
 export interface IssueReceiptInput {
   paymentId: UUID;
   allocationId?: UUID;
   studentId: UUID;
   amountKobo: Kobo;
   pdfUrl?: string;
+  /**
+   * The allocation set this receipt's amount was computed from. Captured inside
+   * the issuance transaction; the database enforces write-once semantics.
+   */
+  allocationsSnapshot?: ReceiptAllocationSnapshotLine[];
 }
 
 export async function issue(
@@ -27,6 +49,15 @@ export async function issue(
 ): Promise<Receipt> {
   if (input.amountKobo <= 0) {
     throw new RepoInvariantError(`Receipt amount must be positive; got ${input.amountKobo}`);
+  }
+  const snapshotTotal = (input.allocationsSnapshot ?? []).reduce(
+    (s, l) => s + l.amountKobo,
+    0,
+  );
+  if (input.allocationsSnapshot && snapshotTotal !== input.amountKobo) {
+    throw new RepoInvariantError(
+      `Receipt snapshot sums to ${snapshotTotal} kobo but the receipted amount is ${input.amountKobo} kobo`,
+    );
   }
   const rows = await db
     .insert(receipts)
@@ -39,6 +70,7 @@ export async function issue(
       pdfUrl: input.pdfUrl ?? null,
       issuedBy: ctx.userId ?? undefined,
       status: 'ISSUED',
+      allocationsSnapshot: input.allocationsSnapshot ?? null,
     } as unknown as typeof receipts.$inferInsert)
     .returning();
   return rows[0]!;
