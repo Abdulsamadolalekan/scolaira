@@ -35,10 +35,16 @@ export default async function globalSetup(_ctx: GlobalSetupContext) {
     await sql`CREATE SCHEMA drizzle AUTHORIZATION scolaira_owner`;
     await sql`CREATE EXTENSION IF NOT EXISTS pgcrypto`;
     const result = await applyAllMigrations(sql, resolve(process.cwd(), 'lib/db/migrations'));
-    await sql`GRANT USAGE, CREATE ON SCHEMA public TO scolaira_app`;
+    // R1: mirror `scripts/migrate.ts` exactly — DML only, no CREATE on the
+    // schema, no TRUNCATE/REFERENCES/TRIGGER anywhere. The blanket
+    // `GRANT ALL PRIVILEGES ON ALL TABLES` used to run here and re-grant what
+    // the migrations had revoked (see migration 0044).
+    await sql`GRANT USAGE ON SCHEMA public TO scolaira_app`;
+    await sql`REVOKE CREATE ON SCHEMA public FROM scolaira_app`;
     await sql`GRANT USAGE ON SCHEMA drizzle TO scolaira_app`;
-    await sql`GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO scolaira_app`;
+    await sql`GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO scolaira_app`;
     await sql`GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO scolaira_app`;
+    await sql`REVOKE ALL ON app_meta FROM scolaira_app`;
     // Mirror the production migration runner's post-grant hardening. Tests
     // must exercise the same append-only privilege boundary as runtime.
     await sql`REVOKE UPDATE, DELETE ON audit_events, reversals FROM scolaira_app`;

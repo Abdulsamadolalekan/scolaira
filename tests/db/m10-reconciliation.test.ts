@@ -304,8 +304,25 @@ describe('M10 reconciliation control plane — tenant, evidence, and state invar
       await testDb().select().from(reconciliationCases).where(eq(reconciliationCases.id, caseA.id)),
     ).toHaveLength(0);
 
-    await testSql()`SELECT auth_set_public_context(${ids.orgId}::uuid)`;
+    // R1 (C-3): the self-asserted public-context entry point is no longer
+    // granted to the runtime role, so it cannot even be invoked.
+    await expectPgFailure(
+      () => testSql()`SELECT auth_set_public_context(${ids.orgId}::uuid)`,
+      ['42501'],
+    );
+    // Forge the public marker the way an attacker actually can — raw GUCs,
+    // including the bearer token and proof variables — and prove the database
+    // still refuses: public context is only valid when it was minted from a
+    // real bearer token by auth_scope_public_local().
+    await testSql()`
+      SELECT set_config('app.organization_id', ${ids.orgId}::text, true),
+             set_config('app.public_context', '1', true),
+             set_config('app.public_link_token', 'forged-link-token', true),
+             set_config('app.public_proof', 'forged-proof', true),
+             set_config('app.is_platform_admin', '0', true)`;
     expect(await testDb().select().from(reconciliationCases)).toHaveLength(0);
+    // Denied by two independent layers: the M10 insert guard refuses the
+    // unauthorized context (23514) before RLS rejects the row itself (42501).
     await expectPgFailure(
       () =>
         testDb().insert(reconciliationCases).values({
@@ -315,7 +332,7 @@ describe('M10 reconciliation control plane — tenant, evidence, and state invar
           state: 'UNMATCHED',
           createdBy: ids.aliceId,
         }),
-      ['42501'],
+      ['42501', '23514'],
     );
 
     await testSql()`SELECT enter_platform_context(${platformUserId}::uuid)`;

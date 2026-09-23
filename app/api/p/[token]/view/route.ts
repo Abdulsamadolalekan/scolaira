@@ -8,79 +8,117 @@
  *   - organization name/address/phone
  *
  * The response is PII-minimized by design (first name + last initial only).
- * Runs as scolaira_app; enters public GUC context scoped to the link's org
- * before querying, then clears context.
+ *
+ * R1 (C-3) — the bearer token is the ONLY thing that establishes tenant scope:
+ *
+ *   1. the token is resolved with NO tenant context (the resolver is a
+ *      SECURITY DEFINER that returns a row only for the exact token it was
+ *      given, and only while that link is ACTIVE and unexpired);
+ *   2. the protected reads then run inside `withPublicScope(token, …)`, which
+ *      derives the organization FROM THE LINK ROW — never from the caller —
+ *      and mints a proof bound to (token, organization, backend);
+ *   3. the RLS policies that expose invoice/student/organization rows to
+ *      public traffic require that proof, so a forged `app.public_context`
+ *      marker or a caller-chosen `app.organization_id` authorizes nothing.
+ *
+ * The scope re-resolves the token, so a link revoked or expired between (1)
+ * and (2) fails closed.
  */
 import { NextResponse } from 'next/server';
-import { getSql } from '@/lib/db';
+import {
+  isPublicLinkUnusable,
+  probePublicLinkStatus,
+  withPublicScope,
+  withScopedDb,
+} from '@/lib/db/tenant';
 
 export const runtime = 'nodejs';
 
 export async function GET(_req: Request, { params }: { params: Promise<{ token: string }> }) {
   const { token } = await params;
-  const sql = getSql();
-  // Resolve the link via SECURITY DEFINER (does not rely on broad SELECT
-  // policies; only returns the row if the token matches an ACTIVE/non-expired
-  // link), returning no data for invalid/revoked/expired tokens so we avoid
-  // information disclosure between "not found" and "revoked".
-  await sql`select clear_app_context()`.catch(() => {});
-  const linkRows = await sql<any[]>`
-    select organization_id, id, token, status, invoice_id, student_id,
-           amount_kobo, note, expires_at
-      from auth_resolve_public_link(${token})`;
-  const link = linkRows[0] ?? null;
+
+  // (1) Bearer resolution with no tenant context.
+  const link = await withScopedDb({ kind: 'none' }, async (_db, sql) => {
+    const rows = await sql<any[]>`
+      select organization_id, id, token, status, invoice_id, student_id,
+             amount_kobo, note, expires_at
+        from auth_resolve_public_link(${token})`;
+    return rows[0] ?? null;
+  });
+
   if (!link) {
-    // Distinguish 410 (expired or revoked) from 404 (missing) using the
-    // narrow SECURITY DEFINER probe that exposes status only.
-    let probe = 'MISSING';
-    try {
-      const pr = await sql<any[]>`select auth_probe_public_link(${token}) as s`;
-      probe = pr[0]?.s ?? 'MISSING';
-    } catch { probe = 'MISSING'; }
-    if (probe === 'EXPIRED') {
-      return NextResponse.json({ error: { code: 'GONE', message: 'Link expired.' } }, { status: 410 });
-    }
-    if (probe === 'REVOKED') {
-      // Treat revoked as 404 to minimize information disclosure (per test
-      // expectation: revoked returns 404, not 410).
-    }
-    return NextResponse.json({ error: { code: 'NOT_FOUND', message: 'Link not found.' } }, { status: 404 });
+    return missResponse(token);
   }
+
   try {
-    await sql`select auth_set_public_context(${link.organization_id}::uuid)`;
-    const [orgRows, invRows, stuRows] = await Promise.all([
-      sql<{name:string;address:string|null;phone:string|null}[]>`select name, address, phone from organizations where id = ${(link as any).organization_id}::uuid limit 1`,
-      (link as any).invoice_id
-        ? sql<any[]>`select i.invoice_number, i.total_kobo, i.paid_kobo, s.first_name, s.last_name
-                    from invoices i left join students s on s.id = i.student_id
-                    where i.id = ${(link as any).invoice_id}::uuid limit 1`
-        : Promise.resolve([] as any[]),
-      (link as any).student_id
-        ? sql<any[]>`select student_id, first_name, last_name from students where id = ${(link as any).student_id}::uuid and status = 'ACTIVE' limit 1`
-        : Promise.resolve([] as any[]),
-    ]);
-    const org = orgRows[0] ?? { name: 'SCOLAIRA', address: null, phone: null };
-    const inv = invRows[0] ?? null;
-    const stu = stuRows[0] ?? null;
-    return NextResponse.json({
-      token: link.token,
-      status: link.status,
-      amountKobo: link.amount_kobo ? Number(link.amount_kobo) : null,
-      expiresAt: link.expires_at,
-      note: link.note,
-      organization: { name: org.name, address: org.address, phone: org.phone },
-      invoice: inv ? {
-        invoiceNumber: inv.invoice_number,
-        studentFirstName: inv.first_name,
-        studentLastName: inv.last_name,
-        studentInitial: inv.last_name ? inv.last_name.slice(0,1) : '',
-        totalKobo: Number(inv.total_kobo),
-        paidKobo: Number(inv.paid_kobo),
-        remainingKobo: Math.max(0, Number(inv.total_kobo) - Number(inv.paid_kobo)),
-      } : null,
-      student: stu ? { studentId: stu.student_id, firstName: stu.first_name, lastName: stu.last_name } : null,
+    // (2) Public context derived from the bearer token itself.
+    const payload = await withPublicScope(token, async (_db, sql) => {
+      const [orgRows, invRows, stuRows] = await Promise.all([
+        sql<{ name: string; address: string | null; phone: string | null }[]>`
+          select name, address, phone from organizations where id = ${link.organization_id}::uuid limit 1`,
+        link.invoice_id
+          ? sql<any[]>`
+              select i.invoice_number, i.total_kobo, i.paid_kobo, s.first_name, s.last_name
+                from invoices i left join students s on s.id = i.student_id
+               where i.id = ${link.invoice_id}::uuid limit 1`
+          : Promise.resolve([] as any[]),
+        link.student_id
+          ? sql<any[]>`
+              select student_id, first_name, last_name from students
+               where id = ${link.student_id}::uuid and status = 'ACTIVE' limit 1`
+          : Promise.resolve([] as any[]),
+      ]);
+      const org = orgRows[0] ?? { name: 'SCOLAIRA', address: null, phone: null };
+      const inv = invRows[0] ?? null;
+      const stu = stuRows[0] ?? null;
+      return {
+        token: link.token,
+        status: link.status,
+        amountKobo: link.amount_kobo ? Number(link.amount_kobo) : null,
+        expiresAt: link.expires_at,
+        note: link.note,
+        organization: { name: org.name, address: org.address, phone: org.phone },
+        invoice: inv
+          ? {
+              invoiceNumber: inv.invoice_number,
+              studentFirstName: inv.first_name,
+              studentLastName: inv.last_name,
+              studentInitial: inv.last_name ? inv.last_name.slice(0, 1) : '',
+              totalKobo: Number(inv.total_kobo),
+              paidKobo: Number(inv.paid_kobo),
+              remainingKobo: Math.max(0, Number(inv.total_kobo) - Number(inv.paid_kobo)),
+            }
+          : null,
+        student: stu
+          ? { studentId: stu.student_id, firstName: stu.first_name, lastName: stu.last_name }
+          : null,
+      };
     });
-  } finally {
-    await sql`select auth_clear_public_context()`.catch(()=>{});
+    return NextResponse.json(payload);
+  } catch (error) {
+    // Revoked/expired between resolution and scope entry: fail closed exactly
+    // as if the link had been unusable from the start.
+    if (isPublicLinkUnusable(error)) {
+      return missResponse(token);
+    }
+    throw error;
   }
+}
+
+/**
+ * 404 for missing/revoked and 410 for expired, matching the historical
+ * behaviour: revoked deliberately reports 404 to minimise disclosure.
+ */
+async function missResponse(token: string): Promise<NextResponse> {
+  const status = await probePublicLinkStatus(token);
+  if (status === 'EXPIRED') {
+    return NextResponse.json(
+      { error: { code: 'GONE', message: 'Link expired.' } },
+      { status: 410 },
+    );
+  }
+  return NextResponse.json(
+    { error: { code: 'NOT_FOUND', message: 'Link not found.' } },
+    { status: 404 },
+  );
 }

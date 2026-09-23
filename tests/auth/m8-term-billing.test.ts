@@ -103,6 +103,23 @@ describe('M8 route boundary', () => {
   });
 
   it('OWNER can issue; FINANCE_OFFICER can safely retry; fee reads stay tenant-scoped', async () => {
+    // Self-contained setup. R1 scopes run transaction-locally inside the
+    // harness's per-test transaction, so work performed by an earlier test is
+    // no longer visible here (before R1 a route's BEGIN/COMMIT incidentally
+    // committed the harness transaction, which is what this test used to rely
+    // on). Assertions are unchanged; they now exercise their own data.
+    const feeResult = await call(feePost as any, schoolAdmin.jar, {
+      method: 'POST', path: '/api/fee-definitions',
+      body: { code: 'TUITION-BILL', name: 'Tuition (bill)', description: null, defaultAmountKobo: 100000 },
+      csrf: true,
+    });
+    expect(feeResult.status).toBe(201);
+    const assignmentResult = await dynamicCall(
+      assignmentPut, schoolAdmin, 'PUT', `/api/terms/${term.id}/fee-assignments`, term.id,
+      { assignments: [{ feeDefinitionId: feeResult.data.feeDefinition.id, classId: null, amountKobo: 100000, adjustmentKobo: 0, status: 'ACTIVE' }] },
+    );
+    expect(assignmentResult.status).toBe(200);
+
     const issued = await dynamicCall(billPost, finance, 'POST', `/api/terms/${term.id}/bill`, term.id, { overrides: [] });
     expect(issued.status).toBe(200);
     expect(issued.data.bill.createdInvoices).toBe(1);

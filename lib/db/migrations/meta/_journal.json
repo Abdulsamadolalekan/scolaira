@@ -260,6 +260,55 @@
       "when": 1790000026000,
       "tag": "0037_m11_collections_control_plane",
       "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1790000027000,
+      "tag": "0038_r1_organization_composite_fks",
+      "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1790000028000,
+      "tag": "0039_r1_scoped_context",
+      "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1790000029000,
+      "tag": "0040_r1_public_context_proof",
+      "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1790000029001,
+      "tag": "0041_r1_public_probe_fix",
+      "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1790000029002,
+      "tag": "0042_r1_public_context_not_tenant",
+      "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1790000029003,
+      "tag": "0043_r1_public_submit_entrypoint",
+      "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1790000029004,
+      "tag": "0044_r1_runtime_privilege_hardening",
+      "breakpoints": true
     }
   ]
 }

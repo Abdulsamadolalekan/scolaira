@@ -55,16 +55,21 @@ export async function seedTwoOrgs(sql: postgres.Sql): Promise<SeededIds> {
   await sql`SELECT auth_enter_system_context()`;
   await sql`SELECT set_config('app.is_platform_admin','1',false), set_config('app.platform_admin_id','',false)`;
 
+  // Slugs and e-mails carry a per-invocation suffix: suites that commit their
+  // fixtures (concurrency, R1 isolation) would otherwise collide with the next
+  // suite's seed on the unique slug/e-mail indexes. The shape stays the same,
+  // only the identifier is unique.
+  const tag = ids.orgId.slice(0, 8);
   await sql`
     INSERT INTO organizations (id, name, slug) VALUES
-      (${ids.orgId}::uuid, 'Demo School', 'demo-school'),
-      (${ids.orgBId}::uuid, 'Rival School', 'rival-school')
+      (${ids.orgId}::uuid, 'Demo School', ${'demo-school-' + tag}),
+      (${ids.orgBId}::uuid, 'Rival School', ${'rival-school-' + tag})
       ON CONFLICT (id) DO NOTHING
   `;
   await sql`
     INSERT INTO users (id, email, first_name, last_name) VALUES
-      (${ids.aliceId}::uuid, 'alice@demo.school', 'Alice', 'Demo'),
-      (${ids.bobId}::uuid, 'bob@rival.school', 'Bob', 'Rival')
+      (${ids.aliceId}::uuid, ${'alice+' + tag + '@demo.school'}, 'Alice', 'Demo'),
+      (${ids.bobId}::uuid, ${'bob+' + tag + '@rival.school'}, 'Bob', 'Rival')
       ON CONFLICT (id) DO NOTHING
   `;
   await sql`

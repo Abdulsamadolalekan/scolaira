@@ -46,7 +46,8 @@ for db in scolaira scolaira_test; do
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 CREATE SCHEMA IF NOT EXISTS drizzle AUTHORIZATION scolaira_owner;
 GRANT CONNECT ON DATABASE $db TO scolaira, scolaira_app;
-GRANT USAGE, CREATE ON SCHEMA public TO scolaira, scolaira_app;
+GRANT USAGE ON SCHEMA public TO scolaira, scolaira_app;
+GRANT CREATE ON SCHEMA public TO scolaira;
 GRANT USAGE ON SCHEMA drizzle TO scolaira, scolaira_app;
 ALTER DEFAULT PRIVILEGES FOR ROLE scolaira_owner IN SCHEMA public
   GRANT ALL ON TABLES TO scolaira_app;

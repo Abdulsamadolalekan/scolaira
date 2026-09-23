@@ -43,10 +43,15 @@ async function run() {
   } as any);
   try {
     const result = await applyAllMigrations(sql, resolve(process.cwd(), 'lib/db/migrations'));
+    // R1: grant ONLY the DML the application uses. A blanket
+    // `GRANT ALL PRIVILEGES` re-granted TRUNCATE/REFERENCES/TRIGGER — and
+    // silently overrode migration-level revokes (including `REVOKE ALL ON
+    // app_meta`), because TRUNCATE is not subject to row-level security.
     await sql`GRANT USAGE ON SCHEMA public TO scolaira_app`;
-    await sql`GRANT CREATE ON SCHEMA public TO scolaira_app`;
-    await sql`GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO scolaira_app`;
+    await sql`GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO scolaira_app`;
     await sql`GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO scolaira_app`;
+    await sql`REVOKE CREATE ON SCHEMA public FROM scolaira_app`;
+    await sql`REVOKE ALL ON app_meta FROM scolaira_app`;
     // Re-apply append-only / column-level restrictions after the broad
     // bootstrap grant. The runtime role must not regain mutation privileges
     // merely because a migration was applied.
@@ -74,8 +79,8 @@ async function run() {
     // Restore the conservative default-privilege baseline so future
     // function replacements don't auto-grant EXECUTE.
     await sql`ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC, scolaira_app`;
-    await sql`ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO scolaira_app, scolaira`;
-    await sql`ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO scolaira_app, scolaira`;
+    await sql`ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO scolaira_app, scolaira`;
+    await sql`ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT, UPDATE ON SEQUENCES TO scolaira_app, scolaira`;
     console.info(`[db] migrations applied. new=${result.applied} total=${result.total}`);
   } finally {
     await sql.end({ timeout: 5 }).catch(() => {});

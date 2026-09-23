@@ -1,65 +1,51 @@
 /**
- * Tenant context helper.
+ * Authorization-context entry points.
  *
- * Establishes Postgres GUC-based tenant scope for the duration of either a
- * single statement or a transaction. This is the ONLY sanctioned way for
- * application code to switch tenant context; raw calls to
- * `set_tenant_context(...)` via SQL in application code are prohibited.
+ * These are the ONLY sanctioned ways to establish an authorization context.
+ * The machinery lives in `./scope.ts` (R1, C-1) and guarantees that:
  *
- * Guarantees (proven in the M2 architecture gate, see
- * docs/database/M2_ARCHITECTURE_REPORT.md §7):
+ *   - the context is applied with transaction-local semantics, so Postgres
+ *     itself reverts it (no reliance on application cleanup);
+ *   - context and protected queries run on the same connection, and every
+ *     `getSql()`/`getDb()` inside the callback resolves to that connection;
+ *   - at exit the context is cleared/reset unconditionally on every
+ *     identity-bearing variable and the result is read back from Postgres;
+ *     a connection that cannot be proven neutral raises
+ *     `ScopeIntegrityError` (fail closed);
+ *   - invalid or absent context fails closed: the database validates tenant
+ *     membership (`auth_scope_tenant_local`), platform admin status
+ *     (`auth_scope_platform_local`) and public bearer tokens
+ *     (`auth_scope_public_local`) before any protected query can run;
+ *   - when the pool can spare a connection (`max > 1`), the scope holds it
+ *     exclusively for its whole lifetime. When it cannot (`max == 1`), scopes
+ *     are serialized instead. Neither mode depends on the pool size for
+ *     correctness — that is the R1 fix.
  *
- *   - Non-members cannot set another school's context (the SECURITY DEFINER
- *     function verifies an ACTIVE organization_members row and raises
- *     insufficient_privilege otherwise).
- *   - With no context set, RLS returns zero rows for every tenant table
- *     (default-deny).
- *   - Context is set at the SESSION level on the underlying postgres
- *     connection. For safety, every `withTenant` / `withSystemContext` block
- *     clears the context in a `finally` clause so that connection pooling
- *     cannot leak state between requests.
- *
- * USAGE (application code):
- *
- *   import { withTenant } from '@/lib/db/tenant';
- *   import { invoices } from '@/lib/db/repo';
- *
- *   const result = await withTenant(
- *     { organizationId, userId },
- *     async (db, ctx) => {
- *       return invoices.issue(db, ctx, invoiceId);
- *     },
- *   );
- *
- * Transactional variant (single DB transaction across multiple repo calls):
+ * USAGE:
  *
  *   await withTenant({ organizationId, userId }, async (db, ctx) => {
- *     return db.transaction(async (tx) => {
- *       // use tx (which inherits the session GUCs) inside repo methods
- *       await payments.confirm(tx, ctx, payId);
- *       await paymentAllocations.allocate(tx, ctx, {...});
- *     });
+ *     return db.transaction(async (tx) => invoices.issue(tx, ctx, invoiceId));
  *   });
  *
- * CONTEXT LIFECYCLE:
- *   - set on entry (via `select set_tenant_context(org,user)`)
- *   - cleared on exit (RESET app.organization_id; app.user_id; app.is_platform_admin)
- *   - cleared even if the callback throws
- *   - never left set across awaits that release the connection (the callback
- *     holds the connection for its duration because postgres-js awaits are
- *     serial on a connection, and drizzle's `db.transaction` does not
- *     release the connection until commit).
+ * Nested `.transaction()` calls become savepoints on the same connection; a
+ * callback can never commit an enclosing transaction or scope.
  */
 import 'server-only';
 
-import { getSql, getDb, type Database } from './index';
+import postgres from 'postgres';
+import type { Database } from './index';
+import { runScoped, type ScopeSpec, type ScopeOptions } from './scope';
 import { asUUID, type SystemCtx, type TenantCtx, type UUID } from './repo/_context';
+import { CONTEXT_GUCS } from './context';
+import { getSql } from './index';
 
-/** Options to withTenant. */
+/** Options accepted by withTenant (kept for call-site compatibility). */
 export interface WithTenantOptions {
-  /** Use a dedicated transaction for the callback. Default: false (the callback
-   *  receives the drizzle db; individual statements autocommit). When true,
-   *  the callback is wrapped in BEGIN/COMMIT with proper rollback on throw. */
+  /**
+   * Scopes are ALWAYS transactional: the transaction is what makes Postgres
+   * responsible for reverting the context. Accepted for backward compatibility
+   * and ignored.
+   */
   transactional?: boolean;
 }
 
@@ -69,92 +55,127 @@ export interface TenantIdentity {
   userId: string;
 }
 
-/**
- * Execute `fn` with the Postgres session scoped to the given tenant.
- *
- * The callback receives a `db` handle and a strongly-typed `ctx` whose
- * organizationId/userId are branded UUIDs.
- */
+/** Execute `fn` with the database scoped to the given tenant. */
 export async function withTenant<T>(
   identity: TenantIdentity,
   fn: (db: Database, ctx: TenantCtx) => Promise<T>,
-  options: WithTenantOptions = {},
+  _options: WithTenantOptions = {},
 ): Promise<T> {
-  const sql = getSql();
-  const db = getDb();
   const organizationId = asUUID(identity.organizationId);
   const userId = asUUID(identity.userId);
-
   const ctx: TenantCtx = { organizationId, userId };
-
-  // Establish context by invoking the SECURITY DEFINER function.
-  // set_tenant_context raises insufficient_privilege for non-members; the error
-  // propagates unchanged to the caller.
-  try {
-    await sql`SELECT set_tenant_context(${organizationId}::uuid, ${userId}::uuid)`;
-
-    if (options.transactional) {
-      return await db.transaction(async (tx) => fn(tx as unknown as Database, ctx));
-    }
-    return await fn(db, ctx);
-  } finally {
-    // Always clear the GUCs so the pooled connection returns to a neutral state.
-    // We must NOT use set_tenant_context(NULL, NULL) because that raises when
-    // userId is NULL; use RESET (per-session) on all tenant GUCs.
-    await sql`
-      SELECT set_config('app.organization_id', '', false),
-             set_config('app.user_id', '', false),
-             set_config('app.is_platform_admin', '0', false),
-             set_config('app.auth_bootstrap', '0', false),
-             set_config('app.bypass_financial_triggers', '0', false);
-    `.catch(() => {
-      // If the connection is in a broken state, best effort to clear; the pool
-      // will discard it. Swallow to avoid masking the original error.
-    });
-  }
+  return runScoped({ kind: 'tenant', organizationId, userId }, (db) => fn(db, ctx), {
+    label: 'tenant',
+  });
 }
 
 /**
- * Execute `fn` in SYSTEM context (migrations, seeds, tests).
+ * Execute `fn` in pre-authentication SYSTEM context: bootstrap visibility over
+ * identity tables only (users, organizations, organization_members, sessions,
+ * credentials, password resets). This does NOT open financial or tenant tables.
  *
- * SYSTEM context bypasses membership verification but is NOT grantable to the
- * `scolaira_app` role (the SECURITY DEFINER function `set_tenant_context_for_system`
- * is owned by the migration/superuser role and NOT granted to the runtime
- * role). Therefore application code cannot construct a SystemCtx.
+ * Used by the session trust gate (`getSession()`), which must read a session
+ * before it knows which tenant the request belongs to.
+ */
+export async function withSystemScope<T>(fn: (db: Database) => Promise<T>): Promise<T> {
+  return runScoped({ kind: 'system' }, (db) => fn(db), { label: 'system' });
+}
+
+/**
+ * Execute `fn` in seeded/system context (seeds, tests, migrations).
  *
- * This function is imported only by migrations, seed scripts, and tests.
+ * Mirrors the historical `auth_test_system_context(org, user)` behaviour:
+ * with a NULL organization it is bootstrap + platform visibility with no
+ * tenant token (used for cross-tenant seeding); with an organization it
+ * delegates to validated tenant membership and mints the tenant token.
+ *
+ * Application request handlers must not use this.
  */
 export async function withSystemContext<T>(
   orgId: UUID | null,
   userId: UUID | null,
   fn: (db: Database, ctx: SystemCtx) => Promise<T>,
 ): Promise<T> {
-  const sql = getSql();
-  const db = getDb();
-  const ctx: SystemCtx = {
-    organizationId: orgId,
-    userId,
-    system: true,
-  };
+  const ctx: SystemCtx = { organizationId: orgId, userId, system: true };
+  return runScoped(
+    { kind: 'seed', organizationId: orgId, userId },
+    (db) => fn(db, ctx),
+    { label: 'seed' },
+  );
+}
+
+/**
+ * Execute `fn` in platform-support context. The platform token is minted by
+ * the database and bound to the current backend, so a forged
+ * `app.is_platform_admin='1'` does not authorize anything.
+ */
+export async function withPlatformContext<T>(
+  userId: UUID,
+  fn: (db: Database, ctx: { userId: UUID }) => Promise<T>,
+): Promise<T> {
+  return runScoped({ kind: 'platform', userId }, (db) => fn(db, { userId }), {
+    label: 'platform',
+  });
+}
+
+/**
+ * Execute `fn` in bearer-authorized PUBLIC context (payment links).
+ *
+ * The token is resolved by the database, which reads the organization from the
+ * link row and mints a proof bound to (token, organization, backend). There is
+ * no code path that accepts a caller-supplied organization id, and a forged
+ * `app.public_context` marker alone authorizes nothing (migration 0040).
+ */
+export async function withPublicScope<T>(
+  token: string,
+  fn: (db: Database, sql: postgres.Sql) => Promise<T>,
+): Promise<T> {
+  return runScoped({ kind: 'public', token }, (db, sql) => fn(db, sql), { label: 'public' });
+}
+
+/**
+ * True when the database refused to establish PUBLIC context because the link
+ * was missing, revoked, or expired. The scope raises SQLSTATE 28000 for that
+ * case specifically, so callers can distinguish "this link is not usable" from
+ * any other database failure.
+ */
+export function isPublicLinkUnusable(error: unknown): boolean {
+  return (error as { code?: string } | null)?.code === '28000';
+}
+
+/** Status of a payment-link token for 404/410 disambiguation (no tenant context). */
+export async function probePublicLinkStatus(
+  token: string,
+): Promise<'MISSING' | 'EXPIRED' | 'REVOKED' | 'ACTIVE'> {
   try {
-    // Use SECURITY DEFINER owner-side wrapper because the raw
-    // set_tenant_context_for_system is REVOKEd from scolaira_app.
-    // Note: this sets is_platform_admin='1' when orgId is NULL, but RLS
-    // policies require auth_is_platform_admin_authorized() to be true
-    // (which checks platform_admin_id is a real platform admin, set only
-    // via enter_platform_context). For tests we additionally pass a
-    // userId; withSystemContext is only used for test seeding.
-    await sql`SELECT auth_test_system_context(${orgId}::uuid, ${userId}::uuid)`;
-    return await fn(db, ctx);
-  } finally {
-    await sql`SELECT clear_app_context()`.catch(() => {});
+    return await runScoped({ kind: 'none' }, async (_db, sql) => {
+      const rows = (await sql`select auth_probe_public_link(${token}) as s`) as Array<{ s: string }>;
+      return (rows[0]?.s ?? 'MISSING') as 'MISSING' | 'EXPIRED' | 'REVOKED' | 'ACTIVE';
+    });
+  } catch {
+    return 'MISSING';
   }
 }
 
 /**
- * Low-level helper for TEST infrastructure only: asserts that the CURRENT
- * session's GUCs match the given context. Used by test harness assertions.
- * Not exported from the package barrel; only from this module.
+ * Execute `fn` in an explicitly constructed scope.
+ *
+ * Used by code that legitimately needs a neutral connection (public link
+ * pre-flight lookups) and by the R1 isolation tests, which pass their own
+ * pool so isolation is proven independently of the default pool size.
+ */
+export async function withScopedDb<T>(
+  spec: ScopeSpec,
+  fn: (db: Database, sql: postgres.Sql) => Promise<T>,
+  options: ScopeOptions = {},
+): Promise<T> {
+  return runScoped(spec, fn, options);
+}
+
+/**
+ * TEST-ONLY helper: assert the CURRENT connection's GUCs match the given
+ * context. Used to prove context is bound to the connection that executes the
+ * protected queries rather than to a JavaScript scope.
  */
 export async function assertCurrentTenant(expected: TenantCtx): Promise<void> {
   const sql = getSql();
@@ -168,4 +189,20 @@ export async function assertCurrentTenant(expected: TenantCtx): Promise<void> {
       `Tenant context mismatch: expected org=${expected.organizationId} user=${expected.userId} got org=${r?.org} user=${r?.usr}`,
     );
   }
+}
+
+/** Read every identity-bearing context variable on the current connection. */
+export async function currentContextState(): Promise<Record<string, string | null>> {
+  const sql = getSql();
+  const cols = CONTEXT_GUCS.map(
+    (name, i) => `NULLIF(current_setting('${name}', true), '') AS c${i}`,
+  ).join(', ');
+  const rows = await sql.unsafe(`SELECT ${cols}`);
+  const row = (rows[0] ?? {}) as Record<string, unknown>;
+  const out: Record<string, string | null> = {};
+  CONTEXT_GUCS.forEach((name, i) => {
+    const v = row[`c${i}`];
+    out[name] = v === null || v === undefined ? null : String(v);
+  });
+  return out;
 }

@@ -32,7 +32,9 @@ import 'server-only';
 import crypto from 'node:crypto';
 import argon2 from 'argon2';
 import { eq, and } from 'drizzle-orm';
-import { getDb, getSql } from '../db';
+import { getSql } from '../db';
+import type { Database } from '../db';
+import { withSystemScope, withTenant } from '../db/tenant';
 import { users, organizations, organizationMembers } from '../db/schema/tenancy';
 import {
   sessions as sessionsTable,
@@ -162,32 +164,32 @@ async function rateLimit(
 }
 
 // ---------------------- Context helpers ----------------------
-
-/** Set tenant GUCs for a given org/user (system context to clear first). */
-async function setTenantFor(organizationId: UUID, userId: UUID): Promise<void> {
-  const sql = getSql();
-  await sql`SELECT set_tenant_context(${organizationId}::uuid, ${userId}::uuid)`;
-}
+//
+// R1 (C-1): this module no longer writes authorization context at session
+// scope. Every flow below runs inside a SCOPE (`withSystemScope` /
+// `withTenant`, see lib/db/scope.ts), which
+//
+//   - applies pre-authentication SYSTEM context (bootstrap visibility over
+//     identity tables only) or validated TENANT context with
+//     transaction-local semantics on the connection that will run the
+//     queries;
+//   - makes Postgres itself revert that context at the end of the scope's
+//     transaction;
+//   - clears every identity-bearing variable on both layers and reads them
+//     back to prove the connection is neutral, failing closed otherwise.
+//
+// Removing the old session-scoped `set_tenant_context(...)` / `auth_enter_
+// system_context()` calls is what closes the pre-R1 window in which an
+// identity established for one request stayed readable on the pooled
+// connection for whoever used it next.
 
 /**
- * Set connection to "system" context used by M2 migrations/seeds. This sets
- * app.organization_id/user_id to empty and is_platform_admin=1, which is the
- * documented way to bypass tenant RLS for bootstrap operations (user/org/
- * membership creation during registration, session lookup during login that
- * happens before we know the tenant, reset token writes, etc.).
+ * Reset GUCs to neutral on the current connection.
  *
- * Callers MUST transition to a scoped tenant context via setTenantFor()
- * before performing any tenant-bound operation, and MUST call clearContext()
- * in a finally block. setTenantFor() re-validates membership and resets
- * is_platform_admin=0, so there is no window where a request runs as
- * platform admin against tenant data.
+ * Kept for callers that already invoke it in a `finally` block; under R1 it is
+ * belt-and-braces, because scope teardown has already cleared and verified the
+ * same variables.
  */
-async function setSystemContext(): Promise<void> {
-  const sql = getSql();
-  await sql`SELECT auth_enter_system_context()`;
-}
-
-/** Reset GUCs to neutral. Must be called in finally. */
 export async function clearContext(): Promise<void> {
   const sql = getSql();
   await sql`SELECT clear_app_context()`.catch(() => {});
@@ -202,11 +204,13 @@ export async function getSession(cookiesInst?: CookiesLike): Promise<AuthSession
   const cookie = verifySessionCookie(raw);
   if (!cookie) return null;
 
-  await setSystemContext();
-
-  const db = getDb();
   const tokenHashHex = hashSessionId(cookie.sessionId).toString('hex');
 
+  // The trust gate runs in pre-authentication SYSTEM scope: bootstrap
+  // visibility over identity tables (sessions, users, organization_members),
+  // applied transaction-locally on the connection that performs these reads.
+  // Nothing this scope establishes survives it.
+  return withSystemScope(async (db) => {
   const rows = await db
     .select({ session: sessionsTable, user: users })
     .from(sessionsTable)
@@ -215,17 +219,14 @@ export async function getSession(cookiesInst?: CookiesLike): Promise<AuthSession
     .limit(1);
 
   if (!rows.length) {
-    await clearContext();
     return null;
   }
   const { session, user } = rows[0]!;
 
   if (session.revokedAt || !session.expiresAt || session.expiresAt.getTime() < Date.now()) {
-    await clearContext();
     return null;
   }
   if (session.createdAt && Date.now() - session.createdAt.getTime() > SESSION_ABSOLUTE_MAX_MS) {
-    await clearContext();
     return null;
   }
 
@@ -241,7 +242,6 @@ export async function getSession(cookiesInst?: CookiesLike): Promise<AuthSession
     );
 
   if (!memberships.length) {
-    await clearContext();
     return null;
   }
 
@@ -261,10 +261,11 @@ export async function getSession(cookiesInst?: CookiesLike): Promise<AuthSession
     member = memberships[0]!;
   }
 
-  await setTenantFor(member.organizationId, user.id);
-
-  // Touch last_seen and last_seen_org_id (fire-and-forget).
-  db.update(sessionsTable)
+  // Touch last_seen and last_seen_org_id. Awaited (errors still swallowed)
+  // because it must happen inside this scope: an update left running outside
+  // the scope's transaction could outlive the connection that ran the reads.
+  await db
+    .update(sessionsTable)
     .set({ lastSeenAt: new Date(), lastSeenOrgId: member.organizationId })
     .where(eq(sessionsTable.id, session.id))
     .catch(() => {});
@@ -288,6 +289,7 @@ export async function getSession(cookiesInst?: CookiesLike): Promise<AuthSession
     sessionId: session.id,
     isPlatformSession: session.isPlatformSession ?? false,
   };
+  });
 }
 
 /** Execute a handler with authenticated context; always clears GUCs. */
@@ -312,11 +314,13 @@ export async function withAuth<T>(
     organizationId: session.activeOrganizationId,
     userId: session.user.id,
   };
-  try {
-    return await fn(session, ctx);
-  } finally {
-    await clearContext();
-  }
+  // Tenant context is established by the scope and reverted by Postgres when
+  // the scope's transaction ends; the `finally { clearContext() }` dance is no
+  // longer what provides the guarantee.
+  return withTenant(
+    { organizationId: session.activeOrganizationId, userId: session.user.id },
+    async () => fn(session, ctx),
+  );
 }
 
 // ---------------------- CSRF ----------------------
@@ -368,13 +372,13 @@ function clearSessionCookies(c: CookiesLike): void {
 // ---------------------- Session lifecycle ----------------------
 
 async function insertSession(
+  db: Database,
   userId: UUID,
   rawId: string,
   csrfToken: string,
   userAgent?: string | null,
   ip?: string | null,
 ): Promise<{ sessionId: UUID; expiresAt: Date }> {
-  const db = getDb();
   const now = new Date();
   const expiresAt = new Date(now.getTime() + SESSION_TTL_MS);
   const sessionId = crypto.randomUUID() as UUID;
@@ -397,23 +401,27 @@ async function createSessionForUser(
   c: CookiesLike,
   meta?: { userAgent?: string | null; ip?: string | null },
 ): Promise<void> {
-  await setSystemContext();
-  const { rawId, csrfToken } = generateSessionIds();
-  const { expiresAt } = await insertSession(
-    userId,
-    rawId,
-    csrfToken,
-    meta?.userAgent,
-    meta?.ip,
-  );
-  // Note: insertSession already hashes rawId; the rawId here is the plaintext
-  // to embed in the cookie only.
-  await writeSessionCookies(c, rawId, csrfToken, expiresAt);
+  // Session rows and the user's last_login_at are written in pre-auth SYSTEM
+  // scope, transaction-locally, on one connection.
+  await withSystemScope(async (db) => {
+    const { rawId, csrfToken } = generateSessionIds();
+    const { expiresAt } = await insertSession(
+      db,
+      userId,
+      rawId,
+      csrfToken,
+      meta?.userAgent,
+      meta?.ip,
+    );
+    // Note: insertSession already hashes rawId; the rawId here is the
+    // plaintext to embed in the cookie only.
+    await writeSessionCookies(c, rawId, csrfToken, expiresAt);
 
-  const db = getDb();
-  await db.update(users).set({ lastLoginAt: new Date() }).where(eq(users.id, userId));
-  // Note: we don't call setTenant here — caller will read the session via
-  // getSession() which sets it, or in login we return fresh by reading.
+    await db.update(users).set({ lastLoginAt: new Date() }).where(eq(users.id, userId));
+  });
+  // No tenant context is established here: callers either read the session
+  // back through getSession() (which scopes its own reads) or run inside
+  // withTenant().
 }
 
 /** Log out: revoke session in DB + clear cookies. */
@@ -422,20 +430,19 @@ export async function logout(): Promise<void> {
   const raw = c.get(SESSION_COOKIE_NAME)?.value;
   const parsed = verifySessionCookie(raw);
   if (parsed) {
-    await setSystemContext();
-    const db = getDb();
-    await db
-      .update(sessionsTable)
-      .set({ revokedAt: new Date(), revokedReason: 'logout' })
-      .where(
-        eq(
-          sessionsTable.tokenHash,
-          hashSessionId(parsed.sessionId).toString('hex') as any,
-        ),
-      );
+    await withSystemScope(async (db) => {
+      await db
+        .update(sessionsTable)
+        .set({ revokedAt: new Date(), revokedReason: 'logout' })
+        .where(
+          eq(
+            sessionsTable.tokenHash,
+            hashSessionId(parsed.sessionId).toString('hex') as any,
+          ),
+        );
+    });
   }
   clearSessionCookies(c);
-  await clearContext();
 }
 
 // ---------------------- Registration ----------------------
@@ -462,14 +469,12 @@ export async function register(
       429,
     );
 
-  await setSystemContext();
-  const db = getDb();
-
   const passwordHash = await argon2.hash(input.password, ARGON2_OPTIONS);
   const userId = crypto.randomUUID() as UUID;
   const orgId = crypto.randomUUID() as UUID;
   const now = new Date();
 
+  await withSystemScope(async (db) => {
   try {
     await db.insert(users).values({
       id: userId,
@@ -516,18 +521,15 @@ export async function register(
         throw new AuthError('SLUG_TAKEN', 'School slug already taken.', 409);
     }
     throw e;
-  } finally {
-    await clearContext();
   }
+  });
 
   // Auto-login after registration.
   const c = await cookieStore();
-  await setSystemContext();
   await createSessionForUser(userId, c, {
     ip: meta?.ip,
     userAgent: meta?.userAgent,
   });
-  await clearContext();
 
   return { userId, organizationId: orgId };
 }
@@ -562,8 +564,9 @@ export async function login(input: {
       429,
     );
 
-  await setSystemContext();
-  const db = getDb();
+  // Credential verification, login-attempt accounting and session creation all
+  // happen inside one SYSTEM scope, on one connection, transaction-locally.
+  await withSystemScope(async (db) => {
   const sql = getSql();
 
   const row = await db
@@ -590,7 +593,6 @@ export async function login(input: {
   await sql`SELECT auth_record_login_attempt(${email}, ${input.ip ?? null}, ${ok})`.catch(() => {});
 
   if (!ok) {
-    await clearContext();
     throw new AuthError('INVALID_CREDENTIALS', 'Invalid email or password.', 401);
   }
 
@@ -598,7 +600,7 @@ export async function login(input: {
     ip: input.ip,
     userAgent: input.userAgent,
   });
-  await clearContext();
+  });
 }
 
 // ---------------------- Password reset ----------------------
@@ -612,9 +614,7 @@ export async function requestPasswordReset(
   if (!rl.allowed)
     throw new AuthError('RATE_LIMITED', 'Too many reset requests.', 429);
 
-  await setSystemContext();
-  const db = getDb();
-
+  return withSystemScope(async (db) => {
   const row = await db
     .select()
     .from(users)
@@ -622,7 +622,6 @@ export async function requestPasswordReset(
     .limit(1);
 
   if (!row[0]) {
-    await clearContext();
     // Do NOT reveal whether email exists; return a dummy structure.
     return { token: null, userId: null };
   }
@@ -637,8 +636,8 @@ export async function requestPasswordReset(
     requestUserAgent: meta?.userAgent ?? null,
   });
 
-  await clearContext();
   return { token, userId: row[0].id };
+  });
 }
 
 export async function resetPassword(token: string, newPassword: string): Promise<void> {
@@ -650,8 +649,7 @@ export async function resetPassword(token: string, newPassword: string): Promise
   if (!rl.allowed)
     throw new AuthError('RATE_LIMITED', 'Too many reset attempts.', 429);
 
-  await setSystemContext();
-  const db = getDb();
+  await withSystemScope(async (db) => {
   const sql = getSql();
 
   // SELECT ... FOR UPDATE via raw SQL (prevents double-consume races).
@@ -662,7 +660,6 @@ export async function resetPassword(token: string, newPassword: string): Promise
      FOR UPDATE`;
 
   if (!rows[0] || rows[0].consumed_at) {
-    await clearContext();
     throw new AuthError(
       'RESET_INVALID',
       'Reset token is invalid or already used.',
@@ -671,7 +668,6 @@ export async function resetPassword(token: string, newPassword: string): Promise
   }
   const expiresAt = new Date(rows[0].expires_at);
   if (expiresAt.getTime() < Date.now()) {
-    await clearContext();
     throw new AuthError('RESET_EXPIRED', 'Reset token has expired.', 400);
   }
   const resetUserId: UUID = rows[0].user_id;
@@ -688,8 +684,7 @@ export async function resetPassword(token: string, newPassword: string): Promise
     .update(sessionsTable)
     .set({ revokedAt: new Date(), revokedReason: 'password_reset' })
     .where(eq(sessionsTable.userId, resetUserId));
-
-  await clearContext();
+  });
 }
 
 // ---------------------- Authenticated account actions ----------------------
@@ -699,8 +694,9 @@ export async function changePassword(
   currentPassword: string,
   newPassword: string,
 ): Promise<void> {
-  await setTenantFor(session.activeOrganizationId, session.user.id);
-  const db = getDb();
+  return withTenant(
+    { organizationId: session.activeOrganizationId, userId: session.user.id },
+    async (db) => {
   const cred = await db
     .select()
     .from(passwordCredentials)
@@ -709,7 +705,6 @@ export async function changePassword(
   if (!cred[0]) throw new AuthError('NO_CREDENTIAL', 'No password credential on file.', 400);
   const ok = await argon2.verify(cred[0].passwordHash, currentPassword);
   if (!ok) {
-    await clearContext();
     throw new AuthError('INVALID_PASSWORD', 'Current password is incorrect.', 401);
   }
   const newHash = await argon2.hash(newPassword, ARGON2_OPTIONS);
@@ -725,7 +720,8 @@ export async function changePassword(
      WHERE user_id = ${session.user.id}::uuid
        AND id <> ${session.sessionId}::uuid
   `;
-  await clearContext();
+    },
+  );
 }
 
 /** Switch active organization. Validates membership before switching. */
@@ -750,8 +746,9 @@ export async function switchOrganization(
     sameSite: 'lax',
     expires: exp,
   });
-  await setTenantFor(targetOrgId, session.user.id);
-  await clearContext();
+  // No context is established here: the refreshed session read below runs in
+  // its own SYSTEM scope, and request handlers establish tenant scope through
+  // withTenant()/withAuthorizedRoute().
   // Re-read session to get fresh membership/active org.
   const refreshed = await getSession(c);
   if (!refreshed) throw new AuthError('SESSION_LOST', 'Session invalid after switch', 401);
