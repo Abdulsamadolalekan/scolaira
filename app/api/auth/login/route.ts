@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { login, AuthError, clearContext } from '@/lib/auth';
+import { clientIpFor } from '@/lib/http/client-ip';
 
 export const runtime = 'nodejs';
 
@@ -18,7 +19,9 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: { code: 'VALIDATION', message: 'Invalid request' } }, { status: 400 });
   }
   try {
-    const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? undefined;
+    // H-4/F9: same server-derived identity policy as register (and the audit
+    // row written by auth_record_login_attempt must not be spoofable either).
+    const ip = clientIpFor(request);
     const userAgent = request.headers.get('user-agent') ?? undefined;
     await login({ ...parsed.data, ip, userAgent });
     return NextResponse.json({ ok: true });

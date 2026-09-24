@@ -19,14 +19,7 @@ import { z } from 'zod';
 import { eq, and } from 'drizzle-orm';
 import { getSession, clearContext, requireCsrf, cookieStore, AuthError } from '@/lib/auth';
 import { getSql } from '@/lib/db';
-import { signActiveOrgCookie } from '@/lib/auth/cookies';
-import {
-  ACTIVE_ORG_COOKIE_NAME,
-  IS_PRODUCTION,
-  COOKIE_SAMESITE,
-  COOKIE_PATH,
-  SESSION_TTL_MS,
-} from '@/lib/auth/config';
+import { signActiveOrgCookie, activeOrgCookieOptions } from '@/lib/auth/cookies';
 import { getDb } from '@/lib/db';
 import { organizationMembers } from '@/lib/db/schema';
 
@@ -86,18 +79,11 @@ export async function POST(req: Request) {
       );
     }
 
-    const signed = signActiveOrgCookie(organizationId, session.user.id);
-    // Write the signed active-org cookie via the test-aware cookie store.
+    // ONE writer for this cookie (H-4/F10): the same options helper the auth
+    // module's switchOrganization() uses, so the value can never be written
+    // unsigned (an unsigned sc_org is rejected by verifyActiveOrgCookie()).
     const c = await cookieStore();
-    c.set({
-      name: ACTIVE_ORG_COOKIE_NAME,
-      value: signed,
-      httpOnly: false,
-      secure: IS_PRODUCTION,
-      sameSite: COOKIE_SAMESITE,
-      path: COOKIE_PATH,
-      maxAge: Math.floor(SESSION_TTL_MS / 1000),
-    });
+    c.set({ ...activeOrgCookieOptions(signActiveOrgCookie(organizationId, session.user.id)) });
     return NextResponse.json({
       ok: true,
       activeOrganizationId: organizationId,

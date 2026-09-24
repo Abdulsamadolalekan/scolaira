@@ -27,5 +27,10 @@ export default defineConfig({
     timeout: 120_000,
     stdout: 'ignore',
     stderr: 'pipe',
+    // The register endpoint keys its rate limit on the client address, and it
+    // ignores x-forwarded-for unless the deployment declares how many proxies
+    // it runs behind (H-4/F9). The e2e server is started directly, so we declare
+    // one hop and let a spec drive its own bucket with a forwarded address.
+    env: { TRUSTED_PROXY_HOPS: process.env.TRUSTED_PROXY_HOPS ?? '1' },
   },
 });

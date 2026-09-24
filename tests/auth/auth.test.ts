@@ -90,7 +90,8 @@ describe('M3 — Authentication security red-team', () => {
     const firstCookie = regJar.get('sc_session');
     expect(firstCookie).toBeTruthy();
     // Logout revokes first session
-    const logoutR = await call(logoutPost, regJar, { method: 'POST', path: '/api/auth/logout' });
+    // H-4/F7: logout is CSRF-protected like every other unsafe method.
+    const logoutR = await call(logoutPost, regJar, { method: 'POST', path: '/api/auth/logout', csrf: true });
     expect(logoutR.status).toBe(200);
     // Replay first cookie must fail
     const replayJar = new CookieJar();
@@ -147,7 +148,7 @@ describe('M3 — Authentication security red-team', () => {
   it('logout revokes server-side session; cookie deleted', async () => {
     const { jar } = await registerAndLogin();
     expect((await call(meGet, jar, { method: 'GET', path: '/api/auth/me' })).status).toBe(200);
-    const logoutR = await call(logoutPost, jar, { method: 'POST', path: '/api/auth/logout' });
+    const logoutR = await call(logoutPost, jar, { method: 'POST', path: '/api/auth/logout', csrf: true });
     expect(logoutR.status).toBe(200);
     expect(jar.get('sc_session')).toBeFalsy();
     expect((await call(meGet, jar, { method: 'GET', path: '/api/auth/me' })).status).toBe(401);
@@ -310,7 +311,7 @@ describe('M3 — Authentication security red-team', () => {
     const password = 'Normalize-1!';
     const { jar: regJar } = await registerAndLogin({ email, password });
     // Log out first
-    expect((await call(logoutPost, regJar, { method: 'POST', path: '/api/auth/logout' })).status).toBe(200);
+    expect((await call(logoutPost, regJar, { method: 'POST', path: '/api/auth/logout', csrf: true })).status).toBe(200);
     // Attempt login with "  USER@Example.COM  " (uppercase + surrounding spaces)
     // to exercise trim + lowercase + NFKC normalization on the server.
     const jar = new CookieJar();

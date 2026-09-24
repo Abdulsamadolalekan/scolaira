@@ -35,6 +35,7 @@ import { eq, and } from 'drizzle-orm';
 import { getSql } from '../db';
 import type { Database } from '../db';
 import { withSystemScope, withTenant } from '../db/tenant';
+import { isUniqueViolation, uniqueViolationKey, uniqueViolationIndex } from '../db/pg-error';
 import { users, organizations, organizationMembers } from '../db/schema/tenancy';
 import {
   sessions as sessionsTable,
@@ -53,6 +54,8 @@ import {
   normalizeEmail,
   sessionCookieOptions,
   csrfCookieOptions,
+  activeOrgCookieOptions,
+  signActiveOrgCookie,
   verifyActiveOrgCookie,
 } from './cookies';
 import {
@@ -325,10 +328,37 @@ export async function withAuth<T>(
 
 // ---------------------- CSRF ----------------------
 
+/**
+ * Read the double-submit token from a form body, for endpoints that must keep
+ * working without JavaScript (the app-shell sign-out form).
+ *
+ * Only urlencoded/multipart bodies are inspected, the content type is checked
+ * before the body is touched (so a JSON endpoint is unaffected), and oversized
+ * bodies are refused instead of buffered — a CSRF field is < 200 bytes.
+ */
+async function csrfTokenFromFormBody(request: Request): Promise<string | null> {
+  const contentType = (request.headers.get('content-type') ?? '').toLowerCase();
+  const isForm =
+    contentType.startsWith('application/x-www-form-urlencoded') ||
+    contentType.startsWith('multipart/form-data');
+  if (!isForm) return null;
+  const declaredLength = Number(request.headers.get('content-length') ?? '0');
+  if (Number.isFinite(declaredLength) && declaredLength > 64 * 1024) return null;
+  try {
+    const form = await request.formData();
+    const value = form.get('_csrf');
+    return typeof value === 'string' && value.length > 0 ? value : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function requireCsrf(request: Request, rawSessionId: string): Promise<void> {
   const c = await cookieStore();
   const csrfCookieFull = c.get(CSRF_COOKIE_NAME)?.value;
-  const csrfHeader = request.headers.get('x-csrf-token');
+  // Header first (fetch callers, all JSON mutation routes), then the form field
+  // (no-JS form posts such as sign-out).
+  const csrfHeader = request.headers.get('x-csrf-token') ?? (await csrfTokenFromFormBody(request));
   if (!csrfCookieFull || !csrfHeader) {
     throw new AuthError('CSRF_MISSING', 'CSRF token missing', 403);
   }
@@ -396,32 +426,42 @@ async function insertSession(
   return { sessionId, expiresAt };
 }
 
-async function createSessionForUser(
-  userId: UUID,
-  c: CookiesLike,
-  meta?: { userAgent?: string | null; ip?: string | null },
-): Promise<void> {
-  // Session rows and the user's last_login_at are written in pre-auth SYSTEM
-  // scope, transaction-locally, on one connection.
-  await withSystemScope(async (db) => {
-    const { rawId, csrfToken } = generateSessionIds();
-    const { expiresAt } = await insertSession(
-      db,
-      userId,
-      rawId,
-      csrfToken,
-      meta?.userAgent,
-      meta?.ip,
-    );
-    // Note: insertSession already hashes rawId; the rawId here is the
-    // plaintext to embed in the cookie only.
-    await writeSessionCookies(c, rawId, csrfToken, expiresAt);
+/** Material for a session that has been written but not yet published. */
+interface SessionMaterial {
+  rawId: string;
+  csrfToken: string;
+  expiresAt: Date;
+}
 
-    await db.update(users).set({ lastLoginAt: new Date() }).where(eq(users.id, userId));
-  });
-  // No tenant context is established here: callers either read the session
-  // back through getSession() (which scopes its own reads) or run inside
-  // withTenant().
+/**
+ * Insert a session row on an ALREADY-OPEN scope.
+ *
+ * The caller owns the unit of work: registration mints the auto-login session
+ * inside the transaction that creates the account it belongs to, and login
+ * inside the transaction that verified the credential. That is what makes an
+ * auto-login failure roll the whole unit back (H-4) instead of leaving a
+ * school account whose owner has no way to reach it.
+ */
+async function mintSessionRow(
+  db: Database,
+  userId: UUID,
+  meta?: { userAgent?: string | null; ip?: string | null },
+): Promise<SessionMaterial> {
+  const { rawId, csrfToken } = generateSessionIds();
+  const { expiresAt } = await insertSession(
+    db,
+    userId,
+    rawId,
+    csrfToken,
+    meta?.userAgent,
+    meta?.ip,
+  );
+  return { rawId, csrfToken, expiresAt };
+}
+
+/** Publish session + CSRF cookies for a session row that has COMMITTED. */
+async function publishSession(c: CookiesLike, material: SessionMaterial): Promise<void> {
+  await writeSessionCookies(c, material.rawId, material.csrfToken, material.expiresAt);
 }
 
 /** Log out: revoke session in DB + clear cookies. */
@@ -456,6 +496,52 @@ export interface RegisterInput {
   organizationSlug: string;
 }
 
+/**
+ * Translate a provisioning conflict into the operator-facing refusal.
+ *
+ * The SQLSTATE and the offending constraint live on the cause chain — Drizzle
+ * wraps the driver error, so reading `e?.code` on the thrown object never
+ * matched and a correct database refusal surfaced as a 500 (H-4/F1, F2).
+ * The column is matched against the constraint/index name *and* the driver's
+ * `detail` text, because the two disagree between statements issued through
+ * Drizzle and raw SQL.
+ */
+function registerConflict(e: unknown): unknown {
+  if (isUniqueViolation(e)) {
+    // Name the collision from the structured fields: the key column Postgres
+    // reports (`Key (email)=…`) and, when absent, the constraint name. Never
+    // from the message text — the colliding VALUE is user-chosen, so a school
+    // address literally called `email-taken` would otherwise be reported as a
+    // duplicate email.
+    const key = (uniqueViolationKey(e) ?? '').toLowerCase();
+    const index = uniqueViolationIndex(e);
+    const isEmail = key === 'email' || key.endsWith('.email') || index.includes('email');
+    const isSlug = key === 'slug' || key.endsWith('.slug') || index.includes('slug');
+    if (isEmail && !isSlug) {
+      return new AuthError(
+        'EMAIL_TAKEN',
+        'An account with this email already exists. Sign in instead, or use another email.',
+        409,
+      );
+    }
+    if (isSlug && !isEmail) {
+      return new AuthError(
+        'SLUG_TAKEN',
+        'That school address is already taken. Choose a different school address.',
+        409,
+      );
+    }
+  }
+  if (isUniqueViolation(e)) {
+    return new AuthError(
+      'CONFLICT',
+      'An account or school with these details already exists.',
+      409,
+    );
+  }
+  return e;
+}
+
 export async function register(
   input: RegisterInput,
   meta?: { ip?: string; userAgent?: string },
@@ -474,62 +560,59 @@ export async function register(
   const orgId = crypto.randomUUID() as UUID;
   const now = new Date();
 
-  await withSystemScope(async (db) => {
-  try {
-    await db.insert(users).values({
-      id: userId,
-      email,
-      firstName: input.firstName,
-      lastName: input.lastName,
-      createdAt: now,
-      updatedAt: now,
-    } as any);
-    await db.insert(organizations).values({
-      id: orgId,
-      name: input.organizationName,
-      slug: input.organizationSlug,
-      createdAt: now,
-      updatedAt: now,
-    } as any);
-    await db.insert(organizationMembers).values({
-      organizationId: orgId,
-      userId,
-      role: 'OWNER',
-      status: 'ACTIVE',
-      joinedAt: now,
-      createdAt: now,
-      updatedAt: now,
-    } as any);
-    await db.insert(passwordCredentials).values({
-      userId,
-      algorithm: 'argon2id',
-      params: ARGON2_OPTIONS as unknown as Record<string, unknown>,
-      passwordHash,
-      createdAt: now,
-      updatedAt: now,
-    } as any);
-  } catch (e: any) {
-    if (e?.code === '23505') {
-      const msg: string = e?.message ?? '';
-      if (msg.includes('email'))
-        throw new AuthError(
-          'EMAIL_TAKEN',
-          'An account with this email already exists.',
-          409,
-        );
-      if (msg.includes('slug'))
-        throw new AuthError('SLUG_TAKEN', 'School slug already taken.', 409);
+  // ONE unit of work (H-4). The account, the school, the founding membership,
+  // the credential AND the auto-login session commit or roll back together:
+  //  - a uniqueness conflict is reported as 409 with the offending field named;
+  //  - any later failure (session insert included) rolls the whole thing back,
+  //    so no orphan school account can hold the email/slug of a failed signup.
+  const material = await withSystemScope(async (db) => {
+    try {
+      await db.insert(users).values({
+        id: userId,
+        email,
+        firstName: input.firstName,
+        lastName: input.lastName,
+        createdAt: now,
+        updatedAt: now,
+      } as any);
+      await db.insert(organizations).values({
+        id: orgId,
+        name: input.organizationName,
+        slug: input.organizationSlug,
+        createdAt: now,
+        updatedAt: now,
+      } as any);
+      await db.insert(organizationMembers).values({
+        organizationId: orgId,
+        userId,
+        role: 'OWNER',
+        status: 'ACTIVE',
+        joinedAt: now,
+        createdAt: now,
+        updatedAt: now,
+      } as any);
+      await db.insert(passwordCredentials).values({
+        userId,
+        algorithm: 'argon2id',
+        params: ARGON2_OPTIONS as unknown as Record<string, unknown>,
+        passwordHash,
+        createdAt: now,
+        updatedAt: now,
+      } as any);
+    } catch (e) {
+      throw registerConflict(e);
     }
-    throw e;
-  }
+
+    const minted = await mintSessionRow(db, userId, meta);
+    await db.update(users).set({ lastLoginAt: now }).where(eq(users.id, userId));
+    return minted;
   });
 
-  // Auto-login after registration.
+  // Cookies are published only after the unit of work committed: a failed
+  // commit must never leave the browser holding a session for an account that
+  // does not exist.
   const c = await cookieStore();
-  await createSessionForUser(userId, c, {
-    ip: meta?.ip,
-    userAgent: meta?.userAgent,
-  });
+  await publishSession(c, material);
 
   return { userId, organizationId: orgId };
 }
@@ -566,7 +649,7 @@ export async function login(input: {
 
   // Credential verification, login-attempt accounting and session creation all
   // happen inside one SYSTEM scope, on one connection, transaction-locally.
-  await withSystemScope(async (db) => {
+  const material = await withSystemScope(async (db) => {
   const sql = getSql();
 
   const row = await db
@@ -596,11 +679,16 @@ export async function login(input: {
     throw new AuthError('INVALID_CREDENTIALS', 'Invalid email or password.', 401);
   }
 
-  await createSessionForUser(userId!, c, {
+  const minted = await mintSessionRow(db, userId!, {
     ip: input.ip,
     userAgent: input.userAgent,
   });
+  await db.update(users).set({ lastLoginAt: new Date() }).where(eq(users.id, userId!));
+  return minted;
   });
+
+  // Publish only after the session row committed (H-4, same rule as register).
+  await publishSession(c, material);
 }
 
 // ---------------------- Password reset ----------------------
@@ -678,7 +766,15 @@ export async function resetPassword(token: string, newPassword: string): Promise
     .update(passwordCredentials)
     .set({ passwordHash: newHash, updatedAt: new Date() } as any)
     .where(eq(passwordCredentials.userId, resetUserId));
-  await sql`UPDATE password_resets SET consumed_at = now() WHERE id = ${resetId}::uuid`;
+  // Consuming a token ends the WHOLE outstanding reset family for this user
+  // (H-4/F5). Retiring only the presented row left every sibling token usable,
+  // so a token captured before the reset — or minted in the same request burst —
+  // remained a working takeover path after the password had been changed.
+  await sql`
+    UPDATE password_resets
+       SET consumed_at = now()
+     WHERE consumed_at IS NULL
+       AND (id = ${resetId}::uuid OR user_id = ${resetUserId}::uuid)`;
   // Revoke all sessions (password reset = security event).
   await db
     .update(sessionsTable)
@@ -712,8 +808,16 @@ export async function changePassword(
     .update(passwordCredentials)
     .set({ passwordHash: newHash, updatedAt: new Date() } as any)
     .where(eq(passwordCredentials.userId, session.user.id));
-  // Revoke other sessions (keep current).
   const sql = getSql();
+  // An authenticated password change retires outstanding reset tokens (H-4/F5):
+  // a reset link captured earlier must not stay a working takeover path just
+  // because the owner changed the password themselves.
+  await sql`
+    UPDATE password_resets
+       SET consumed_at = now()
+     WHERE user_id = ${session.user.id}::uuid
+       AND consumed_at IS NULL`;
+  // Revoke other sessions (keep current).
   await sql`
     UPDATE sessions
        SET revoked_at = now(), revoked_reason = 'password_change'
@@ -736,16 +840,11 @@ export async function switchOrganization(
     throw new AuthError('NOT_MEMBER', 'You are not a member of that organization.', 403);
   }
   const c = await cookieStore();
-  const exp = new Date(Date.now() + SESSION_TTL_MS);
-  c.set({
-    name: 'sc_org',
-    value: targetOrgId,
-    path: '/',
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
-    expires: exp,
-  });
+  // The active-org cookie is a SIGNED preference (H-4/F10). Writing the raw
+  // org id here produced a value `verifyActiveOrgCookie()` can never accept, so
+  // the switch was silently ignored and the caller got back a session still
+  // pointing at the previous organization.
+  c.set({ ...activeOrgCookieOptions(signActiveOrgCookie(targetOrgId, session.user.id)) });
   // No context is established here: the refreshed session read below runs in
   // its own SYSTEM scope, and request handlers establish tenant scope through
   // withTenant()/withAuthorizedRoute().

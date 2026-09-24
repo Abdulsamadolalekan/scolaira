@@ -10,9 +10,11 @@
  * M5 scope — we keep the interaction flat and obvious).
  */
 import type { Metadata } from 'next';
+import { cookies } from 'next/headers';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { getSession, clearContext } from '@/lib/auth';
+import { CSRF_COOKIE_NAME } from '@/lib/auth/config';
 import { AppShell } from '@/components/ui/app-shell';
 import type { IconKey } from '@/components/ui/app-shell';
 
@@ -87,6 +89,7 @@ export default async function AuthedLayout({ children }: { children: React.React
       }}
       nav={buildNav(activeOrg?.role)}
       sessionAction="/api/auth/logout"
+      csrfToken={(await cookies()).get(CSRF_COOKIE_NAME)?.value ?? null}
     >
       {/* Accessibility: a live region for future toasts/announcements. */}
       <div role="status" aria-live="polite" className="sr-only" />

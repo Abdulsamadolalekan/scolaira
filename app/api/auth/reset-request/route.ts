@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { requestPasswordReset, AuthError, clearContext } from '@/lib/auth';
+import { clientIpFor } from '@/lib/http/client-ip';
 
 export const runtime = 'nodejs';
 
@@ -22,7 +23,9 @@ export async function POST(request: Request) {
   const parsed = bodySchema.safeParse(body);
   if (!parsed.success) return NextResponse.json({ error: { code: 'VALIDATION', message: 'Invalid email' } }, { status: 400 });
   try {
-    const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? undefined;
+    // H-4/F9: the reset limiter is keyed per email, but the IP recorded on the
+    // token row must still come from the declared proxy topology.
+    const ip = clientIpFor(request);
     const userAgent = request.headers.get('user-agent') ?? undefined;
     const result = await requestPasswordReset(parsed.data.email, { ip, userAgent });
 

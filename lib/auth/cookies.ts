@@ -17,7 +17,7 @@
  */
 import 'server-only';
 import crypto from 'node:crypto';
-import { SESSION_SECRETS, SESSION_COOKIE_NAME, CSRF_COOKIE_NAME, COOKIE_PATH, IS_PRODUCTION, COOKIE_SAMESITE } from './config';
+import { SESSION_SECRETS, SESSION_COOKIE_NAME, CSRF_COOKIE_NAME, ACTIVE_ORG_COOKIE_NAME, SESSION_TTL_MS, COOKIE_PATH, IS_PRODUCTION, COOKIE_SAMESITE } from './config';
 import type { ResponseCookie } from 'next/dist/compiled/@edge-runtime/cookies';
 
 const SESSION_PREFIX = Buffer.from('scolaira.session\0', 'utf-8');
@@ -142,6 +142,29 @@ export function csrfCookieOptions(expiresAt: Date): ResponseCookie {
     sameSite: COOKIE_SAMESITE,
     path: COOKIE_PATH,
     expires: expiresAt,
+  };
+}
+
+/**
+ * Options for the signed active-organization cookie.
+ *
+ * ONE writer for this cookie (H-4): the switcher route and the auth module's
+ * `switchOrganization()` both go through here, so the value can never be
+ * written unsigned again — an unsigned `sc_org` is rejected by
+ * `verifyActiveOrgCookie()` and the switch would be silently ignored.
+ *
+ * Not HttpOnly by design (the org switcher sets it from JS); it is a signed
+ * preference, never an authority source — the server re-validates membership.
+ */
+export function activeOrgCookieOptions(signedValue: string): ResponseCookie {
+  return {
+    name: ACTIVE_ORG_COOKIE_NAME,
+    value: signedValue,
+    httpOnly: false,
+    secure: IS_PRODUCTION,
+    sameSite: COOKIE_SAMESITE,
+    path: COOKIE_PATH,
+    maxAge: Math.floor(SESSION_TTL_MS / 1000),
   };
 }
 

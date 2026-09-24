@@ -50,6 +50,8 @@ interface AppShellProps {
   org: { name: string; role: string | null; switcherHref: string | null };
   nav: NavSection[];
   sessionAction: string;
+  /** Double-submit CSRF token for the no-JS sign-out form (H-4/F7). */
+  csrfToken?: string | null;
   children: React.ReactNode;
 }
 
@@ -60,7 +62,7 @@ const ROLE_LABEL: Record<string, string> = {
   STAFF: 'Staff',
 };
 
-export function AppShell({ user, org, nav, sessionAction, children }: AppShellProps) {
+export function AppShell({ user, org, nav, sessionAction, csrfToken, children }: AppShellProps) {
   const pathname = usePathname();
   const roleLabel = org.role ? (ROLE_LABEL[org.role] ?? org.role) : null;
 
@@ -250,6 +252,9 @@ export function AppShell({ user, org, nav, sessionAction, children }: AppShellPr
             </div>
           </div>
           <form action={sessionAction} method="post">
+            {/* The same double-submit token the fetch callers send as a
+                header; keeps sign-out working without JavaScript. */}
+            <input type="hidden" name="_csrf" value={csrfToken ?? ''} />
             <button
               type="submit"
               title="Sign out"

@@ -83,6 +83,8 @@ type CallInit = {
   path?: string;
   csrf?: boolean;
   body?: unknown;
+  /** urlencoded form body (no-JS form posts, e.g. the sign-out form). */
+  formBody?: Record<string, string>;
   headers?: HeadersInit;
   args?: unknown[]; // extra positional args forwarded to the handler (e.g. { params })
 };
@@ -124,8 +126,9 @@ export async function call(
   try { await sql.unsafe(`SAVEPOINT ${spName}`); } catch { /* not in a txn */ }
 
   const headers = new Headers(init.headers ?? {});
-  headers.set('content-type', 'application/json');
-  headers.set('user-agent', 'scolaira-test/1.0');
+  headers.set('content-type', init.formBody ? 'application/x-www-form-urlencoded' : 'application/json');
+  // Caller-supplied headers win (tests pin specific user agents / proxies).
+  if (!headers.has('user-agent')) headers.set('user-agent', 'scolaira-test/1.0');
   const cookieHeader = jar.toCookieHeader();
   if (cookieHeader) headers.set('cookie', cookieHeader);
   if (init.csrf) {
@@ -139,7 +142,9 @@ export async function call(
   const req = new Request(`http://test.local${init.path ?? '/'}`, {
     method: init.method ?? 'GET',
     headers,
-    body: init.body !== undefined ? JSON.stringify(init.body) as BodyInit : undefined,
+    body: init.formBody
+      ? new URLSearchParams(init.formBody).toString()
+      : init.body !== undefined ? JSON.stringify(init.body) as BodyInit : undefined,
   });
   try {
     const res = init.args ? await handler(req, ...init.args) : await handler(req);

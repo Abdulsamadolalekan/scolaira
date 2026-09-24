@@ -210,6 +210,24 @@ Individually the medium findings are ordinary scale-up debt. Collectively, the c
 - **Remediation:** Wrap provisioning in one transaction; on failure roll back fully; make failure messages actionable.
 - **Pilot requirement:** Required — onboarding is the pilot's first interaction.
 - **ADQ requirement:** Failure-injection evidence.
+> **H-4 status (closed 2026-09-24) — CLOSED, PROVEN (one residual recorded).** Measured first,
+> then fixed: registration is now one unit of work (account, school, membership, credential **and
+> the auto-login session**), conflicts are reported as `409 EMAIL_TAKEN` / `SLUG_TAKEN` instead of a
+> 500, failure messages are actionable, and failure injection — at the session insert and again at
+> the last provisioning insert — leaves zero rows and frees the email/slug. The same pass closed the
+> lifecycle findings measured alongside it: reset-token families are retired on consume and on an
+> authenticated password change, `/api/auth/logout` requires CSRF while the no-JS sign-out form keeps
+> working, auth endpoints no longer echo internal error text, rate-limit identity comes from the
+> declared proxy topology instead of a spoofable header, and `switchOrganization()` writes a
+> verifiable signed cookie. Evidence: `tests/auth/h4-lifecycle.test.ts` (12), 
+> `tests/auth/h4-independent-reaudit.test.ts` (8), `e2e/h4-signout.spec.ts`, root regression
+> 46 files / 544 tests, closeout `docs/readiness/H4_AUTH_LIFECYCLE_CLOSEOUT.md`.
+> **Residual (open, not closed by H-4):** the identity-visibility door — a bare
+> `app.auth_bootstrap='1'` / `app.user_id` GUC, self-asserted by the runtime role, still yields
+> read/write on the identity tables, and `auth_enter_system_context()` remains app-callable. It is
+> M4-declared, strictly dominated by that SECDEF, and requires the register/login/reset units of
+> work to move behind DB-side entrypoints; see `docs/readiness/H4_SCOPE_MAP.md` §3 and the closeout
+> §2. No migration was needed for H-4 (journal unchanged at 48).
 
 ### H-5 — Auth-module context cleanup and reset-token critical section
 - **Severity:** High · **Location:** `lib/auth/index.ts:199-290, 293-320, 644-692`; `app/api/auth/logout/route.ts:6-21`

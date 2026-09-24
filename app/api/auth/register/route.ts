@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { register, AuthError } from '@/lib/auth';
+import { clientIpFor } from '@/lib/http/client-ip';
 
 export const runtime = 'nodejs';
 
@@ -25,9 +26,11 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: { code: 'VALIDATION', message: 'Invalid request', details: parsed.error.flatten() } }, { status: 400 });
   }
   try {
-    const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? null;
+    // H-4/F9: the rate-limit identity comes from the declared proxy topology,
+    // never from a header the caller can choose.
+    const ip = clientIpFor(request);
     const userAgent = request.headers.get('user-agent') ?? null;
-    const result = await register(parsed.data, { ip: ip ?? undefined, userAgent: userAgent ?? undefined });
+    const result = await register(parsed.data, { ip, userAgent: userAgent ?? undefined });
     return NextResponse.json({ ok: true, organizationId: result.organizationId }, { status: 201 });
   } catch (e) {
     if (e instanceof AuthError) {

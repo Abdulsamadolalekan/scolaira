@@ -25,6 +25,17 @@
 | 429  | RATE_LIMITED         | Too many requests; `Retry-After` header present.                                                          |
 | 500  | INTERNAL_ERROR       | Unexpected error; logged with request id.                                                                 |
 
+**H-4 additions (auth lifecycle).** `EMAIL_TAKEN`, `SLUG_TAKEN` and `CONFLICT` are the
+registration refusals: a signup whose email or school address already exists is refused
+`409` with the offending field named, and never with the constraint name, SQLSTATE or any
+other internal detail. `RESET_INVALID` (unknown, already used, or retired because a sibling
+token was consumed or the password was changed) and `RESET_EXPIRED` are the password-reset
+refusals. `CSRF_MISSING` / `CSRF_INVALID` (`403`) are also returned by `POST /api/auth/logout`,
+which accepts the double-submit token either as `x-csrf-token` or as a `_csrf` form field, so
+the app-shell sign-out form keeps working without JavaScript. A failed registration leaves
+**no** rows behind (account, school, membership, credential and session commit or roll back
+together) and publishes no cookies.
+
 **H-2 additions.** `PERIOD_OVERLAP`, `PERIOD_HAS_UNRESOLVED_PAYMENTS`,
 `PERIOD_HAS_UNALLOCATED_PAYMENTS` travel in the normal error envelope
 (`{error:{code,message,details}}`), so a caller branches on the reason instead of parsing
@@ -43,6 +54,19 @@ prose; the measured counts ride in `details`. A malformed pagination cursor is
 | POST   | `/api/auth/forgot-password` | Request reset email.                       | public (rate-limited) |
 | POST   | `/api/auth/reset-password`  | Consume reset token & set new password.    | public                |
 | GET    | `/api/auth/me`              | Current user + memberships.                | authenticated         |
+
+#### A.1 Authentication lifecycle contract (H-4)
+
+| Concern | Contract |
+| ------- | -------- |
+| Registration atomicity | `POST /api/auth/register` is one unit of work: user, organization, OWNER membership, credential **and the auto-login session** commit or roll back together. On failure nothing is created, the email/slug stay free, no session cookie is set, and the caller gets an actionable error. |
+| Registration conflicts | `409 EMAIL_TAKEN` / `409 SLUG_TAKEN` (column identified from the database's own constraint/key names — never from user-supplied values); any other uniqueness collision is `409 CONFLICT`. Retrying a successful signup is refused with the same codes and creates no second account. |
+| Auto-login failure paths | A failure while minting the session rolls the whole registration back; cookies are published only after the transaction commits, so a rolled-back session can never reach the browser. |
+| Password reset lifecycle | Consuming a token retires **all** outstanding tokens for that user, revokes every session, and refuses reuse with `RESET_INVALID`; an authenticated password change retires outstanding reset tokens as well. Expired tokens answer `RESET_EXPIRED` and cannot retire a live sibling. |
+| Session/logout lifecycle | `POST /api/auth/logout` revokes the presented session and clears the session, CSRF and active-org cookies. CSRF is required when a valid session cookie is presented; a request with no session is a no-op that clears cookies. |
+| Rate-limit identity | Client identity for the public auth endpoints is derived by `lib/http/client-ip.ts`: `x-forwarded-for` is **ignored** unless the deployment sets `TRUSTED_PROXY_HOPS=n` (n ≥ 1), in which case the n-th entry from the right is used. Unset/0 ⇒ one shared bucket (`unknown`) and a null client address in audit rows — fail-closed by design, never attacker-chosen. |
+| Active organization | The `sc_org` cookie is a signed preference (bound to the user id), never an authority source: membership is re-validated on every request, and an unsigned or tampered value is ignored. |
+| Error disclosure | Auth endpoints never echo internal error text, SQLSTATEs, constraint/index names or stack frames. Internal detail is logged server-side only. |
 
 ### B. Organization / Onboarding (`/api/orgs*`, `/api/onboarding*`)
 
