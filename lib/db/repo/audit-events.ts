@@ -8,6 +8,7 @@
 import { eq, and, desc, sql } from 'drizzle-orm';
 import { auditEvents } from '../schema';
 import type { TenantCtx, TenantScopedDb, UUID } from './_context';
+import { SURFACE_LIMITS, assertCursorKeys, decodeCursor, encodeCursor, sortKeyUs } from './pagination';
 import type { auditActorTypeEnum } from '../schema/enums';
 
 export type AuditEvent = typeof auditEvents.$inferSelect;
@@ -55,6 +56,60 @@ export async function record(
     })
     .returning();
   return rows[0]!;
+}
+
+/**
+ * H-2/M-6 — the same history, with a declared window.
+ *
+ * Entity history is embedded in detail payloads (case threads, payment detail),
+ * so it is a list surface like any other: it reports how many rows exist and
+ * whether the client is looking at a truncated view. `total` is a cheap count on
+ * the same (org, entity) filter the rows use.
+ */
+export async function listForEntityPage(
+  db: TenantScopedDb,
+  ctx: TenantCtx,
+  entityType: string,
+  entityId: UUID,
+  window: { limit: number; cursor?: string | null } = { limit: 50 },
+): Promise<{ rows: AuditEvent[]; total: number; hasMore: boolean; nextCursor: string | null }> {
+  const limit = Math.min(Math.max(window.limit, 1), 100);
+  const after = window.cursor ? decodeCursor(SURFACE_LIMITS.audit.surface, window.cursor) : null;
+  const predicates = [
+    eq(auditEvents.organizationId, ctx.organizationId),
+    eq(auditEvents.entityType, entityType),
+    eq(auditEvents.entityId, entityId),
+  ] as any[];
+  const sortUs = sortKeyUs(auditEvents.createdAt);
+  assertCursorKeys(after, ['bigint', 'uuid']);
+  if (after) {
+    predicates.push(
+      sql`(${sortUs} < ${after[0]}::bigint
+        OR (${sortUs} = ${after[0]}::bigint AND ${auditEvents.id} < ${after[1]}::uuid))`,
+    );
+  }
+  const countRows = await db
+    .select({ n: sql<number>`count(*)::int` })
+    .from(auditEvents)
+    .where(and(...predicates.slice(0, 3)));
+  const rows = await db
+    .select({ event: auditEvents, sortUs: sql<string>`${sortUs}` })
+    .from(auditEvents)
+    .where(and(...predicates))
+    .orderBy(sql`${sortUs} desc, ${auditEvents.id} desc`)
+    .limit(limit + 1);
+  const hasMore = rows.length > limit;
+  const page = rows.slice(0, limit);
+  const last = (page[page.length - 1] as any) ?? null;
+  return {
+    rows: page.map((r: any) => r.event as AuditEvent),
+    total: Number(countRows[0]?.n ?? 0),
+    hasMore,
+    nextCursor:
+      hasMore && last
+        ? encodeCursor(SURFACE_LIMITS.audit.surface, [String(last.sortUs), String(last.event.id)])
+        : null,
+  };
 }
 
 export async function listForEntity(

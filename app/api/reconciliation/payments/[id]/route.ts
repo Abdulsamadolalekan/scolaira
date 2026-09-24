@@ -114,15 +114,26 @@ export const GET = withAuthorizedRoute(
       )
       .orderBy(desc(paymentAllocations.allocatedAt), desc(paymentAllocations.id));
 
+    // H-2/M-6: this payload merges the payment's own history with every case
+    // thread's history and shows the newest 100. That merge is a capped list, so
+    // it now reports how many events exist across its sources and how many
+    // sources were themselves truncated — instead of looking complete.
+    const AUDIT_MERGE_LIMIT = 100;
     const [paymentAudit, caseAudits] = await Promise.all([
-      auditRepo.listForEntity(db, ctx, 'payment', id as UUID, 50),
+      auditRepo.listForEntityPage(db, ctx, 'payment', id as UUID, { limit: 100 }),
       Promise.all(
-        caseRows.map((row) => auditRepo.listForEntity(db, ctx, 'reconciliation_case', row.id, 50)),
+        caseRows.map((row) =>
+          auditRepo.listForEntityPage(db, ctx, 'reconciliation_case', row.id, { limit: 100 }),
+        ),
       ),
     ]);
-    const audit = [...paymentAudit, ...caseAudits.flat()]
+    const auditSources = [paymentAudit, ...caseAudits];
+    const audit = auditSources
+      .flatMap((source) => source.rows)
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-      .slice(0, 100);
+      .slice(0, AUDIT_MERGE_LIMIT);
+    const auditTotal = auditSources.reduce((sum, source) => sum + source.total, 0);
+    const auditTruncatedSources = auditSources.filter((source) => source.hasMore).length;
 
     return NextResponse.json({
       payment: {
@@ -131,6 +142,13 @@ export const GET = withAuthorizedRoute(
         unallocatedKobo: Number(payment.unallocatedKobo),
         paidAt: payment.paidAt ? new Date(payment.paidAt).toISOString() : null,
         createdAt: new Date(payment.createdAt).toISOString(),
+      },
+      auditPage: {
+        limit: AUDIT_MERGE_LIMIT,
+        returned: audit.length,
+        total: auditTotal,
+        hasMore: auditSources.some((source) => source.hasMore) || auditTotal > audit.length,
+        truncatedSources: auditTruncatedSources,
       },
       reconciliation: caseRow
         ? {

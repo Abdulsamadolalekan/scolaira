@@ -15,6 +15,7 @@ import * as payRepo from '@/lib/db/repo/payments';
 import * as invRepo from '@/lib/db/repo/invoices';
 import * as allocRepo from '@/lib/db/repo/payment-allocations';
 import * as auditRepo from '@/lib/db/repo/audit-events';
+import { SURFACE_LIMITS, assertCursorKeys, decodeCursor, encodeCursor, pageMeta, resolveLimit, sortKeyUs } from '@/lib/db/repo/pagination';
 import * as reconciliationRepo from '@/lib/db/repo/reconciliation';
 import { begin as beginIdempotency, complete as completeIdempotency } from '@/lib/m9/idempotency';
 import { sqlState } from '@/lib/db/pg-error';
@@ -71,10 +72,36 @@ export const GET = withAuthorizedRoute(
   async (req, { db, ctx }) => {
     const url = new URL(req.url);
     const status = url.searchParams.get('status');
+    const surface = SURFACE_LIMITS.payments;
+    const limit = resolveLimit(surface, url.searchParams.get('limit'));
+    const cursor = url.searchParams.get('cursor');
+    const after = cursor ? decodeCursor(surface.surface, cursor) : null;
+    const validStatus =
+      status && ['PENDING','CONFIRMED','DUPLICATE_SUSPECT','REVERSED','REFUNDED','FAILED','REJECTED'].includes(status)
+        ? status
+        : null;
     const where = [eq(payments.organizationId, ctx.organizationId)] as any[];
-    if (status && ['PENDING','CONFIRMED','DUPLICATE_SUSPECT','REVERSED','REFUNDED','FAILED','REJECTED'].includes(status)) {
-      where.push(eq(payments.status, status as any));
+    if (validStatus) {
+      where.push(eq(payments.status, validStatus as any));
     }
+    // H-2/M-6: keyset pagination on the rendered ordering, plus the same-filter
+    // row count from the database (never `rows.length`). The cursor predicate
+    // is only added when a cursor exists — an empty fragment would leave a
+    // dangling `AND` in the WHERE clause.
+    const sortUs = sortKeyUs(sql`coalesce(${payments.paidAt}, ${payments.createdAt})`);
+    assertCursorKeys(after, ['bigint', 'uuid']);
+    const predicates = [...where];
+    if (after) {
+      predicates.push(sql`(
+            ${sortUs} < ${after[0]}::bigint
+            or (${sortUs} = ${after[0]}::bigint and ${payments.id} < ${after[1]}::uuid)
+      )` as any);
+    }
+    const countRows = await db
+      .select({ n: sql<number>`count(*)::int` })
+      .from(payments)
+      .where(and(...where));
+    const total = Number(countRows[0]?.n ?? 0);
 
     const rows = await db
       .select({
@@ -90,11 +117,12 @@ export const GET = withAuthorizedRoute(
         createdAt: payments.createdAt,
         allocCount: sql<number>`(select count(*) from payment_allocations pa where pa.payment_id = ${payments.id} and pa.status = 'ACTIVE')`,
         allocSum: sql<number>`coalesce((select sum(pa.amount_kobo) from payment_allocations pa where pa.payment_id = ${payments.id} and pa.status = 'ACTIVE'),0)`,
+        sortUs: sql<string>`${sortUs}`,
       })
       .from(payments)
-      .where(and(...where))
-      .orderBy(sql`coalesce(${payments.paidAt}, ${payments.createdAt}) desc`)
-      .limit(200);
+      .where(and(...predicates))
+      .orderBy(sql`${sortUs} desc, ${payments.id} desc`)
+      .limit(limit + 1);
 
     const result: PaymentRow[] = rows.map((r: any) => {
       const amount = Number(r.amountKobo) || 0;
@@ -121,7 +149,24 @@ export const GET = withAuthorizedRoute(
       };
     });
 
-    return NextResponse.json({ payments: result });
+    const hasMore = rows.length > limit;
+    const page = result.slice(0, limit);
+    const lastRow = (rows[limit - 1] ?? null) as any;
+    return NextResponse.json({
+      payments: page,
+      page: pageMeta({
+        surface,
+        limit,
+        returned: page.length,
+        total,
+        hasMore,
+        nextCursor:
+          hasMore && lastRow
+            ? encodeCursor(surface.surface, [String(lastRow.sortUs), String(lastRow.id)])
+            : null,
+      }),
+      asOf: new Date().toISOString(),
+    });
   },
 );
 

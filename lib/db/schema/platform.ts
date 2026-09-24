@@ -6,6 +6,7 @@ import {
   pgTable,
   text,
   varchar,
+  date,
   timestamp,
   jsonb,
   integer,
@@ -25,6 +26,7 @@ import {
   communicationStatusEnum,
   auditActorTypeEnum,
   webhookStatusEnum,
+  invoiceScopeEnum,
 } from './enums';
 
 // ---------- Payment Links ----------
@@ -188,3 +190,48 @@ export const communicationsRelations = relations(communications, ({ one }) => ({
     references: [organizations.id],
   }),
 }));
+
+// ---------- H-2: declared surface scope ------------------------------------
+
+/**
+ * The organization's declared invoice scope for headline figures. Absence of a
+ * row means the documented default (`ALL_TERM`); H-2 requires every payload to
+ * carry the effective scope and its human label, so a surface can never
+ * silently disagree with another one.
+ */
+export const surfaceScopeSettings = pgTable('surface_scope_settings', {
+  organizationId: uuid('organization_id')
+    .primaryKey()
+    .references(() => organizations.id, { onDelete: 'cascade' }),
+  invoiceScope: invoiceScopeEnum('invoice_scope').notNull().default('ALL_TERM'),
+  updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
+  updatedBy: uuid('updated_by').references(() => users.id),
+});
+
+// ---------- H-2: financial periods (term boundary) --------------------------
+
+/**
+ * A bounded, non-overlapping financial window. Closing it freezes the window
+ * (enforced by trigger) and records an as-of valuation derived from ledger
+ * timestamps, so the close evidence does not move as later money arrives.
+ */
+export const financialPeriods = pgTable(
+  'financial_periods',
+  {
+    id: pk(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    name: varchar('name', { length: 64 }).notNull(),
+    startsOn: date('starts_on').notNull(),
+    endsOn: date('ends_on').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
+    createdBy: uuid('created_by').references(() => users.id),
+    closedAt: timestamp('closed_at', { withTimezone: true, mode: 'date' }),
+    closedBy: uuid('closed_by').references(() => users.id),
+  },
+  (t) => ({
+    orgRangeIdx: index('financial_periods_org_range_idx').on(t.organizationId, t.startsOn, t.endsOn),
+    orgNameKey: uniqueIndex('financial_periods_org_name_key').on(t.organizationId, t.name),
+  }),
+);

@@ -84,6 +84,22 @@ async function run() {
     await sql`GRANT UPDATE (kind, state, previous_state, reason, resolution_code, resolution_note, resolved_by, resolved_at, closed_at, version) ON reconciliation_cases TO scolaira_app`;
     await sql`GRANT UPDATE (state, decided_by, decided_at) ON reconciliation_candidates TO scolaira_app`;
     await sql`REVOKE UPDATE, DELETE ON reconciliation_evidence FROM scolaira_app`;
+    // H-2: a financial period is boundary evidence and a scope setting is an
+    // audit trail; neither may be deleted by the runtime role. Re-applied here
+    // because the blanket DML grant above would otherwise restore DELETE on
+    // every table the migration created. `to_regclass`-guarded so the step is
+    // safe on a schema older than 0048.
+    await sql`
+      DO $$
+      BEGIN
+        IF to_regclass('public.financial_periods') IS NOT NULL THEN
+          EXECUTE 'REVOKE DELETE ON public.financial_periods FROM scolaira_app';
+        END IF;
+        IF to_regclass('public.surface_scope_settings') IS NOT NULL THEN
+          EXECUTE 'REVOKE DELETE ON public.surface_scope_settings FROM scolaira_app';
+        END IF;
+      END
+      $$`;
     // M11 collections cases are mutable only through workflow columns; their
     // history is append-only even after the broad post-migration grant.
     await sql`REVOKE DELETE, TRUNCATE, REFERENCES, TRIGGER ON collections_cases, collections_case_events FROM scolaira_app`;

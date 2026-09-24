@@ -23,18 +23,59 @@ import { NextResponse } from 'next/server';
 import { and, eq, gt, inArray, or, sql, desc } from 'drizzle-orm';
 import { withAuthorizedRoute } from '@/lib/authz';
 import * as termRepo from '@/lib/db/repo/terms';
+import * as scopingRepo from '@/lib/db/repo/scoping';
+import * as reminderRepo from '@/lib/db/repo/reminders';
+import * as aggregates from '@/lib/db/repo/aggregates';
+import { FOLLOWUP_THRESHOLDS, followupThresholdsPayload } from '@/lib/db/repo/staleness';
 import {
   invoices,
   payments,
   students,
   users,
-  paymentAllocations,
+  terms,
   reminders,
 } from '@/lib/db/schema';
 
 export type Summary = {
   termLabel: string;
   greetingName: string | null;
+  /**
+   * H-2: every payload declares the scope of the figures it carries. The
+   * headline scope is the organization's own choice; the queues below are
+   * all-term by definition and say so.
+   */
+  scope: {
+    kpis: {
+      scope: 'TERM' | 'ALL_TERM';
+      label: string;
+      isDefault: boolean;
+      setting: 'invoice_scope';
+      termId: string | null;
+      termName: string | null;
+      cutoverOn: string | null;
+      asOf: string;
+    };
+    activeStudents: { scope: 'ALL_TERM'; label: string };
+    queues: { scope: 'ALL_TERM'; label: string };
+  };
+  /** The exhaustive partition the headline is computed from. */
+  buckets: Array<{
+    key: 'CURRENT_TERM' | 'PRIOR_TERM' | 'OTHER_TERM';
+    label: string;
+    invoiceCount: number;
+    billedKobo: number;
+    collectedKobo: number;
+    outstandingKobo: number;
+    overdueKobo: number;
+    draftCount: number;
+  }>;
+  /** The boundaries this response classified against (M-7). */
+  thresholds: {
+    staleAfterDays: number;
+    unattendedAfterDays: number;
+    reminderCooldownHours: number;
+    severeAgingDays: number;
+  };
   kpis: {
     billedKobo: number;
     collectedKobo: number;
@@ -75,39 +116,42 @@ export const GET = withAuthorizedRoute(
   async (_req, { db, ctx, session }) => {
     const orgId = ctx.organizationId;
 
-    // Resolve the current term. If none is configured, KPIs fall back to zero
-    // for term figures (we do NOT silently fall back to all-time because that
-    // would mislead the proprietor).
+    // ---------- The declared scope (H-2) ----------
+    //
+    // Measured defect: the headline was term-scoped while every queue was
+    // all-term, and nothing in the payload said which convention applied, so the
+    // same word meant two different numbers on one screen. The scope is now
+    // DECLARED (organization setting, default ALL_TERM because arrear visibility
+    // is the safe default) and echoed in this response next to the figures.
     const currentTerm = await termRepo.getCurrent(db, ctx);
     const termId = currentTerm?.id ?? null;
+    const cutoverOn = currentTerm?.startsOn ?? null;
+    const scopeDecl = await scopingRepo.getInvoiceScopeDeclaration(db, ctx);
     const termLabel = currentTerm
       ? `${currentTerm.name} · Current term`
       : 'No current term configured';
 
-    // Term-scoped invoice predicates.
-    const inTerm = termId ? eq(invoices.termId, termId as any) : sql`false`;
-    const inTermAndIssued = termId
-      ? and(
-          eq(invoices.termId, termId as any),
-          inArray(invoices.status, ['ISSUED', 'PARTIALLY_PAID', 'PAID']),
-        )
-      : sql`false`;
+    // ---------- One classified source for every invoice figure ----------
+    //
+    // `auth_invoice_scope_buckets` classifies each invoice once, in SQL, into
+    // CURRENT_TERM / PRIOR_TERM / OTHER_TERM. The headline is the CURRENT bucket
+    // (scope TERM) or the sum of all three (scope ALL_TERM); both come from the
+    // same classified rows, so the headline can never disagree with the buckets
+    // this response also carries. `sum(buckets) === headline` is the tie-back
+    // the H-2 reconciliation tests assert against source rows.
+    const buckets = await aggregates.invoiceBuckets(db, ctx, { id: termId, startsOn: cutoverOn });
+    const headline = aggregates.headlineForScope(buckets, scopeDecl.scope);
+    const allTermBuckets = aggregates.sumBuckets(buckets);
 
-    // ---------- Term-scoped KPIs ----------
     const reconciliationWork = or(
       eq(payments.status, 'PENDING'),
       eq(payments.status, 'DUPLICATE_SUSPECT'),
       and(eq(payments.status, 'CONFIRMED'), gt(payments.unallocatedKobo, 0)),
     );
-    const [[invAgg], [pendAgg], [stuAgg], [collectedAgg], [draftAgg]] = await Promise.all([
-      db
-        .select({
-          billed: sql<number>`coalesce(sum(${invoices.totalKobo}),0)`,
-          outstanding: sql<number>`coalesce(sum(case when ${invoices.status} in ('ISSUED','PARTIALLY_PAID') then ${invoices.totalKobo} - ${invoices.paidKobo} else 0 end),0)`,
-          overdue: sql<number>`coalesce(sum(case when ${invoices.status} in ('ISSUED','PARTIALLY_PAID') and ${invoices.dueDate} is not null and ${invoices.dueDate} < current_date then ${invoices.totalKobo} - ${invoices.paidKobo} else 0 end),0)`,
-        })
-        .from(invoices)
-        .where(and(eq(invoices.organizationId, orgId), inTermAndIssued)),
+
+    // Queues that are all-term BY DEFINITION (arrears, aging, reconciliation)
+    // keep their meaning; only the labelled invoice figures follow the scope.
+    const [[pendAgg], [stuAgg]] = await Promise.all([
       db
         .select({ count: sql<number>`count(*)` })
         .from(payments)
@@ -116,89 +160,72 @@ export const GET = withAuthorizedRoute(
         .select({ count: sql<number>`count(*)` })
         .from(students)
         .where(and(eq(students.organizationId, orgId), eq(students.status, 'ACTIVE'))),
-      // Collected against current-term invoices: sum ACTIVE allocations whose
-      // invoice belongs to the current term, where the payment is CONFIRMED.
-      // This is the most accurate definition: it correctly handles payments
-      // that partially cover multiple terms (only the current-term slice is
-      // counted) and excludes unallocated credit sitting on payments.
-      termId
-        ? db
-            .select({ collected: sql<number>`coalesce(sum(${paymentAllocations.amountKobo}),0)` })
-            .from(paymentAllocations)
-            .innerJoin(
-              invoices,
-              and(
-                eq(invoices.id, paymentAllocations.invoiceId),
-                eq(invoices.organizationId, paymentAllocations.organizationId),
-              ),
-            )
-            .innerJoin(
-              payments,
-              and(
-                eq(payments.id, paymentAllocations.paymentId),
-                eq(payments.organizationId, paymentAllocations.organizationId),
-              ),
-            )
-            .where(
-              and(
-                eq(invoices.organizationId, orgId),
-                eq(invoices.termId, termId as any),
-                eq(paymentAllocations.status, 'ACTIVE'),
-                eq(payments.status, 'CONFIRMED'),
-              ),
-            )
-        : Promise.resolve([{ collected: 0 }] as any),
-      db
-        .select({
-          count: sql<number>`coalesce(sum(case when ${invoices.status}='DRAFT' then 1 else 0 end),0)`,
-        })
-        .from(invoices)
-        .where(and(eq(invoices.organizationId, orgId), inTerm)),
     ]);
 
-    const inv = invAgg!;
-    const pay = collectedAgg!;
-    const pen = pendAgg!;
-    const stu = stuAgg!;
-    const dr = draftAgg!;
-    const billed = Number(inv.billed) || 0;
-    const collected = Number(pay.collected) || 0;
-    const outstanding = Number(inv.outstanding) || 0;
-    const overdue = Number(inv.overdue) || 0;
-    const unreconciled = Number(pen.count) || 0;
-    const activeStudents = Number(stu.count) || 0;
-    const drafts = Number(dr.count) || 0;
+    const billed = headline.totals.billedKobo;
+    const collected = headline.totals.collectedKobo;
+    const outstanding = headline.totals.outstandingKobo;
+    const overdue = headline.totals.overdueKobo;
+    const unreconciled = Number(pendAgg?.count) || 0;
+    const activeStudents = Number(stuAgg?.count) || 0;
+    const drafts = scopeDecl.scope === 'TERM' ? headline.current.draftCount : allTermBuckets.draftCount;
     const collectionRateBps = billed > 0 ? Math.round((collected * 10000) / billed) : 0;
 
     // ---------- Attention: top 3 overdue invoices (by outstanding balance, current term) ----------
     const overdueBal = sql<number>`${invoices.totalKobo} - ${invoices.paidKobo}`;
-    const overdueWhere = termId
-      ? and(
-          eq(invoices.organizationId, orgId),
-          eq(invoices.termId, termId as any),
-          inArray(invoices.status, ['ISSUED', 'PARTIALLY_PAID']),
-          sql`${invoices.dueDate} is not null and ${invoices.dueDate} < current_date`,
-          gt(overdueBal, 0),
-        )
-      : sql`false`;
-    const topOverdue = termId
-      ? await db
-          .select({
-            id: invoices.id,
-            invoiceNumber: invoices.invoiceNumber,
-            studentName:
-              sql<string>`trim(coalesce(${students.firstName},'') || ' ' || coalesce(${students.lastName},''))`.as(
-                'student_name',
-              ),
-            dueDate: invoices.dueDate,
-            balance: overdueBal.as('balance'),
-          })
-          .from(invoices)
-          .leftJoin(students, eq(students.id, invoices.studentId))
-          .where(overdueWhere)
-          .orderBy(desc(overdueBal))
-          .limit(3)
-      : ([] as any[]);
+    // The quick list follows the DECLARED scope: an all-term headline must not
+    // sit next to a this-term-only arrears list (that was the measured
+    // inconsistency). Each row carries its own classification label.
+    const overdueWhere =
+      scopeDecl.scope === 'TERM' && termId
+        ? and(
+            eq(invoices.organizationId, orgId),
+            eq(invoices.termId, termId as any),
+            inArray(invoices.status, ['ISSUED', 'PARTIALLY_PAID']),
+            sql`${invoices.dueDate} is not null and ${invoices.dueDate} < current_date`,
+            gt(overdueBal, 0),
+          )
+        : and(
+            eq(invoices.organizationId, orgId),
+            inArray(invoices.status, ['ISSUED', 'PARTIALLY_PAID']),
+            sql`${invoices.dueDate} is not null and ${invoices.dueDate} < current_date`,
+            gt(overdueBal, 0),
+          );
+    const topOverdueRows = await db
+      .select({
+        id: invoices.id,
+        invoiceNumber: invoices.invoiceNumber,
+        studentName:
+          sql<string>`trim(coalesce(${students.firstName},'') || ' ' || coalesce(${students.lastName},''))`.as(
+            'student_name',
+          ),
+        dueDate: invoices.dueDate,
+        balance: overdueBal.as('balance'),
+        termName: terms.name,
+        termId: invoices.termId,
+      })
+      .from(invoices)
+      .leftJoin(students, eq(students.id, invoices.studentId))
+      .leftJoin(terms, eq(terms.id, invoices.termId))
+      .where(overdueWhere)
+      .orderBy(desc(overdueBal))
+      .limit(3);
+    const topOverdue = topOverdueRows.map((r: any) => {
+      const scopeClass = aggregates.classifyInvoiceScope(
+        { termId: r.termId ?? null, dueDate: r.dueDate ?? null },
+        { termId, cutoverOn },
+      );
+      return {
+        id: r.id,
+        invoiceNumber: r.invoiceNumber,
+        studentName: r.studentName,
+        dueDate: r.dueDate,
+        balance: r.balance,
+        termName: r.termName ?? null,
+        scopeClass,
+        scopeLabel: aggregates.BUCKET_LABELS[scopeClass],
+      };
+    });
 
     // ---------- Attention: aging summary — severe debtors and stale follow-up ----------
     const [[severeAgg], [overdueAgg]] = await Promise.all([
@@ -214,7 +241,7 @@ export const GET = withAuthorizedRoute(
           reminders,
           and(
             eq(reminders.studentId, invoices.studentId),
-            sql`${reminders.createdAt} > current_timestamp - interval '14 days'`,
+            sql`${reminders.createdAt} > current_timestamp - make_interval(days => ${FOLLOWUP_THRESHOLDS.unattendedAfterDays})`,
           ),
         )
         .where(
@@ -236,7 +263,7 @@ export const GET = withAuthorizedRoute(
           reminders,
           and(
             eq(reminders.studentId, invoices.studentId),
-            sql`${reminders.createdAt} > current_timestamp - interval '7 days'`,
+            sql`${reminders.createdAt} > current_timestamp - make_interval(days => ${FOLLOWUP_THRESHOLDS.staleAfterDays})`,
           ),
         )
         .where(
@@ -410,11 +437,11 @@ export const GET = withAuthorizedRoute(
         id: 'severe-aging',
         kind: 'aging_summary',
         severity: 'danger',
-        title: `${severeCount} student${severeCount === 1 ? '' : 's'} 90+ days overdue — ${fmt(severeKobo)} at risk`,
+        title: `${severeCount} student${severeCount === 1 ? '' : 's'} ${reminderRepo.AGING_THRESHOLDS.severeAgingDays}+ days overdue — ${fmt(severeKobo)} at risk`,
         meta:
           noReminderCount > 0
-            ? `${noReminderCount} have not received a reminder in the last 14 days. Open Debtors to follow up.`
-            : 'All severe accounts have been reminded recently; review next steps.',
+            ? `${noReminderCount} have not received a reminder in the last ${FOLLOWUP_THRESHOLDS.unattendedAfterDays} days. Open Debtors to follow up. All figures here cover every term.`
+            : `All severe accounts have been reminded within ${FOLLOWUP_THRESHOLDS.unattendedAfterDays} days; review next steps. Figures cover every term.`,
         href: '/debtors',
       });
     }
@@ -429,7 +456,7 @@ export const GET = withAuthorizedRoute(
         kind: 'overdue_invoice',
         severity: days > 60 ? 'danger' : 'warning',
         title: `${inv.studentName || 'A student'} — ${fmt(Number(inv.balance) || 0)} past due`,
-        meta: `${inv.invoiceNumber} · ${days} day${days === 1 ? '' : 's'} overdue`,
+        meta: `${inv.invoiceNumber} · ${days} day${days === 1 ? '' : 's'} overdue · ${inv.scopeLabel ?? ''}`.trim(),
         href: `/invoices/${inv.id}`,
       });
     }
@@ -439,8 +466,8 @@ export const GET = withAuthorizedRoute(
         id: 'stale-followup',
         kind: 'stale_followup',
         severity: overdueCount > 5 ? 'warning' : 'info',
-        title: `${staleCount} overdue student${staleCount === 1 ? '' : 's'} have not been reminded this week`,
-        meta: 'A one-click printable reminder is available from Debtors.',
+        title: `${staleCount} overdue student${staleCount === 1 ? '' : 's'} have had no reminder in ${FOLLOWUP_THRESHOLDS.staleAfterDays} days`,
+        meta: 'A one-click printable reminder is available from Debtors. Figures cover every term.',
         href: '/debtors',
       });
     }
@@ -491,6 +518,40 @@ export const GET = withAuthorizedRoute(
         unreconciledPayments: unreconciled,
         activeStudents,
         collectionRateBps,
+      },
+      scope: {
+        kpis: {
+          scope: scopeDecl.scope,
+          label: scopeDecl.label,
+          isDefault: scopeDecl.isDefault,
+          setting: scopeDecl.setting,
+          termId: scopeDecl.termId,
+          termName: scopeDecl.termName,
+          cutoverOn: scopeDecl.cutoverOn,
+          asOf: scopeDecl.asOf,
+        },
+        activeStudents: {
+          scope: 'ALL_TERM',
+          label: 'Active students — every term',
+        },
+        queues: {
+          scope: 'ALL_TERM',
+          label: 'Arrears, aging and reconciliation cover every term',
+        },
+      },
+      buckets: buckets.map((b) => ({
+        key: b.bucket,
+        label: aggregates.BUCKET_LABELS[b.bucket],
+        invoiceCount: b.invoiceCount,
+        billedKobo: b.billedKobo,
+        collectedKobo: b.collectedKobo,
+        outstandingKobo: b.outstandingKobo,
+        overdueKobo: b.overdueKobo,
+        draftCount: b.draftCount,
+      })),
+      thresholds: {
+        ...followupThresholdsPayload(),
+        severeAgingDays: reminderRepo.AGING_THRESHOLDS.severeAgingDays,
       },
       attention,
       activity,

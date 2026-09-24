@@ -6,15 +6,24 @@
  * it has been owed, and what follow-up has already happened.
  */
 import { NextResponse } from 'next/server';
-import { and, eq, inArray, sql, desc } from 'drizzle-orm';
+import { z } from 'zod';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import { withAuthorizedRoute } from '@/lib/authz';
-import { invoices, students, reminders } from '@/lib/db/schema';
+import { invoices, students } from '@/lib/db/schema';
+import * as reminderRepo from '@/lib/db/repo/reminders';
+import { SURFACE_LIMITS } from '@/lib/db/repo/pagination';
+import { classifyReminderStaleness, followupThresholdsPayload } from '@/lib/db/repo/staleness';
 
 export const runtime = 'nodejs';
 
+const QuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).optional(),
+  cursor: z.string().trim().min(1).max(512).optional(),
+});
+
 export const GET = withAuthorizedRoute(
-  { action: 'debtor.read', method: 'GET' },
-  async (_req, { db, ctx }, routeParams) => {
+  { action: 'debtor.read', method: 'GET', querySchema: QuerySchema },
+  async (_req, { db, ctx, query }, routeParams) => {
     const { studentId } = await (routeParams as { params: Promise<{ studentId: string }> }).params;
     const stuRows = await db.select({
       id: students.id,
@@ -47,21 +56,15 @@ export const GET = withAuthorizedRoute(
     ))
     .orderBy(invoices.dueDate);
 
-    const rem = await db.select({
-      id: reminders.id,
-      channel: reminders.channel,
-      status: reminders.status,
-      balanceKobo: reminders.balanceKobo,
-      agingBucket: reminders.agingBucket,
-      sentAt: reminders.sentAt,
-      createdAt: reminders.createdAt,
-    })
-    .from(reminders)
-    .where(and(
-      eq(reminders.studentId, studentId as any),
-    ))
-    .orderBy(desc(reminders.createdAt))
-    .limit(15);
+    // H-2/M-6: this was a silent `.limit(15)`. The history now declares its
+    // window and its total, and classifies each reminder against the shared
+    // staleness thresholds (M-7) so the detail view and the workbench agree.
+    const filters = (query ?? {}) as z.infer<typeof QuerySchema>;
+    const rem = await reminderRepo.listForStudentPage(db, ctx, studentId as any, {
+      limit: filters.limit ?? SURFACE_LIMITS.studentReminders.defaultLimit,
+      cursor: filters.cursor ?? null,
+    });
+    const now = new Date();
 
     const open = inv.filter((i: any) => i.status !== 'PAID' && Number(i.totalKobo) - Number(i.paidKobo) > 0);
     return NextResponse.json({
@@ -79,15 +82,36 @@ export const GET = withAuthorizedRoute(
         status: i.status,
         daysOverdue: Number(i.daysOverdue),
       })),
-      reminders: rem.map((r: any) => ({
-        id: r.id,
-        channel: r.channel,
-        status: r.status,
-        balanceKobo: Number(r.balanceKobo),
-        agingBucket: r.agingBucket,
-        sentAt: r.sentAt,
-        createdAt: r.createdAt,
-      })),
+      reminders: rem.rows.map((r: any) => {
+        const verdict = classifyReminderStaleness(r.createdAt, now);
+        return {
+          id: r.id,
+          channel: r.channel,
+          status: r.status,
+          balanceKobo: Number(r.balanceKobo),
+          agingBucket: r.agingBucket,
+          sentAt: r.sentAt,
+          createdAt: r.createdAt,
+          reminderStaleness: verdict.staleness,
+          daysSinceReminder: verdict.daysSinceReminder,
+        };
+      }),
+      remindersPage: {
+        surface: SURFACE_LIMITS.studentReminders.surface,
+        limit: rem.limit,
+        cap: SURFACE_LIMITS.studentReminders.cap,
+        returned: rem.rows.length,
+        total: rem.total,
+        hasMore: rem.hasMore,
+        nextCursor: rem.nextCursor,
+      },
+      thresholds: followupThresholdsPayload(),
+      scope: {
+        scope: 'ALL_TERM',
+        label: 'Every term — a student balance is not a term opinion',
+      },
+      // Computed from every invoice this student has (the list above is not
+      // capped), so these three figures are source-complete by construction.
       summary: {
         outstandingKobo: open.reduce((s: number, i: any) => s + Math.max(0, Number(i.totalKobo) - Number(i.paidKobo)), 0),
         overdueKobo: open.reduce((s: number, i: any) => s + (i.dueDate && new Date(i.dueDate) < new Date() ? Math.max(0, Number(i.totalKobo) - Number(i.paidKobo)) : 0), 0),

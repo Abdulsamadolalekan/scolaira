@@ -632,16 +632,32 @@ describe('R1 C-2 — schema-level guarantees', () => {
   });
 
   it('the self-audit helper reports the number of composite constraints actually present', async () => {
+    // The helper counts by the convention R1 introduced: every tenant table
+    // carries an `*__org_fkey` cascade to organizations(). (It is NOT the same
+    // set as "FKs whose parent side includes organization_id" — that is the
+    // tenant→tenant composite counterpart set, asserted on its own below, and
+    // the two counts only coincided before H-2 added two more tenant tables.)
     const present = (await fixturePool.unsafe(`
       SELECT count(*)::int AS n
         FROM pg_constraint c
-        JOIN pg_namespace n ON n.oid = c.connamespace AND n.nspname = 'public'
+        JOIN pg_namespace ns ON ns.oid = c.connamespace AND ns.nspname = 'public'
        WHERE c.contype = 'f'
-         AND EXISTS (SELECT 1 FROM unnest(c.confkey) k JOIN pg_attribute a ON a.attrelid = c.confrelid AND a.attnum = k WHERE a.attname = 'organization_id')
+         AND c.conname LIKE '%__org_fkey'
     `)) as any[];
     const reported = (await fixturePool.unsafe(`SELECT auth_org_composite_fk_count() AS n`)) as any[];
     expect(Number(reported[0].n)).toBe(Number(present[0].n));
     expect(Number(present[0].n)).toBeGreaterThanOrEqual(RELATIONS.length);
+
+    // The composite-counterpart population (parent side includes
+    // organization_id) is a different set with the same floor.
+    const compositeParents = (await fixturePool.unsafe(`
+      SELECT count(DISTINCT c.oid)::int AS n
+        FROM pg_constraint c
+        JOIN pg_namespace ns ON ns.oid = c.connamespace AND ns.nspname = 'public'
+       WHERE c.contype = 'f'
+         AND EXISTS (SELECT 1 FROM unnest(c.confkey) k JOIN pg_attribute a ON a.attrelid = c.confrelid AND a.attnum = k WHERE a.attname = 'organization_id')
+    `)) as any[];
+    expect(Number(compositeParents[0].n)).toBeGreaterThanOrEqual(RELATIONS.length);
   });
 
   it('the runtime role cannot drop or defer a composite constraint', async () => {

@@ -14,16 +14,48 @@ import { AccessDenied } from '@/components/access-denied';
 
 export const runtime = 'nodejs';
 
-async function loadInvoices(): Promise<InvoiceRow[]> {
+type RegisterTotals = {
+  total: number;
+  billedKobo: number;
+  collectedKobo: number;
+  outstandingKobo: number;
+  overdueKobo: number;
+  draftCount: number;
+};
+type RegisterPage = {
+  limit: number;
+  cap: number;
+  returned: number;
+  total: number | null;
+  hasMore: boolean;
+  nextCursor: string | null;
+};
+
+/**
+ * H-2: the register's headline strip comes from the SERVER's source-row totals
+ * (`totals`), not from the rows this page happens to have fetched. Before H-2
+ * the page summed its own capped page, so on a tenant with more than the page
+ * cap the strip silently under-reported — the measured defect this milestone
+ * closes. `page` is rendered so a truncated register SAYS it is truncated.
+ */
+async function loadInvoices(): Promise<{
+  rows: InvoiceRow[];
+  totals: RegisterTotals | null;
+  page: RegisterPage | null;
+}> {
   const h = await headers();
   const host = h.get('x-forwarded-host') || h.get('host');
   const proto = h.get('x-forwarded-proto') ?? 'http';
   const cookie = h.get('cookie') ?? '';
-  if (!host) return [];
+  if (!host) return { rows: [], totals: null, page: null };
   const res = await fetch(`${proto}://${host}/api/invoices`, { cache: 'no-store', headers: { cookie } });
-  if (!res.ok) return [];
+  if (!res.ok) return { rows: [], totals: null, page: null };
   const j = await res.json();
-  return (j.invoices as InvoiceRow[]) ?? [];
+  return {
+    rows: (j.invoices as InvoiceRow[]) ?? [],
+    totals: (j.totals as RegisterTotals) ?? null,
+    page: (j.page as RegisterPage) ?? null,
+  };
 }
 
 function computeStats(rows: InvoiceRow[]) {
@@ -42,8 +74,20 @@ export default async function InvoicesPage() {
   if (!guard.allowed) {
     return <AccessDenied surface="Invoices" requiredRole="Proprietor, Administrator, or Finance Officer" />;
   }
-  const rows = await loadInvoices();
-  const s = computeStats(rows);
+  const { rows, totals, page } = await loadInvoices();
+  const fallback = computeStats(rows);
+  // Server totals win. The page's own sum is only a defensive fallback for an
+  // older payload shape, and the strip is labelled accordingly below.
+  const s = totals
+    ? {
+        totalBilled: totals.billedKobo,
+        totalPaid: totals.collectedKobo,
+        totalOverdue: totals.overdueKobo,
+        overdueCount: fallback.overdueCount,
+        draftCount: totals.draftCount,
+        outstanding: totals.outstandingKobo,
+      }
+    : fallback;
 
   return (
     <div className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
@@ -61,6 +105,9 @@ export default async function InvoicesPage() {
         </Link>
       </div>
 
+      <p className="mb-2 text-xs" style={{ color: 'var(--color-text-muted)' }}>
+        Totals are computed over every invoice in the register (all terms), not over the rows shown below.
+      </p>
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <StripCell label="Billed" value={<Money kobo={s.totalBilled} />} />
         <StripCell label="Collected" value={<Money kobo={s.totalPaid} />} tone="positive" />
@@ -72,7 +119,10 @@ export default async function InvoicesPage() {
       <Card className="mt-4">
         <CardHeader title={rows.length === 0 ? 'No invoices yet' : 'Invoice register'}
                    description={rows.length === 0 ? 'When you issue your first invoice, it appears here.'
-                     : `${rows.length} invoice${rows.length === 1 ? '' : 's'} · ${s.draftCount} draft${s.draftCount === 1 ? '' : 's'}`} />
+                     : `${rows.length} invoice${rows.length === 1 ? '' : 's'} shown · ${s.draftCount} draft${s.draftCount === 1 ? '' : 's'}`
+                       + (page && (page.hasMore || (page.total !== null && page.total > page.returned))
+                         ? ` · showing the most recent ${page.returned} of ${page.total ?? 'more'} — narrow with a status filter`
+                         : '')} />
         {rows.length === 0 ? (
           <div className="p-6">
             <EmptyState icon={<FileText size={22} />} title="No invoices yet"
@@ -113,7 +163,14 @@ function DesktopRow({ r }: { r: InvoiceRow }) {
         <div style={{ color: 'var(--color-text-primary)' }}>{r.studentName}</div>
         <div className="text-[11px] tabular-nums" style={{ color: 'var(--color-text-faint)' }}>{r.studentCode}</div>
       </td>
-      <td className="px-3 py-3 align-top" style={{ color: 'var(--color-text-secondary)' }}>{r.termName ?? '—'}</td>
+      <td className="px-3 py-3 align-top" style={{ color: 'var(--color-text-secondary)' }}>
+        <div>{r.termName ?? '—'}</div>
+        {r.scopeClass === 'PRIOR_TERM' ? (
+          <span className="mt-0.5 inline-block rounded-full px-1.5 py-0.5 text-[10px] font-medium"
+                style={{ background: 'var(--color-surface-muted)', color: 'var(--color-text-secondary)' }}
+                title={r.scopeLabel}>carried forward</span>
+        ) : null}
+      </td>
       <td className="px-3 py-3 text-right tabular-nums align-top" style={{ color: 'var(--color-text-secondary)' }}><Money kobo={r.totalKobo} size="sm" /></td>
       <td className="px-3 py-3 text-right tabular-nums align-top" style={{ color: 'var(--color-forest-deep)' }}><Money kobo={r.paidKobo} size="sm" /></td>
       <td className="px-3 py-3 text-right tabular-nums align-top font-medium"

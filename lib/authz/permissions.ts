@@ -109,6 +109,16 @@ export type Action =
   | 'report.financial.read'
   | 'report.financial.export'
 
+  // H-2: financial periods (term-boundary close control)
+  | 'financial_period.read'
+  /**
+   * H-2: creating and closing a financial period is a CONTROL decision, not a
+   * bookkeeping one — closing freezes a window and produces the as-of evidence
+   * an audit relies on. It is deliberately NOT delegated to FINANCE_OFFICER,
+   * who keeps the books inside those windows.
+   */
+  | 'financial_period.manage'
+
   // Command center (dashboard) — lightweight summary; safe for every role
   // because the KPIs are aggregated and surfaced through the same RLS boundary
   // as underlying invoice/payment/student reads.
@@ -175,6 +185,7 @@ const POLICY: Record<MembershipRole, ReadonlySet<Action>> = {
     'reversal.read',
     'payment_link.create', 'payment_link.read', 'payment_link.revoke', 'payment_link.rotate',
     'report.financial.read', 'report.financial.export',
+    'financial_period.read', 'financial_period.manage',
     'dashboard.read', 'payment.read',
     'audit.read',
     'communication.send',
@@ -194,6 +205,7 @@ const POLICY: Record<MembershipRole, ReadonlySet<Action>> = {
     'reversal.read',
     'payment_link.create', 'payment_link.read', 'payment_link.revoke',
     'report.financial.read', 'report.financial.export',
+    'financial_period.read', 'financial_period.manage',
     'dashboard.read', 'payment.read',
     'audit.read',
     'communication.send',
@@ -217,6 +229,7 @@ const POLICY: Record<MembershipRole, ReadonlySet<Action>> = {
     'reversal.read',
     'payment_link.create', 'payment_link.read', 'payment_link.revoke',
     'report.financial.read', 'report.financial.export',
+    'financial_period.read',
     'dashboard.read',
     'communication.send',
     'debtor.read', 'reminder.send',

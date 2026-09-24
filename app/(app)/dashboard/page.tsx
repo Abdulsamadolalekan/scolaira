@@ -58,6 +58,13 @@ export default async function CommandCenterPage() {
   const collectionRate = (s.kpis.collectionRateBps / 100).toFixed(1);
   const hasDanger = s.attention.some(a => a.severity === 'danger');
   const unrec = s.kpis.unreconciledPayments;
+  // H-2: the headline's scope is declared by the server, never assumed by the
+  // screen. A proprietor can see at a glance whether the figures on this page
+  // include debt carried forward from an earlier term.
+  const kpiScope = s.scope.kpis;
+  const carriedForward = s.buckets.find((b) => b.key === 'PRIOR_TERM');
+  const otherTerms = s.buckets.find((b) => b.key === 'OTHER_TERM');
+  const formatKobo = (k: number) => '₦' + (k / 100).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
   return (
     <div className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
@@ -74,7 +81,17 @@ export default async function CommandCenterPage() {
             {greeting}{name}.
           </h1>
           <p className="mt-1 text-sm" style={{ color: 'var(--color-text-secondary)' }}>
-            Here is the term&apos;s financial position, and what needs attention before it ages.
+            Here is the financial position, and what needs attention before it ages.
+          </p>
+          <p className="mt-2 inline-flex flex-wrap items-center gap-2 text-xs" style={{ color: 'var(--color-text-muted)' }}>
+            <span
+              className="rounded-full px-2 py-0.5 font-medium"
+              style={{ background: 'var(--color-surface-muted)', color: 'var(--color-text-secondary)' }}
+            >
+              Headline scope: {kpiScope.label}
+              {kpiScope.isDefault ? ' (default)' : ''}
+            </span>
+            {kpiScope.termName ? <span>Cut-over: {kpiScope.termName} began {kpiScope.cutoverOn}</span> : null}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -85,7 +102,7 @@ export default async function CommandCenterPage() {
 
       {/* KPI row */}
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
-        <KpiCard label="Billed" value={s.kpis.billedKobo} valueIsMoney compact hint={`${s.kpis.activeStudents} active students`} />
+        <KpiCard label="Billed" value={s.kpis.billedKobo} valueIsMoney compact hint={`${s.scope.activeStudents.label.toLowerCase()}`} />
         <KpiCard
           label="Collected"
           value={s.kpis.collectedKobo}
@@ -120,8 +137,33 @@ export default async function CommandCenterPage() {
           label="Students"
           value={s.kpis.activeStudents}
           compact
-          hint="active this term"
+          hint={`${s.scope.activeStudents.label} — not scoped to the headline`}
         />
+      </div>
+
+      {/* H-2: the partition the headline was computed from. Carried-forward debt
+          is shown on its own line, so it can never be invisible again — which
+          was the measured defect this milestone closes. */}
+      <div className="mt-3 flex flex-col gap-2 rounded-lg border px-3 py-2 text-xs sm:flex-row sm:items-center sm:justify-between"
+        style={{ borderColor: 'var(--color-border-subtle)', color: 'var(--color-text-secondary)' }}>
+        <span>
+          Classified as{' '}
+          {s.buckets.map((b, i) => (
+            <span key={b.key}>
+              {i > 0 ? ' · ' : ''}
+              <span className="font-medium">{b.label}</span>
+              {': '}{formatKobo(b.outstandingKobo)}
+            </span>
+          ))}
+        </span>
+        {carriedForward && carriedForward.outstandingKobo > 0 ? (
+          <Link href="/invoices" className="font-medium underline">
+            {formatKobo(carriedForward.outstandingKobo)} carried forward from an earlier term
+            {otherTerms && otherTerms.outstandingKobo > 0
+              ? ` (+ ${formatKobo(otherTerms.outstandingKobo)} in other terms)`
+              : ''}
+          </Link>
+        ) : null}
       </div>
 
       {/* Attention + Quick Actions */}

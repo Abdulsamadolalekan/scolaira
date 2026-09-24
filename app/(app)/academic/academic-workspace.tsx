@@ -49,7 +49,7 @@ export default function AcademicWorkspace({ canManage }: { canManage: boolean })
       fetch('/api/academic-sessions', { cache: 'no-store' }).then((r) => r.json()),
       fetch('/api/terms', { cache: 'no-store' }).then((r) => r.json()),
       fetch('/api/classes?includeArchived=1', { cache: 'no-store' }).then((r) => r.json()),
-      fetch('/api/students', { cache: 'no-store' }).then((r) => r.json()),
+      fetch('/api/students?limit=1000', { cache: 'no-store' }).then((r) => r.json()),
     ]);
     setSessions(sessionData.sessions ?? []);
     setTerms(termData.terms ?? []);

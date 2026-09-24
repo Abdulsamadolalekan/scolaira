@@ -90,10 +90,12 @@ async function asOwnerCommit(
   statement: string,
   args: any[] = [],
   tables: string[] = [],
+  setup?: (conn: any) => Promise<void>,
 ): Promise<Probe> {
   const conn: any = await (ownerPool as any).reserve();
   try {
     await conn.unsafe('BEGIN');
+    if (setup) await setup(conn);
     // Suspend, write, RESTORE, then commit. Committing a suspension would leave
     // the frozen posture broken for everything after the test — the suspension
     // is transactional DDL, which is exactly why it is only ever used in a
@@ -545,9 +547,10 @@ describe('RA — independent re-audit of the H-5 contract', () => {
     // parameter over as a JSON *string*, and every probe below would be refused
     // as "not an object" — passing for the wrong reason.
     const record = (kind: string, linkId: string | null, detail: string) =>
-      asOwner(
+      asOwnerCommit(
         `select auth_record_public_surface_event($1, $2::uuid, $3::text::jsonb) as id`,
         [kind, linkId, detail],
+        [],
         publicContext(link.token),
       );
 

@@ -5,7 +5,7 @@
  */
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
-import { eq, sql } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { withAuthorizedRoute, AuthzError, AuthzErrorCode } from '@/lib/authz';
 import * as studentRepo from '@/lib/db/repo/students';
 import * as enrollmentRepo from '@/lib/db/repo/enrollments';
@@ -14,6 +14,7 @@ import * as classRepo from '@/lib/db/repo/classes';
 import * as auditRepo from '@/lib/db/repo/audit-events';
 import { begin as beginIdempotency, complete as completeIdempotency } from '@/lib/m9/idempotency';
 import { students } from '@/lib/db/schema';
+import { SURFACE_LIMITS, decodeCursor, encodeCursor, pageMeta, resolveLimit } from '@/lib/db/repo/pagination';
 
 const CreateSchema = z.object({
   studentId: z.string().trim().min(1).max(32),
@@ -33,8 +34,26 @@ export const runtime = 'nodejs';
 
 export const GET = withAuthorizedRoute(
   { action: 'student.read', method: 'GET' },
-  async (_req, { db, ctx }) => {
-    // List students with simple financial summary.
+  async (req, { db, ctx }) => {
+    // H-2/M-6: this list used to be UNBOUNDED — the only surface with no cap at
+    // all. It now declares its cap, pages on a keyset cursor, and reports the
+    // same-filter totals from source rows, because pages above it (the students
+    // register) summed the returned rows into their own headline tiles.
+    const url = new URL(req.url);
+    const surface = SURFACE_LIMITS.students;
+    const limit = resolveLimit(surface, url.searchParams.get('limit'));
+    const cursorRaw = url.searchParams.get('cursor');
+    const after = cursorRaw ? decodeCursor(surface.surface, cursorRaw) : null;
+
+    const predicates = [eq(students.organizationId, ctx.organizationId)] as any[];
+    if (after) {
+      // Ordering is (last_name, first_name, id) — the register's own order.
+      predicates.push(sql`(
+        (${students.lastName}, ${students.firstName}, ${students.id}) >
+        (${after[0]}::text, ${after[1]}::text, ${after[2]}::uuid)
+      )`);
+    }
+
     const rows = await db
       .select({
         id: students.id,
@@ -45,24 +64,61 @@ export const GET = withAuthorizedRoute(
         status: students.status,
       })
       .from(students)
-      .where(eq(students.organizationId, ctx.organizationId))
-      .orderBy(students.lastName, students.firstName);
+      .where(and(...predicates))
+      .orderBy(students.lastName, students.firstName, students.id)
+      .limit(limit + 1);
 
-    // Per-student outstanding balance (total - paid across non-void invoices).
-    // Computed in one query for the page.
-    const balances = await db.execute(sql`
-      SELECT i.student_id AS id,
-             COALESCE(SUM(i.total_kobo),0)::bigint AS billed,
-             COALESCE(SUM(i.paid_kobo),0)::bigint AS paid
-        FROM invoices i
-       WHERE i.organization_id = ${ctx.organizationId}
-         AND i.status <> 'VOID'
-       GROUP BY i.student_id
-    `) as Array<{ id: string; billed: string; paid: string }>;
-    const balMap = new Map<string, {billed:number;paid:number}>();
+    const hasMore = rows.length > limit;
+    const page = rows.slice(0, limit);
+    const ids = page.map((r) => r.id);
+
+    // Per-student balances for THIS PAGE only (the totals below cover every
+    // student, so the register's tiles never depend on the page).
+    const balances = ids.length
+      ? ((await db.execute(sql`
+          SELECT i.student_id AS id,
+                 COALESCE(SUM(i.total_kobo),0)::bigint AS billed,
+                 COALESCE(SUM(i.paid_kobo),0)::bigint AS paid
+            FROM invoices i
+           WHERE i.organization_id = ${ctx.organizationId}
+             AND i.status <> 'VOID'
+             AND i.student_id IN (${sql.join(ids.map((id) => sql`${id}::uuid`), sql`, `)})
+           GROUP BY i.student_id
+        `)) as Array<{ id: string; billed: string; paid: string }>)
+      : [];
+    const balMap = new Map<string, { billed: number; paid: number }>();
     for (const r of balances) balMap.set(r.id, { billed: Number(r.billed), paid: Number(r.paid) });
 
-    const out = rows.map(s => {
+    // H-2: source-row totals for the whole (unpaginated) set, all-term by
+    // definition — a student's balance is a fact, not a term opinion.
+    const totalRows = (await db.execute(sql`
+      SELECT count(*)::int AS student_count,
+             count(*) FILTER (WHERE active_outstanding > 0)::int AS debtor_count,
+             COALESCE(SUM(billed), 0)::bigint AS billed_kobo,
+             COALESCE(SUM(paid), 0)::bigint AS paid_kobo,
+             COALESCE(SUM(GREATEST(billed - paid, 0)), 0)::bigint AS outstanding_kobo
+        FROM (
+          SELECT s.id,
+                 s.status = 'ACTIVE' AS is_active,
+                 COALESCE(bl.billed, 0) AS billed,
+                 COALESCE(bl.paid, 0) AS paid,
+                 CASE WHEN s.status = 'ACTIVE' THEN GREATEST(COALESCE(bl.billed, 0) - COALESCE(bl.paid, 0), 0) ELSE 0 END AS active_outstanding
+            FROM students s
+            LEFT JOIN (
+              SELECT i.student_id,
+                     SUM(i.total_kobo) AS billed,
+                     SUM(i.paid_kobo) AS paid
+                FROM invoices i
+               WHERE i.organization_id = ${ctx.organizationId}
+                 AND i.status <> 'VOID'
+               GROUP BY i.student_id
+            ) bl ON bl.student_id = s.id
+           WHERE s.organization_id = ${ctx.organizationId}
+        ) t
+    `)) as Array<Record<string, unknown>>;
+    const t = totalRows[0] ?? {};
+
+    const out = page.map((s) => {
       const b = balMap.get(s.id) ?? { billed: 0, paid: 0 };
       return {
         id: s.id,
@@ -75,7 +131,35 @@ export const GET = withAuthorizedRoute(
         outstandingKobo: Math.max(0, b.billed - b.paid),
       };
     });
-    return NextResponse.json({ students: out });
+
+    const last = (page[page.length - 1] as any) ?? null;
+    return NextResponse.json({
+      students: out,
+      totals: {
+        studentCount: Number(t.student_count ?? 0),
+        debtorCount: Number(t.debtor_count ?? 0),
+        billedKobo: Number(t.billed_kobo ?? 0),
+        paidKobo: Number(t.paid_kobo ?? 0),
+        outstandingKobo: Number(t.outstanding_kobo ?? 0),
+      },
+      page: pageMeta({
+        surface,
+        limit,
+        returned: out.length,
+        total: Number(t.student_count ?? 0),
+        hasMore,
+        nextCursor:
+          hasMore && last
+            ? encodeCursor(surface.surface, [
+                String(last.lastName),
+                String(last.firstName),
+                String(last.id),
+              ])
+            : null,
+      }),
+      scope: { scope: 'ALL_TERM', label: 'Every term — a balance is not a term opinion' },
+      asOf: new Date().toISOString(),
+    });
   },
 );
 

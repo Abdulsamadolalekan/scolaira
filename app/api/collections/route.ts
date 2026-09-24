@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { withAuthorizedRoute, AuthzError, AuthzErrorCode } from '@/lib/authz';
 import * as collectionsRepo from '@/lib/db/repo/collections';
 import { asUUID } from '@/lib/db/repo/_context';
+import { SURFACE_LIMITS, pageMeta, resolveLimit } from '@/lib/db/repo/pagination';
 import * as idempotency from '@/lib/m9/idempotency';
 
 export const runtime = 'nodejs';
@@ -15,7 +16,9 @@ const QuerySchema = z.object({
   priority: z.enum(PRIORITIES).optional(),
   assignee: z.string().uuid().optional(),
   includeClosed: z.enum(['0', '1']).optional(),
-  limit: z.coerce.number().int().min(1).max(100).default(50),
+  limit: z.coerce.number().int().min(1).max(100).optional(),
+  // H-2/M-6: the workbench queue was a capped list with no cursor and no total.
+  cursor: z.string().trim().min(1).max(512).optional(),
 });
 
 const CreateSchema = z.object({
@@ -59,14 +62,31 @@ export const GET = withAuthorizedRoute(
   { action: 'collections.read', method: 'GET', querySchema: QuerySchema },
   async (_req, { db, ctx, query }) => {
     const filters = query as z.infer<typeof QuerySchema>;
-    const queue = await collectionsRepo.listQueue(db, ctx, {
-      state: filters.state,
-      priority: filters.priority,
-      assignee: filters.assignee ? asUUID(filters.assignee) : undefined,
-      includeClosed: filters.includeClosed === '1',
-      limit: filters.limit,
+    const surface = SURFACE_LIMITS.collections;
+    const limit = resolveLimit(surface, filters.limit ?? null);
+    const result = await collectionsRepo.listQueuePage(
+      db,
+      ctx,
+      {
+        state: filters.state,
+        priority: filters.priority,
+        assignee: filters.assignee ? asUUID(filters.assignee) : undefined,
+        includeClosed: filters.includeClosed === '1',
+      },
+      { limit, cursor: filters.cursor ?? null },
+    );
+    return NextResponse.json({
+      queue: result.rows,
+      page: pageMeta({
+        surface,
+        limit,
+        returned: result.rows.length,
+        total: result.total,
+        hasMore: result.hasMore,
+        nextCursor: result.nextCursor,
+      }),
+      asOf: new Date().toISOString(),
     });
-    return NextResponse.json({ queue, asOf: new Date().toISOString() });
   },
 );
 

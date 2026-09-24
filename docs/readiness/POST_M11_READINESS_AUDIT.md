@@ -175,6 +175,22 @@ Individually the medium findings are ordinary scale-up debt. Collectively, the c
 - **Pilot requirement:** Required — proprietor-facing coherence is a pilot acceptance criterion.
 - **ADQ requirement:** Reconciliation test set demonstrating KPI totals tie back to source rows.
 
+> **H-2 status (closed 2026-09-24) — CLOSED, PROVEN.** One declared scope per surface with
+> an auditable setting (`invoice_scope`), an exhaustive `CURRENT_TERM | PRIOR_TERM |
+> OTHER_TERM` partition that ties back to source rows, a declared `page` block on every
+> capped list (per-surface caps, cursors, `hasMore`), microsecond keyset cursors, declared
+> staleness/cooldown boundaries, and database-enforced non-overlapping financial periods
+> with a close that refuses unresolved or unapplied money. Two product defects were found
+> by the verification itself and fixed: the register classified scope with a
+> display-formatted date (mis-labelling every carried-forward invoice), and a closed
+> window's `outstanding` read the invoice's *current* status (a post-window allocation
+> moved it). Migration `0048`; `docs/readiness/H2_AGGREGATION_SCOPING_PAGINATION_CLOSEOUT.md`;
+> suites `tests/db/h2-scoping-pagination.test.ts` (17) and
+> `tests/db/h2-independent-reaudit.test.ts` (10); fresh install and 47 → 48 upgrade
+> verified. One earlier expectation was superseded deliberately and recorded: the dashboard
+> headline default is now an explicit, arrear-visible `ALL_TERM` (the M6 endpoint test
+> asserts its property under both declared scopes).
+
 ### H-3 — Public payment link: no idempotency or rate limit, caller-influenced amount, and sensitive data in public output and audit metadata
 - **Severity:** High · **Location:** `app/api/p/[token]/submit/route.ts`; `app/p/[token]/page.tsx`; `app/api/payment-links/route.ts`
 - **Evidence class:** E1
@@ -284,7 +300,20 @@ Individually the medium findings are ordinary scale-up debt. Collectively, the c
 - **M-3 — Receipt rendering can diverge from the receipt snapshot.** `app/api/receipts/[id]/route.ts:22-40` renders the allocation list from *current* ACTIVE allocations while `receipts.amount_kobo` is frozen at issue time (`app/api/receipts/route.ts:54,78-82`). After a post-issuance reversal, the printed receipt's lines no longer sum to the receipted amount. *E1.* Remediation: render the allocation snapshot captured at issuance, or display reversal effects explicitly. Pilot: required (parent-facing trust). ADQ: receipt reproducibility test.
 - **M-4 — Partial allocation reversal is unsupported and hard-fails.** `lib/db/migrations/0001_integrity.sql:549-551`; `lib/db/migrations/0002_financial_fixes.sql:173-175`. A refund that does not align to whole allocations raises `Partial allocation reversal not supported in M2`. *E1/E3.* Remediation: support partial reversal explicitly or define and document the whole-allocation refund rule in the operator UI so staff know to reverse in allocation-sized steps. Pilot: required if refunds occur. ADQ: behaviour must be specified, not discovered.
 - **M-5 — REFUND semantics reduce invoice balance while leaving the payment CONFIRMED.** `lib/db/migrations/0002_financial_fixes.sql:191-212`. `unallocated_kobo` is deliberately not restored for `REFUND`, and payment status only changes once no ACTIVE allocations remain. *E1/E3.* Remediation: document the exact expected reporting reading and add a scenario test. Pilot: required. ADQ: documented accounting treatment.
+> **M-6 status (closed 2026-09-24, folded into H-2) — CLOSED, PROVEN.** Every capped
+> surface (invoices, payments, students, debtors, payment-links, collections,
+> reconciliation queue, reminders, audit, financial periods) now returns a shared `page`
+> block with per-surface caps and a cursor, walks were proven to cover every row exactly
+> once at volume (1,005 students / 505 invoices), and `/api/students` — the one truly
+> unbounded list — is capped and declared.
+
 - **M-6 — Result caps may be user-invisible.** Multiple list/queue routes apply fixed limits with no cursor or `hasMore`. Static discovery is not proof that a cap is reachable in practice. *E3.* Remediation: volume test on a synthetic large tenant; expose truncation explicitly. Pilot: required. ADQ: pagination contract.
+> **M-7 status (closed 2026-09-24, folded into H-2) — CLOSED, PROVEN.** Staleness
+> boundaries (7d fresh / 14d stale / unattended) and the reminder cooldown (4h) are
+> declared constants evaluated server-side, classified as data
+> (`NONE | FRESH | STALE | UNATTENDED`, strict "older than"), echoed to the client in the
+> 429 body, and tested either side of each boundary plus exactly on the boundary.
+
 - **M-7 — Reminder stale-follow-up logic.** `lib/db/repo/reminders.ts:122-189`. *E3.* Remediation: define and test staleness boundaries. Pilot: required.
 - **M-8 — Evidence asymmetry between unit/type checks and end-to-end behaviour.** Typecheck and Vitest evidence is materially stronger than the E2E evidence; lint warnings persist; `npm run format:check` fails on 183 files. *E1.* Formatting was deliberately **not** remediated because the tree is frozen and no unrelated refactor is authorised. Remediation: schedule a separate, isolated hygiene change once the freeze lifts. Pilot: acceptable. ADQ: disclose as known debt.
 - **M-9 — Documentation claims routes/providers not present in the frozen implementation.** `docs/ARCHITECTURE.md`; `docs/API_CONTRACTS.md`. *E4.* Remediation: truth-align or annotate as roadmap. Pilot: acceptable. ADQ: required before buyer documentation review.
@@ -389,6 +418,11 @@ Anything less than the full set is not a mitigated pilot; it is unmanaged produc
 **R5 — Public surface (H-3, C-3 follow-through).**
 **R6 — Observability and release evidence (H-6, H-9).** Readiness probe, seeded CI E2E, multi-browser pass, backup/restore drill record.
 **R7 — Aggregation contracts and pagination (H-2, M-6, M-7).** Scoping contract, truncation signals, term-boundary and prior-term-debt tests.
+**R7 — Aggregation contracts and pagination (H-2, M-6, M-7).** ✅ **DONE (2026-09-24).**
+Shipped as H-2: scope contract, truncation signals, term-boundary control and
+prior-term-debt coverage; see the H-2 status notes under §3 and §4 and
+`docs/readiness/H2_AGGREGATION_SCOPING_PAGINATION_CLOSEOUT.md`.
+
 **R8 — UX and support (H-8).**
 **R9 — Documentation truth and hygiene (M-9, M-8, L-3, L-4).** Separately scoped; formatting must not ride along with functional changes.
 **R10 — Acquisition evidence pack.** Indexed by the checklist in `docs/readiness/ACQUISITION_DUE_DILIGENCE_CHECKLIST.md`.

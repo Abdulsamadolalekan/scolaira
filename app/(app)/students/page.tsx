@@ -18,15 +18,45 @@ type StudentRow = {
   billedKobo: number; paidKobo: number; outstandingKobo: number;
 };
 
-async function loadStudents(): Promise<StudentRow[]> {
+type StudentTotals = {
+  studentCount: number;
+  debtorCount: number;
+  billedKobo: number;
+  paidKobo: number;
+  outstandingKobo: number;
+};
+type StudentPage = {
+  limit: number;
+  cap: number;
+  returned: number;
+  total: number | null;
+  hasMore: boolean;
+  nextCursor: string | null;
+};
+
+/**
+ * H-2: the directory's strip comes from the SERVER's whole-set totals, not from
+ * summing the rows this page fetched. The directory is also a capped list now
+ * (it used to be unbounded), so the payload declares the window it returned.
+ */
+async function loadStudents(): Promise<{
+  rows: StudentRow[];
+  totals: StudentTotals | null;
+  page: StudentPage | null;
+}> {
   const h = await headers();
   const host = h.get('x-forwarded-host') || h.get('host');
   const proto = h.get('x-forwarded-proto') ?? 'http';
   const cookie = h.get('cookie') ?? '';
-  if (!host) return [];
+  if (!host) return { rows: [], totals: null, page: null };
   const res = await fetch(`${proto}://${host}/api/students`, { cache: 'no-store', headers: { cookie } });
-  if (!res.ok) return [];
-  return (await res.json()).students as StudentRow[];
+  if (!res.ok) return { rows: [], totals: null, page: null };
+  const j = await res.json();
+  return {
+    rows: (j.students as StudentRow[]) ?? [],
+    totals: (j.totals as StudentTotals) ?? null,
+    page: (j.page as StudentPage) ?? null,
+  };
 }
 
 export default async function StudentsPage() {
@@ -35,11 +65,23 @@ export default async function StudentsPage() {
     return <AccessDenied surface="Students" requiredRole="Proprietor, Administrator, or Finance Officer" />;
   }
   const create = await checkPermission('student.create');
-  const rows = await loadStudents();
-  const totals = rows.reduce(
+  const { rows, totals: serverTotals, page } = await loadStudents();
+  const pageTotals = rows.reduce(
     (acc, r) => ({ billed: acc.billed + r.billedKobo, paid: acc.paid + r.paidKobo, out: acc.out + r.outstandingKobo, active: acc.active + (r.status === 'ACTIVE' ? 1 : 0), debtors: acc.debtors + (r.outstandingKobo > 0 ? 1 : 0) }),
     { billed: 0, paid: 0, out: 0, active: 0, debtors: 0 },
   );
+  // Server totals win; the page sum is only a defensive fallback for an older
+  // payload shape (it silently under-reports when the page is truncated).
+  const totals = serverTotals
+    ? {
+        billed: serverTotals.billedKobo,
+        paid: serverTotals.paidKobo,
+        out: serverTotals.outstandingKobo,
+        active: serverTotals.studentCount,
+        debtors: serverTotals.debtorCount,
+      }
+    : pageTotals;
+  const truncated = Boolean(page && (page.hasMore || (page.total !== null && page.total > page.returned)));
 
   return (
     <div className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
@@ -59,6 +101,9 @@ export default async function StudentsPage() {
         )}
       </div>
 
+      <p className="mb-2 text-xs" style={{ color: 'var(--color-text-muted)' }}>
+        Totals cover every student on the account (all terms), not just the rows below.
+      </p>
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <StripCell label="Active students" value={String(totals.active)} />
         <StripCell label="Total billed" value={<Money kobo={totals.billed} />} />
@@ -68,7 +113,9 @@ export default async function StudentsPage() {
 
       <Card className="mt-4">
         <CardHeader title={rows.length === 0 ? 'No students yet' : 'Student directory'}
-                   description={rows.length === 0 ? 'Add a student to begin invoicing.' : `${rows.length} student${rows.length === 1 ? '' : 's'} · ${totals.debtors} with outstanding balance`} />
+                   description={(rows.length === 0 ? 'Add a student to begin invoicing.'
+                     : `${rows.length} student${rows.length === 1 ? '' : 's'} shown · ${totals.debtors} with outstanding balance`)
+                     + (truncated && page ? ` · showing the first ${page.returned} of ${page.total ?? 'more'}` : '')} />
         {rows.length === 0 ? (
           <div className="p-6"><EmptyState icon={<Users size={22} />} title="No students yet" description="Add your first student to begin raising invoices and recording payments." /></div>
         ) : (

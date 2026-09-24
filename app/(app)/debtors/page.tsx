@@ -34,10 +34,16 @@ type Debtor = {
   openInvoiceCount: number;
   lastReminderAt: string | null;
   agingBucket: 'CURRENT' | 'DUE_SOON' | 'OVERDUE_30' | 'OVERDUE_60' | 'OVERDUE_90' | 'SEVERE';
+  /** H-2/M-7: the last reminder classified against the server's thresholds. */
+  reminderStaleness: 'NONE' | 'FRESH' | 'STALE' | 'UNATTENDED';
+  daysSinceReminder: number | null;
 };
 type Summary = {
   students: Debtor[];
   totals: { outstandingKobo: number; overdueKobo: number; severeCount: number; debtorCount: number };
+  page?: { limit: number; cap: number; returned: number; total: number | null; hasMore: boolean; nextCursor: string | null };
+  thresholds?: { staleAfterDays: number; unattendedAfterDays: number; reminderCooldownHours: number; severeBucketDays: number; severeAgingDays: number };
+  scope?: { scope: 'ALL_TERM'; label: string; termName: string | null; cutoverOn: string | null };
 };
 
 async function load(): Promise<Summary | null> {
@@ -69,6 +75,9 @@ export default async function DebtorsPage() {
   const [data, currentTerm] = await Promise.all([load(), loadCurrentTerm()]);
   if (!data) return null;
   const { students, totals } = data;
+  const page = data.page;
+  const thresholds = data.thresholds;
+  const debtorsTruncated = Boolean(page && (page.hasMore || (page.total !== null && page.total > page.returned)));
 
   const buckets = countBuckets(students);
   const termNeedsBilling = currentTerm?.status === 'ACTIVE' && !currentTerm.billed;
@@ -80,6 +89,15 @@ export default async function DebtorsPage() {
         <h1 className="mt-1 text-[22px] sm:text-2xl font-semibold tracking-tight" style={{ color: 'var(--color-forest-deepest)', fontFamily: 'var(--font-serif)' }}>Debtors &amp; Aging</h1>
         <p className="mt-1 text-sm" style={{ color: 'var(--color-text-secondary)' }}>
           Students with outstanding balances, ranked by how long the oldest invoice has been overdue. Send a printable reminder in one click.
+        </p>
+        <p className="mt-2 text-xs" style={{ color: 'var(--color-text-muted)' }}>
+          {data.scope ? `Covers every term (${data.scope.label.toLowerCase()}).` : 'Covers every term.'}
+          {thresholds
+            ? ` A reminder older than ${thresholds.staleAfterDays} days is stale; ${thresholds.unattendedAfterDays} days with none is unattended.`
+            : ''}
+          {debtorsTruncated && page
+            ? ` Showing the first ${page.returned} of ${page.total ?? 'more'} debtors.`
+            : ''}
         </p>
       </div>
 
@@ -143,6 +161,12 @@ export default async function DebtorsPage() {
                     <td className="px-3 py-3"><AgingBadge bucket={s.agingBucket} days={s.oldestOverdueDays} /></td>
                     <td className="px-3 py-3 text-[11px]" style={{ color: 'var(--color-text-faint)' }}>
                       {s.lastReminderAt ? relTime(s.lastReminderAt) : <span style={{ color: 'var(--color-gold-dark,#8a6b11)' }}>never</span>}
+                      {s.reminderStaleness === 'STALE' || s.reminderStaleness === 'UNATTENDED' ? (
+                        <span className="ml-1 rounded-full px-1.5 py-0.5 text-[10px] font-medium"
+                              style={{ background: 'var(--color-surface-muted)', color: 'var(--color-text-secondary)' }}>
+                          {s.reminderStaleness === 'UNATTENDED' ? 'unattended' : 'stale'}
+                        </span>
+                      ) : null}
                     </td>
                     <td className="px-3 py-3 text-right">
                       <div className="inline-flex items-center gap-2">

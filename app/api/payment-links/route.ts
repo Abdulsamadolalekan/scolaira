@@ -9,7 +9,7 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { nanoid } from 'nanoid';
-import { desc, eq, sql } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { withAuthorizedRoute, assertResourceInOrg } from '@/lib/authz';
 import * as linkRepo from '@/lib/db/repo/payment-links';
 import * as studentRepo from '@/lib/db/repo/students';
@@ -17,6 +17,7 @@ import * as invRepo from '@/lib/db/repo/invoices';
 import * as auditRepo from '@/lib/db/repo/audit-events';
 import { paymentLinks, students, invoices } from '@/lib/db/schema';
 import { kobo as asKobo } from '@/lib/money';
+import { SURFACE_LIMITS, assertCursorKeys, decodeCursor, encodeCursor, pageMeta, resolveLimit, sortKeyUs } from '@/lib/db/repo/pagination';
 
 export const runtime = 'nodejs';
 
@@ -32,9 +33,34 @@ const studentName = sql<string>`trim(coalesce(${students.firstName},'') || ' ' |
 
 export const GET = withAuthorizedRoute(
   { action: 'payment_link.read', method: 'GET' },
-  async (_req, { db, ctx }) => {
+  async (req, { db, ctx }) => {
+    // H-2/M-6: a capped list declares its cap, its cursor and its total. The
+    // previous version returned a silent `limit(100)` with no signal at all.
+    const url = new URL(req.url);
+    const surface = SURFACE_LIMITS.paymentLinks;
+    const limit = resolveLimit(surface, url.searchParams.get('limit'));
+    const cursorRaw = url.searchParams.get('cursor');
+    const after = cursorRaw ? decodeCursor(surface.surface, cursorRaw) : null;
+
+    const sortUs = sortKeyUs(paymentLinks.createdAt);
+    assertCursorKeys(after, ['bigint', 'uuid']);
+    const predicates = [eq(paymentLinks.organizationId, ctx.organizationId)] as any[];
+    if (after) {
+      predicates.push(sql`(
+        ${sortUs} < ${after[0]}::bigint
+        or (${sortUs} = ${after[0]}::bigint and ${paymentLinks.id} < ${after[1]}::uuid)
+      )`);
+    }
+
+    const countRows = await db
+      .select({ n: sql<number>`count(*)::int` })
+      .from(paymentLinks)
+      .where(eq(paymentLinks.organizationId, ctx.organizationId));
+    const total = Number(countRows[0]?.n ?? 0);
+
     const rows = await db.select({
       id: paymentLinks.id,
+      sortUs: sql<string>`${sortUs}`,
       token: paymentLinks.token,
       status: paymentLinks.status,
       amountKobo: paymentLinks.amountKobo,
@@ -49,17 +75,35 @@ export const GET = withAuthorizedRoute(
       .from(paymentLinks)
       .leftJoin(invoices, eq(invoices.id, paymentLinks.invoiceId))
       .leftJoin(students, eq(students.id, paymentLinks.studentId))
-      .where(eq(paymentLinks.organizationId, ctx.organizationId))
-      .orderBy(desc(paymentLinks.createdAt))
-      .limit(100);
+      .where(and(...predicates))
+      .orderBy(sql`${sortUs} desc, ${paymentLinks.id} desc`)
+      .limit(limit + 1);
 
-    return NextResponse.json({ links: rows.map(r => ({
-      id: r.id, token: r.token, status: r.status, amountKobo: r.amountKobo ? Number(r.amountKobo) : null,
-      expiresAt: r.expiresAt, note: r.note, createdAt: r.createdAt,
-      invoiceId: r.invoiceId, invoiceNumber: r.invoiceNumber,
-      studentId: r.studentId, studentName: r.studentName,
-      url: `/p/${r.token}`,
-    }))});
+    const hasMore = rows.length > limit;
+    const page = rows.slice(0, limit);
+    const last = (page[page.length - 1] as any) ?? null;
+
+    return NextResponse.json({
+      links: page.map(r => ({
+        id: r.id, token: r.token, status: r.status, amountKobo: r.amountKobo ? Number(r.amountKobo) : null,
+        expiresAt: r.expiresAt, note: r.note, createdAt: r.createdAt,
+        invoiceId: r.invoiceId, invoiceNumber: r.invoiceNumber,
+        studentId: r.studentId, studentName: r.studentName,
+        url: `/p/${r.token}`,
+      })),
+      page: pageMeta({
+        surface,
+        limit,
+        returned: page.length,
+        total,
+        hasMore,
+        nextCursor:
+          hasMore && last
+            ? encodeCursor(surface.surface, [String(last.sortUs), String(last.id)])
+            : null,
+      }),
+      asOf: new Date().toISOString(),
+    });
   },
 );
 

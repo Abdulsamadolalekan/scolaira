@@ -25,6 +25,12 @@
 | 429  | RATE_LIMITED         | Too many requests; `Retry-After` header present.                                                          |
 | 500  | INTERNAL_ERROR       | Unexpected error; logged with request id.                                                                 |
 
+**H-2 additions.** `PERIOD_OVERLAP`, `PERIOD_HAS_UNRESOLVED_PAYMENTS`,
+`PERIOD_HAS_UNALLOCATED_PAYMENTS` travel in the normal error envelope
+(`{error:{code,message,details}}`), so a caller branches on the reason instead of parsing
+prose; the measured counts ride in `details`. A malformed pagination cursor is
+`400 BAD_REQUEST`.
+
 ## II. Endpoint Groups
 
 ### A. Authentication (`/api/auth/*`)
@@ -203,12 +209,60 @@ Separate route segment; requires PLATFORM_ADMIN role; every request audited.
 
 - `POST /api/webhooks/paystack` — Paystack webhook endpoint. Signature-verified, idempotent, raw body.
 
+### U. Scoping & Financial Periods (`/api/scoping/*`, `/api/financial-periods*`) — H-2
+
+- `GET /api/scoping/settings` (`org.settings.read`) →
+  `{scope: <declaration>, options: [{value,label}], default}` where the declaration is
+  `{scope, label, isDefault, setting, termId, termName, cutoverOn, asOf}`.
+- `PUT /api/scoping/settings` (`org.settings.update`; OWNER / SCHOOL_ADMIN only) →
+  `{scope, changed}`; writing the same value is a no-op and writes no audit event; a
+  change writes exactly one `scope.invoice_scope.update` event.
+- `GET /api/financial-periods` → `{periods, page (surface "financial-periods"), asOf}`.
+- `POST /api/financial-periods` (requires `Idempotency-Key`) →
+  `201 {period}`; `409 PERIOD_OVERLAP` when the inclusive-day window touches an existing
+  period; `400` when it ends before it starts.
+- `GET /api/financial-periods/{id}` → `{period, valuation:{buckets, allTerm, labels}, scope}`.
+- `POST /api/financial-periods/{id}/close` (requires `Idempotency-Key`) →
+  `201 {period, alreadyClosed:false, valuation}`; `200 {alreadyClosed:true}` on replay
+  (the frozen report is returned unchanged); `409` with
+  `PERIOD_HAS_UNRESOLVED_PAYMENTS` or `PERIOD_HAS_UNALLOCATED_PAYMENTS` and the counts in
+  `details`. A closed period cannot be rewritten (database-enforced), and the runtime role
+  has no `DELETE` on either new table.
+
 ## III. Pagination, Filtering & Sorting Conventions
 
 - List endpoints accept `?cursor=...&limit=50&sort=field:dir&filter[status]=CONFIRMED`.
-- Max `limit` = 100; default = 20 for detail-heavy lists, 50 for simple lists.
 - Sort fields are whitelisted per endpoint.
 - Date filters: `?from=YYYY-MM-DD&to=YYYY-MM-DD` (inclusive, Africa/Lagos date interpretation).
+
+**H-2 supersedes the former global "max limit = 100" rule.** Caps are declared **per
+surface** and repeated in every response, so no endpoint can truncate silently:
+
+```json
+"page": { "surface": "invoices", "limit": 200, "cap": 200, "capSource": "FIXED",
+          "returned": 200, "total": 505, "hasMore": true, "nextCursor": "…" }
+```
+
+Invariants: `returned ≤ limit ≤ cap`; `hasMore ⇒ nextCursor` is present; a terminal page
+has `nextCursor: null`; `total` is `null` only where a surface cannot count cheaply (the
+union reconciliation queue, which declares overflow through `hasMore`/`nextCursor`).
+
+| surface | default / cap |
+| --- | --- |
+| invoices, payments | 100 / 200 |
+| students | 200 / 1000 |
+| debtors | 200 / 500 |
+| payment-links | 100 / 100 |
+| collections, `reconciliation-queue`, `audit-events` | 50 / 100 |
+| invoice reminders | 20 / 20 |
+| student reminders | 15 / 50 |
+| financial periods | 50 / 100 |
+
+Cursors are opaque base64url `{v:1, s:<surface>, k:[…]}`. A cursor is bound to its
+surface, and its key shape is validated before it reaches SQL: a foreign-surface,
+wrong-shaped or non-base64 cursor is `400 BAD_REQUEST`. Timestamp keys are **microsecond**
+integers (an ISO millisecond cursor cannot separate rows written in the same millisecond
+and would skip them between pages).
 
 ## IV. Idempotency
 

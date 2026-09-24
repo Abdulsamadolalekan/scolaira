@@ -17,7 +17,19 @@ export const GET = withAuthorizedRoute(
     }
     const caseId = asUUID(id);
     const detail = await collectionsRepo.getCaseDetail(db, ctx, caseId);
-    const audit = await auditRepo.listForEntity(db, ctx, 'collections_case', caseId, 100);
-    return NextResponse.json({ ...detail, audit });
+    // H-2/M-6: the case thread declares its window instead of silently showing
+    // the newest 100 events as if they were all of them.
+    const audit = await auditRepo.listForEntityPage(db, ctx, 'collections_case', caseId, { limit: 100 });
+    return NextResponse.json({
+      ...detail,
+      audit: audit.rows,
+      auditPage: {
+        limit: 100,
+        returned: audit.rows.length,
+        total: audit.total,
+        hasMore: audit.hasMore,
+        nextCursor: audit.nextCursor,
+      },
+    });
   },
 );

@@ -22,6 +22,9 @@ import * as termRepo from '@/lib/db/repo/terms';
 import * as sessionsRepo from '@/lib/db/repo/academic-sessions';
 import * as auditRepo from '@/lib/db/repo/audit-events';
 import * as idemRepo from '@/lib/db/repo/idempotency-keys';
+import * as scopingRepo from '@/lib/db/repo/scoping';
+import { BUCKET_LABELS, classifyInvoiceScope, invoiceRegisterTotals } from '@/lib/db/repo/aggregates';
+import { SURFACE_LIMITS, assertCursorKeys, decodeCursor, encodeCursor, pageMeta, resolveLimit, sortKeyUs } from '@/lib/db/repo/pagination';
 import { RepoInvariantError } from '@/lib/db/repo/_context';
 import type { UUID } from '@/lib/db/repo/_context';
 import type { Kobo } from '@/lib/money';
@@ -60,6 +63,9 @@ export type InvoiceRow = {
   remainingKobo: number;
   isOverdue: boolean;
   daysOverdue: number;
+  /** H-2: which side of the active term's cut-over this invoice falls on. */
+  scopeClass: 'CURRENT_TERM' | 'PRIOR_TERM' | 'OTHER_TERM';
+  scopeLabel: string;
 };
 
 const fmtDate = (d: Date | string | null): string | null => {
@@ -74,13 +80,31 @@ export const GET = withAuthorizedRoute(
   async (req, { db, ctx }) => {
     const url = new URL(req.url);
     const status = url.searchParams.get('status');
+    const surface = SURFACE_LIMITS.invoices;
+    const limit = resolveLimit(surface, url.searchParams.get('limit'));
+    const cursor = url.searchParams.get('cursor');
+    const after = cursor ? decodeCursor(surface.surface, cursor) : null;
+    const validStatus = status && ['DRAFT','ISSUED','PARTIALLY_PAID','PAID','VOID'].includes(status) ? status : null;
 
     const where = [eq(invoices.organizationId, ctx.organizationId)] as any[];
-    if (status && ['DRAFT','ISSUED','PARTIALLY_PAID','PAID','VOID'].includes(status)) {
-      where.push(eq(invoices.status, status as any));
+    if (validStatus) where.push(eq(invoices.status, validStatus as any));
+
+    // H-2/M-6: the register is keyset-paginated on the EXACT ordering it
+    // renders, so a row inserted between two pages cannot shift the window and
+    // silently hide an invoice. `limit + 1` is the has-more probe.
+    // Built as an array so an absent cursor contributes NOTHING to the WHERE
+    // clause (an empty fragment would leave a dangling `AND`).
+    const sortUs = sortKeyUs(sql`coalesce(${invoices.issuedAt}, ${invoices.createdAt})`);
+    assertCursorKeys(after, ['bigint', 'uuid']);
+    const predicates = [...where];
+    if (after) {
+      predicates.push(sql`(
+            ${sortUs} < ${after[0]}::bigint
+            or (${sortUs} = ${after[0]}::bigint and ${invoices.id} < ${after[1]}::uuid)
+      )` as any);
     }
 
-    const rows = await db
+    const rowsQuery = db
       .select({
         id: invoices.id,
         invoiceNumber: invoices.invoiceNumber,
@@ -90,21 +114,35 @@ export const GET = withAuthorizedRoute(
         studentLastName: students.lastName,
         studentCode: students.studentId,
         termName: terms.name,
+        termId: invoices.termId,
         issueDate: invoices.issueDate,
         dueDate: invoices.dueDate,
         totalKobo: invoices.totalKobo,
         paidKobo: invoices.paidKobo,
+        sortUs: sql<string>`${sortUs}`,
       })
       .from(invoices)
       .leftJoin(students, eq(students.id, invoices.studentId))
       .leftJoin(terms, eq(terms.id, invoices.termId))
-      .where(and(...where))
-      .orderBy(sql`coalesce(${invoices.issuedAt}, ${invoices.createdAt}) desc`)
-      .limit(200);
+      .where(and(...predicates))
+      .orderBy(sql`${sortUs} desc, ${invoices.id} desc`)
+      .limit(limit + 1);
+    const rows = await rowsQuery;
+
+    // H-2: the scope declaration and the register totals. The strip is summed by
+    // the database over every matching row (never over this page), which is the
+    // measured defect this milestone closes.
+    const [totals, scope] = await Promise.all([
+      invoiceRegisterTotals(db, ctx, { status: validStatus }),
+      scopingRepo.getInvoiceScopeDeclaration(db, ctx),
+    ]);
+
+    const hasMore = rows.length > limit;
+    const page = rows.slice(0, limit);
 
     const today = new Date();
     today.setUTCHours(0, 0, 0, 0);
-    const result: InvoiceRow[] = rows.map((r: any) => {
+    const result: InvoiceRow[] = page.map((r: any) => {
       const total = Number(r.totalKobo) || 0;
       const paid = Number(r.paidKobo) || 0;
       const remaining = Math.max(0, total - paid);
@@ -116,6 +154,14 @@ export const GET = withAuthorizedRoute(
         daysOverdue = Math.max(0, diff);
         isOverdue = daysOverdue > 0;
       }
+      const dueDate = fmtDate(r.dueDate);
+      // Classified on the STORED day, not the display string: comparing
+      // "28 Nov 2025" against a cut-over date is a text comparison, and it hid
+      // every carried-forward invoice behind the OTHER_TERM label.
+      const scopeClass = classifyInvoiceScope(
+        { termId: r.termId ?? null, dueDate: r.dueDate ?? null },
+        { termId: scope.termId, cutoverOn: scope.cutoverOn },
+      );
       return {
         id: r.id,
         invoiceNumber: r.invoiceNumber,
@@ -125,15 +171,34 @@ export const GET = withAuthorizedRoute(
         studentCode: r.studentCode || '',
         termName: r.termName ?? null,
         issueDate: fmtDate(r.issueDate),
-        dueDate: fmtDate(r.dueDate),
+        dueDate,
         totalKobo: total,
         paidKobo: paid,
         remainingKobo: remaining,
         isOverdue, daysOverdue,
-      };
+        scopeClass,
+        scopeLabel: BUCKET_LABELS[scopeClass],
+      } as InvoiceRow;
     });
 
-    return NextResponse.json({ invoices: result });
+    const last = page[page.length - 1] as any;
+    return NextResponse.json({
+      invoices: result,
+      totals,
+      scope,
+      page: pageMeta({
+        surface,
+        limit,
+        returned: result.length,
+        total: totals.total,
+        nextCursor:
+          hasMore && last
+            ? encodeCursor(surface.surface, [String(last.sortUs), String(last.id)])
+            : null,
+        hasMore,
+      }),
+      asOf: new Date().toISOString(),
+    });
   },
 );
 

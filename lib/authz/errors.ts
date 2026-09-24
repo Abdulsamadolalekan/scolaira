@@ -13,6 +13,13 @@ export const AuthzErrorCode = {
   BAD_REQUEST: 'BAD_REQUEST',
   RATE_LIMITED: 'RATE_LIMITED',
   CONFLICT: 'CONFLICT',
+  // Business-rule conflicts that callers must be able to branch on without
+  // parsing prose: a period window that overlaps another, and the two measured
+  // reasons a close is refused. They travel in the same error envelope as the
+  // authorization codes so every surface keeps one error channel.
+  PERIOD_OVERLAP: 'PERIOD_OVERLAP',
+  PERIOD_HAS_UNRESOLVED_PAYMENTS: 'PERIOD_HAS_UNRESOLVED_PAYMENTS',
+  PERIOD_HAS_UNALLOCATED_PAYMENTS: 'PERIOD_HAS_UNALLOCATED_PAYMENTS',
 } as const;
 export type AuthzErrorCode = typeof AuthzErrorCode[keyof typeof AuthzErrorCode];
 

@@ -330,6 +330,13 @@
       "when": 1790000029007,
       "tag": "0047_h5_operational_hardening",
       "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1790000029008,
+      "tag": "0048_h2_scoping_pagination",
+      "breakpoints": true
     }
   ]
 }

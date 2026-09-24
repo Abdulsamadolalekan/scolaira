@@ -142,3 +142,12 @@ export const guardianRelationshipEnum = pgEnum('guardian_relationship', [
   'SPONSOR',
   'OTHER',
 ]);
+
+// --- H-2: declared invoice aggregation scope -------------------------------
+
+/**
+ * The scope a financial surface declares for itself. `ALL_TERM` is the
+ * documented default (arrear visibility is the safe default); `TERM` is an
+ * explicit, auditable opt-in.
+ */
+export const invoiceScopeEnum = pgEnum('invoice_scope', ['TERM', 'ALL_TERM']);

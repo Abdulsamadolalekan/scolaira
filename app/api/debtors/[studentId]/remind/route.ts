@@ -23,6 +23,7 @@ import { and, eq, sql } from 'drizzle-orm';
 import { withAuthorizedRoute } from '@/lib/authz';
 import { students } from '@/lib/db/schema';
 import * as reminderRepo from '@/lib/db/repo/reminders';
+import { FOLLOWUP_THRESHOLDS } from '@/lib/db/repo/staleness';
 
 export const runtime = 'nodejs';
 
@@ -117,9 +118,17 @@ export const POST = withAuthorizedRoute(
     const total = targets.reduce((s, i) => s + i.remainingKobo, 0);
     const maxDays = Math.max(0, ...targets.map(i => i.daysOverdue));
 
-    const cooled = await reminderRepo.hasBeenRemindedSince(db, ctx, invoiceId && !includeAll ? invoiceId : null, studentId, 4);
+    const cooled = await reminderRepo.hasBeenRemindedSince(db, ctx, invoiceId && !includeAll ? invoiceId : null, studentId, FOLLOWUP_THRESHOLDS.reminderCooldownHours);
     if (cooled) {
-      return NextResponse.json({ error: { code: 'TOO_EARLY', message: 'A reminder was already sent for this balance within the last 4 hours.' } }, { status: 429 });
+      // M-7: the cooldown is a shared constant, echoed to the client so the
+      // message and the server rule cannot drift apart.
+      return NextResponse.json({
+        error: {
+          code: 'TOO_EARLY',
+          message: `A reminder was already sent for this balance within the last ${FOLLOWUP_THRESHOLDS.reminderCooldownHours} hours.`,
+          details: { cooldownHours: FOLLOWUP_THRESHOLDS.reminderCooldownHours },
+        },
+      }, { status: 429 });
     }
 
     const { subject, body: msgBody } = renderBody({ orgName, studentName, invoices: targets, totalKobo: total });

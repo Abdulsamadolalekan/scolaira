@@ -6,6 +6,7 @@
  * existing authoritative tables and never writes a financial balance.
  */
 import { and, desc, eq } from 'drizzle-orm';
+import { SURFACE_LIMITS, assertCursorKeys, decodeCursor, encodeCursor } from './pagination';
 import { sql } from 'drizzle-orm';
 import { AuthzError, AuthzErrorCode } from '@/lib/authz';
 import * as auditRepo from '@/lib/db/repo/audit-events';
@@ -120,6 +121,140 @@ export interface QueueFilters {
  * trigger-maintained invoice totals/paid values at read time, never copied to
  * collections_cases.
  */
+/**
+ * H-2/M-6 — the queue with a declared window.
+ *
+ * The workbench orders by (priority rank, next action, created, id); a keyset
+ * cursor has to reproduce that ordering exactly, so the rank and the NULLS-LAST
+ * next-action key are materialised in a CTE and compared in the same shape. The
+ * filter total comes from the database, never from the page.
+ */
+/**
+ * The queue's compound ordering, expressed once so the keyset predicate and the
+ * ORDER BY cannot drift: priority rank, next-action key (NULLS LAST via the
+ * max-bigint sentinel), then created-at and id as final tie-breakers. All
+ * timestamp comparisons are microsecond integers.
+ */
+const RANK_SQL = sql`CASE c.priority WHEN 'URGENT' THEN 0 WHEN 'HIGH' THEN 1 WHEN 'NORMAL' THEN 2 ELSE 3 END`;
+const NEXT_ACTION_US_SQL =
+  sql`(CASE WHEN c.next_action_at IS NULL THEN 9223372036854775807::bigint
+            ELSE floor(extract(epoch from c.next_action_at) * 1000000)::bigint END)`;
+const CREATED_US_SQL = sql`floor(extract(epoch from c.created_at) * 1000000)::bigint`;
+
+export async function listQueuePage(
+  db: TenantScopedDb,
+  ctx: TenantCtx,
+  filters: QueueFilters = {},
+  window: { limit: number; cursor?: string | null } = { limit: 50 },
+): Promise<{ rows: CollectionsQueueRow[]; total: number; hasMore: boolean; nextCursor: string | null }> {
+  const limit = Math.min(Math.max(window.limit, 1), 100);
+  const after = window.cursor ? decodeCursor(SURFACE_LIMITS.collections.surface, window.cursor) : null;
+
+  const conditions = [sql`c.organization_id = ${ctx.organizationId}::uuid`];
+  if (!filters.includeClosed) conditions.push(sql`c.state <> 'CLOSED'`);
+  if (filters.state) conditions.push(sql`c.state = ${filters.state}`);
+  if (filters.priority) conditions.push(sql`c.priority = ${filters.priority}`);
+  if (filters.assignee) conditions.push(sql`c.assigned_to = ${filters.assignee}::uuid`);
+  if (after) {
+    // The cursor carries the SAME keys the ordering is expressed on: rank,
+    // next-action microsecond key (max-bigint sentinel for NULL, i.e. NULLS
+    // LAST), created microsecond key, id. Timestamps are microseconds, not ISO
+    // strings — a millisecond cursor cannot separate rows created in the same
+    // millisecond, and would drop them from the walk.
+    assertCursorKeys(after, ['rank', 'bigint', 'bigint', 'uuid']);
+    conditions.push(sql`(
+      ${RANK_SQL} > ${Number(after[0])}
+      OR (${RANK_SQL} = ${Number(after[0])} AND ${NEXT_ACTION_US_SQL} > ${after[1]}::bigint)
+      OR (${RANK_SQL} = ${Number(after[0])} AND ${NEXT_ACTION_US_SQL} = ${after[1]}::bigint
+          AND ${CREATED_US_SQL} < ${after[2]}::bigint)
+      OR (${RANK_SQL} = ${Number(after[0])} AND ${NEXT_ACTION_US_SQL} = ${after[1]}::bigint
+          AND ${CREATED_US_SQL} = ${after[2]}::bigint
+          AND c.id < ${after[3]}::uuid)
+    )`);
+  }
+
+  const countRows = (await db.execute(sql`
+    SELECT count(*)::int AS n FROM collections_cases c
+     WHERE ${sql.join(conditions, sql` AND `)}
+  `)) as unknown as Array<{ n: number }>;
+  const total = Number(countRows?.[0]?.n ?? 0);
+
+  const rows = (await db.execute(sql`
+    WITH queue AS (
+      SELECT
+        c.id,
+        c.student_id AS "studentId",
+        c.state,
+        c.priority,
+        c.reason,
+        c.assigned_to AS "assignedTo",
+        c.next_action_at AS "nextActionAt",
+        c.version,
+        c.created_at AS "createdAt",
+        c.updated_at AS "updatedAt",
+        ${RANK_SQL} AS rank,
+        ${NEXT_ACTION_US_SQL} AS na_us,
+        ${CREATED_US_SQL} AS created_us,
+        s.student_id AS "studentIdCode",
+        trim(coalesce(s.first_name, '') || ' ' || coalesce(s.middle_name, '') || ' ' || coalesce(s.last_name, '')) AS "studentName",
+        coalesce(debt.student_outstanding_kobo, 0) AS "studentOutstandingKobo",
+        coalesce(debt.open_invoice_count, 0)::int AS "openInvoiceCount"
+      FROM collections_cases c
+      JOIN students s
+        ON s.id = c.student_id
+       AND s.organization_id = c.organization_id
+      LEFT JOIN LATERAL (
+        SELECT
+          coalesce(sum(greatest(0, i2.total_kobo - i2.paid_kobo)), 0) AS student_outstanding_kobo,
+          count(*)::int AS open_invoice_count
+        FROM invoices i2
+        WHERE i2.organization_id = c.organization_id
+          AND i2.student_id = c.student_id
+          AND i2.status IN ('ISSUED', 'PARTIALLY_PAID')
+          AND greatest(0, i2.total_kobo - i2.paid_kobo) > 0
+      ) debt ON true
+      WHERE ${sql.join(conditions, sql` AND `)}
+      ORDER BY rank, na_us, created_us DESC, c.id DESC
+      LIMIT ${limit + 1}
+    )
+    SELECT * FROM queue
+  `)) as unknown as QueueDbRow[];
+
+  const hasMore = rows.length > limit;
+  const page = rows.slice(0, limit);
+  const last = (page[page.length - 1] as any) ?? null;
+  return {
+    rows: page.map((row) => ({
+      id: row.id,
+      studentId: row.studentId,
+      studentIdCode: row.studentIdCode,
+      studentName: row.studentName.replace(/\s+/g, ' ').trim(),
+      state: row.state,
+      priority: row.priority,
+      reason: row.reason,
+      assignedTo: row.assignedTo,
+      nextActionAt: iso(row.nextActionAt),
+      outstandingKobo: numberValue(row.studentOutstandingKobo),
+      studentOutstandingKobo: numberValue(row.studentOutstandingKobo),
+      openInvoiceCount: numberValue(row.openInvoiceCount),
+      version: Number(row.version),
+      createdAt: iso(row.createdAt) as string,
+      updatedAt: iso(row.updatedAt) as string,
+    })),
+    total,
+    hasMore,
+    nextCursor:
+      hasMore && last
+        ? encodeCursor(SURFACE_LIMITS.collections.surface, [
+            String(Number(last.rank)),
+            String(last.na_us),
+            String(last.created_us),
+            String(last.id),
+          ])
+        : null,
+  };
+}
+
 export async function listQueue(
   db: TenantScopedDb,
   ctx: TenantCtx,

@@ -75,6 +75,20 @@ export default async function globalSetup(_ctx: GlobalSetupContext) {
     await sql`GRANT UPDATE (kind, state, previous_state, reason, resolution_code, resolution_note, resolved_by, resolved_at, closed_at, version) ON reconciliation_cases TO scolaira_app`;
     await sql`GRANT UPDATE (state, decided_by, decided_at) ON reconciliation_candidates TO scolaira_app`;
     await sql`REVOKE UPDATE, DELETE ON reconciliation_evidence FROM scolaira_app`;
+    // H-2: financial periods are boundary evidence and surface scope settings
+    // are an audit trail; the runtime role may never delete either. Mirrors
+    // scripts/migrate.ts (the blanket DML grant above re-creates DELETE).
+    await sql`
+      DO $$
+      BEGIN
+        IF to_regclass('public.financial_periods') IS NOT NULL THEN
+          EXECUTE 'REVOKE DELETE ON public.financial_periods FROM scolaira_app';
+        END IF;
+        IF to_regclass('public.surface_scope_settings') IS NOT NULL THEN
+          EXECUTE 'REVOKE DELETE ON public.surface_scope_settings FROM scolaira_app';
+        END IF;
+      END
+      $$`;
     await sql`REVOKE DELETE, TRUNCATE, REFERENCES, TRIGGER ON collections_cases, collections_case_events FROM scolaira_app`;
     await sql`REVOKE UPDATE ON collections_cases, collections_case_events FROM scolaira_app`;
     await sql`GRANT UPDATE (state, priority, assigned_to, next_action_at, resolved_by, resolved_at, closed_by, closed_at, version) ON collections_cases TO scolaira_app`;

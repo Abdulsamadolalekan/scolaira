@@ -15,6 +15,9 @@ import { GET as meGet } from '@/app/api/auth/me/route';
 import { getSql, closeDb } from '@/lib/db';
 import { organizationMembers } from '@/lib/db/schema';
 import { withSystemContext, withTenant } from '@/lib/db/tenant';
+// H-2: the dashboard's declared scope is now explicit and auditable, so the
+// term-scoping assertion below sets it rather than assuming it.
+import { PUT as ScopePut } from '@/app/api/scoping/settings/route';
 
 function uniqueEmail(prefix = 'u'): string {
   return `${prefix}-${Math.random().toString(36).slice(2, 10)}@example.com`;
@@ -655,8 +658,62 @@ describe('M6 — endpoint hardening', () => {
       // Other term has ≥3M ACTIVE allocations (our seed) — proving the data
       // set does contain allocations outside the current term.
       expect(othTotal).toBeGreaterThanOrEqual(3000000);
-      // Dashboard reported collected equals current-term total (not cur+oth).
-      expect(dash.data.kpis.collectedKobo).toBe(curTotal);
+      // H-2 supersedes the *implicit* default: the dashboard now declares the
+      // scope its headline uses (`scope.kpis.scope`), and the workspace default
+      // is ALL_TERM so carried-forward arrears cannot be invisible on the
+      // headline (H-2 scope map, decision 2). The M6 property is asserted under
+      // BOTH declared scopes: the reported figure must equal an independently
+      // computed total for the scope the payload names, never a mix of terms.
+      const all = await withTenant({ organizationId: finance.orgId, userId: finance.userId } as any, async () => {
+        const t = await sql<any[]>`
+          select coalesce(sum(a.amount_kobo),0)::bigint as v
+          from payment_allocations a
+          join invoices i on i.id = a.invoice_id
+          join payments p on p.id = a.payment_id
+          where i.organization_id = ${finance.orgId}::uuid
+            and i.status in ('ISSUED','PARTIALLY_PAID','PAID')
+            and a.status = 'ACTIVE' and p.status = 'CONFIRMED'`;
+        return Number(t[0]!.v);
+      });
+
+      expect(dash.data.scope.kpis.scope).toBe('ALL_TERM');
+      expect(dash.data.scope.kpis.isDefault).toBe(true);
+      expect(dash.data.kpis.collectedKobo).toBe(all);
+
+      // Changing what the headline means is an organization-level setting, so a
+      // FINANCE_OFFICER may not flip it (H-2): the refusal is asserted before the
+      // SCHOOL_ADMIN performs the change.
+      const refused = await call(ScopePut as any, finance.jar, {
+        method: 'PUT',
+        path: '/api/scoping/settings',
+        csrf: true,
+        body: { invoiceScope: 'TERM' },
+      });
+      expect(refused.status, JSON.stringify(refused.data)).toBe(403);
+
+      const flip = await call(ScopePut as any, admin.jar, {
+        method: 'PUT',
+        path: '/api/scoping/settings',
+        csrf: true,
+        body: { invoiceScope: 'TERM' },
+      });
+      expect(flip.status, JSON.stringify(flip.data)).toBe(200);
+      const termScoped = await callRoute('GET', '/api/dashboard/summary', finance.jar);
+      expect(termScoped.status).toBe(200);
+      expect(termScoped.data.scope.kpis.scope).toBe('TERM');
+      expect(termScoped.data.scope.kpis.isDefault).toBe(false);
+      // The original M6 expectation, now under an explicit, declared scope: the
+      // current term only (2M), not cur + other (5M).
+      expect(termScoped.data.kpis.collectedKobo).toBe(curTotal);
+      expect(curTotal).toBeLessThan(all);
+
+      const restore = await call(ScopePut as any, admin.jar, {
+        method: 'PUT',
+        path: '/api/scoping/settings',
+        csrf: true,
+        body: { invoiceScope: 'ALL_TERM' },
+      });
+      expect(restore.status).toBe(200);
     });
   });
 });
