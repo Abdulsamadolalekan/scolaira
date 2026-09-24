@@ -45,6 +45,13 @@ export const paymentLinks = pgTable('payment_links', {
   revokedBy: uuid('revoked_by').references(() => users.id),
   note: text('note'),
   createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
+  // H-5: rotation provenance. `token_fingerprint` is DERIVED by a trigger (the
+  // same HMAC construction the submission audit trail uses, so the two
+  // correlate); it is never supplied by application code, and it makes the
+  // bearer token correlatable without being storable.
+  tokenFingerprint: varchar('token_fingerprint', { length: 16 }).notNull(),
+  tokenRotatedAt: timestamp('token_rotated_at', { withTimezone: true, mode: 'date' }),
+  tokenRotationCount: integer('token_rotation_count').notNull().default(0),
   ...timestamps(),
 }, (t) => [
   uniqueIndex('payment_links_token_idx').on(t.token),

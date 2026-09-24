@@ -52,7 +52,11 @@ async function InvoiceDetailInner({ params }: { params: Promise<{ id: string }> 
   const { id } = await params;
   const inv = await loadInvoice(id);
   if (!inv) notFound();
-  return <InvoiceDetailShell inv={inv} />;
+  // H-5: whether to offer the rotate affordance. Authorization is enforced by
+  // the route (`payment_link.rotate`, OWNER-only); this only avoids showing an
+  // operator a control that would be refused.
+  const rotateGuard = await checkPermission('payment_link.rotate');
+  return <InvoiceDetailShell inv={inv} canRotate={rotateGuard.allowed} />;
 }
 
 async function loadInvoice(id: string): Promise<InvoiceDetail | null> {
@@ -70,7 +74,7 @@ async function loadInvoice(id: string): Promise<InvoiceDetail | null> {
   return res.json();
 }
 
-async function InvoiceDetailShell({ inv }: { inv: InvoiceDetail }) {
+async function InvoiceDetailShell({ inv, canRotate }: { inv: InvoiceDetail; canRotate: boolean }) {
   const paidPct = inv.totalKobo > 0 ? Math.min(100, Math.round((inv.paidKobo / inv.totalKobo) * 100)) : 0;
 
   return (
@@ -135,7 +139,7 @@ async function InvoiceDetailShell({ inv }: { inv: InvoiceDetail }) {
                   <Money kobo={inv.totalKobo} />
                 </div>
               </div>
-              <InvoiceActions invoiceId={inv.id} status={inv.status} paidKobo={inv.paidKobo} remainingKobo={inv.remainingKobo} />
+              <InvoiceActions invoiceId={inv.id} status={inv.status} paidKobo={inv.paidKobo} remainingKobo={inv.remainingKobo} canRotate={canRotate} />
             </div>
           </div>
 

@@ -707,9 +707,48 @@ describe('re-audit F — the runtime role cannot widen its own authority', () =>
       .filter((r) => r.app_can)
       .map((r) => r.proname)
       .sort();
-    // R3 (H-3) added exactly one more app-callable public function: a
-    // read-only resolver for the authoritative amount due. The write path is
-    // still a single credential-gated entry point.
-    expect(callable).toEqual(['auth_public_amount_due', 'auth_public_submit_payment']);
+    // R3 (H-3) added a read-only resolver for the authoritative amount due.
+    // H-5 added two READ-ONLY, tenant-scoped operational views (a link's own
+    // exposure posture, and the organization's recent public-surface events).
+    // Neither writes anything: the write path is still the single
+    // credential-gated entry point.
+    expect(callable).toEqual([
+      'auth_public_amount_due',
+      'auth_public_link_exposure',
+      'auth_public_submit_payment',
+      'auth_public_surface_events',
+    ]);
+  });
+
+  it('exactly one app-callable function writes to the ledger (H-5 audit)', async () => {
+    // The stronger form of the same property: read the definitions, not the
+    // names. H-5 added a durable operational-event log and a recorder for it —
+    // that recorder must be the ONLY other public-surface writer, and it must
+    // never touch a financial table.
+    const result = await withScopedDb({ kind: 'none' }, async (_db, sql) =>
+      probe(
+        sql,
+        `SELECT p.proname, pg_get_functiondef(p.oid) AS def
+           FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+          WHERE n.nspname = 'public'
+            AND p.proname LIKE 'auth\_%'
+            AND has_function_privilege('scolaira_app', p.oid, 'EXECUTE')`,
+      ),
+    );
+    const rows = result.rows as Array<{ proname: string; def: string }>;
+    const ledgerWriters = rows
+      .filter((r) => /insert\s+into\s+(public\.)?(payments|payment_allocations|receipts|invoices)\b/i.test(r.def))
+      .map((r) => r.proname)
+      .sort();
+    expect(ledgerWriters).toEqual(['auth_public_submit_payment']);
+
+    const recorder = rows.find((r) => r.proname === 'auth_record_public_surface_event');
+    expect(recorder, 'the H-5 recorder must be app-callable').toBeTruthy();
+    expect(/insert\s+into\s+(public\.)?public_surface_events\b/i.test(recorder!.def)).toBe(true);
+    expect(
+      /insert\s+into\s+(public\.)?(payments|payment_allocations|receipts|invoices|payment_links)\b/i.test(
+        recorder!.def,
+      ),
+    ).toBe(false);
   });
 });

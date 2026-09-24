@@ -49,6 +49,20 @@ export const PATCH = withAuthorizedRoute(
         metadata: { requestId, reason: data?.reason ?? null },
       });
     }
-    return NextResponse.json({ link: { id: updated.id, token, status: updated.status } });
+    return NextResponse.json({
+      link: {
+        id: updated.id,
+        // The token is echoed for the operator who supplies it in the URL;
+        // H-5's remedy for a leaked URL is rotation (POST .../rotate), which
+        // retires this value instead of disabling the link.
+        token,
+        status: updated.status,
+        // The link stays usable by the school either way; tell the operator
+        // what revocation means for the payer.
+        notice:
+          'This link no longer authorizes any payment. To keep the link working ' +
+          'after a leaked URL, rotate it instead (POST /api/payment-links/{token}/rotate).',
+      },
+    });
   },
 );

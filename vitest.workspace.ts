@@ -20,7 +20,10 @@ export default defineWorkspace([
       environment: 'jsdom',
       globals: true,
       setupFiles: ['./tests/setup-unit.ts'],
-      include: ['lib/**/*.test.{ts,tsx}', 'components/**/*.test.{ts,tsx}'],
+      // `app/**` is included so a client component can carry its own test
+      // beside it (the router ignores non-route filenames such as
+      // `*.test.tsx`). H-5's rotate control is the first such test.
+      include: ['lib/**/*.test.{ts,tsx}', 'components/**/*.test.{ts,tsx}', 'app/**/*.test.{ts,tsx}'],
       exclude: ['tests/db/**', 'node_modules', '.next'],
     },
   },

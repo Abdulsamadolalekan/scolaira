@@ -56,6 +56,22 @@ async function run() {
     // SECURITY DEFINER entry point; the runtime role must not regain access
     // to it from the broad bootstrap grant above.
     await sql`REVOKE ALL ON public_submission_keys FROM scolaira_app`;
+    // H-5: the operational event log is owner-only data. `ALTER DEFAULT
+    // PRIVILEGES` grants DML to the runtime role on every NEW table, so an
+    // in-migration REVOKE is not enough — it must be re-applied after the
+    // blanket grant, exactly like the replay cache above. Guarded by
+    // `to_regclass` because this step also runs when the schema is older than
+    // the migration that creates the table (the 46 -> 47 upgrade path).
+    await sql`
+      DO $$
+      BEGIN
+        IF to_regclass('public.public_surface_events') IS NOT NULL THEN
+          EXECUTE 'REVOKE ALL ON public_surface_events FROM PUBLIC';
+          EXECUTE 'REVOKE ALL ON public_surface_events FROM scolaira_app';
+        END IF;
+      END
+      $$`;
+
     // Re-apply append-only / column-level restrictions after the broad
     // bootstrap grant. The runtime role must not regain mutation privileges
     // merely because a migration was applied.

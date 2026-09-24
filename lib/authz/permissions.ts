@@ -97,6 +97,13 @@ export type Action =
   | 'payment_link.create'
   | 'payment_link.read'
   | 'payment_link.revoke'
+  /**
+   * H-5: rotate the bearer token of a link. Deliberately OWNER-ONLY: rotation
+   * is an incident response (a leaked URL), so it is an owner decision, not a
+   * routine finance operation — and it retires a credential every payer in
+   * possession of the old URL is currently using.
+   */
+  | 'payment_link.rotate'
 
   // Reporting & exports
   | 'report.financial.read'
@@ -166,7 +173,7 @@ const POLICY: Record<MembershipRole, ReadonlySet<Action>> = {
     'payment.record', 'payment.confirm', 'payment.allocate', 'payment.reverse', 'payment.refund',
     'receipt.issue', 'receipt.read', 'receipt.void',
     'reversal.read',
-    'payment_link.create', 'payment_link.read', 'payment_link.revoke',
+    'payment_link.create', 'payment_link.read', 'payment_link.revoke', 'payment_link.rotate',
     'report.financial.read', 'report.financial.export',
     'dashboard.read', 'payment.read',
     'audit.read',

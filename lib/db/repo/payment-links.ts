@@ -5,7 +5,7 @@
  * to settle an invoice. Token is generated outside the repo (use nanoid);
  * uniqueness is enforced at DB level (unique index on token).
  */
-import { eq, and } from 'drizzle-orm';
+import { eq, and, sql } from 'drizzle-orm';
 import { paymentLinks } from '../schema';
 import { RepoInvariantError, type TenantCtx, type TenantScopedDb, type UUID } from './_context';
 import type { Kobo } from '@/lib/money';
@@ -63,6 +63,40 @@ export async function findByTokenPublic(
     .where(eq(paymentLinks.token, token))
     .limit(1);
   return rows[0] ?? null;
+}
+
+/** H-5: rotate the bearer token of an ACTIVE link.
+ *
+ * Rotation is the operational remedy for a leaked URL: the old token stops
+ * authorizing anything (the link row it resolved to now carries a different
+ * token), while the link's identity — id, invoice/student binding, amount,
+ * expiry and the provenance of every payment that points at it — is preserved.
+ *
+ * The token is minted by the CALLER for the same reason creation works that
+ * way: the value is only ever generated in the application process, never read
+ * back from the database. The database still owns the invariants
+ * (`trg_payment_link_token_rotation_guard`): an ACTIVE link, a fresh opaque
+ * token, and provenance (timestamp + incremented count) recorded in the same
+ * statement — so no future call site can rotate by accident.
+ */
+export async function rotateToken(
+  db: TenantScopedDb,
+  ctx: TenantCtx,
+  id: UUID,
+  newToken: string,
+): Promise<PaymentLink> {
+  const rows = await db
+    .update(paymentLinks)
+    .set({
+      token: newToken,
+      tokenRotatedAt: new Date(),
+      tokenRotationCount: sql`${paymentLinks.tokenRotationCount} + 1`,
+    } as unknown as Partial<typeof paymentLinks.$inferInsert>)
+    .where(and(eq(paymentLinks.id, id), eq(paymentLinks.organizationId, ctx.organizationId)))
+    .returning();
+  const row = rows[0];
+  if (!row) throw new RepoInvariantError(`Payment link ${id} not found`);
+  return row;
 }
 
 export async function revoke(

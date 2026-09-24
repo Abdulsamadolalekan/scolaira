@@ -22,6 +22,7 @@
  *   5. Nothing the database says about its internals reaches the payer: every
  *      failure maps to a stable, non-disclosing message.
  */
+import type postgres from 'postgres';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import {
@@ -58,7 +59,48 @@ function error(code: string, message: string, status: number, headers?: Record<s
   return NextResponse.json({ error: { code, message } }, { status, headers });
 }
 
-/** Consumes the platform budget. Returns a response to send when it is spent. */
+/**
+ * H-5: durable, secret-free operational signal.
+ *
+ * Every terminal outcome of this endpoint leaves one append-only row in
+ * `public_surface_events`, so "how many refusals, on which link, when?" is
+ * answerable without reading logs and without storing anything sensitive: the
+ * event row carries a kind, the link id and a timestamp — no token, no
+ * submission key, no reference, no payer identity, no amount (enforced by
+ * CHECK constraints on the table and the recorder's caller matrix).
+ *
+ * Two properties matter for correctness, not just for tidiness:
+ *
+ *   SAVEPOINT: a failing telemetry statement must not abort the transaction it
+ *   runs in. "Best effort" has to hold even when the scope is nested inside
+ *   another transaction (the integration harness pins one connection), or a
+ *   dropped signal could fail a payment.
+ *
+ *   NO NESTED SCOPE: a SCOLAIRA scope is single-depth by design — opening one
+ *   inside another is refused, so a signal raised from inside the submission
+ *   scope uses that scope's own handle (`record`), and only the refusal paths
+ *   that run after the scope has closed open a fresh one (`signal`).
+ */
+async function signalWith(sql: postgres.Sql, kind: string) {
+  await sql.unsafe('SAVEPOINT h5_signal');
+  try {
+    await sql`select auth_record_public_surface_event(${kind}, NULL, '{}'::jsonb)`;
+    await sql.unsafe('RELEASE SAVEPOINT h5_signal');
+  } catch (e) {
+    await sql.unsafe('ROLLBACK TO SAVEPOINT h5_signal').catch(() => {});
+    // Server-side only, and deliberately free of any payer or credential data:
+    // the operator needs to know that a signal was dropped.
+    console.error('[h5] public surface signal dropped', {
+      kind,
+      sqlstate: (e as { code?: string })?.code ?? String((e as any)?.cause?.code ?? 'unknown'),
+    });
+  }
+}
+
+/**
+ * Platform-wide budget, consumed before any bearer is examined: a flood of
+ * forged tokens must be bounded too.
+ */
 async function budgetExceeded(): Promise<NextResponse | null> {
   const sql = getSql();
   let retryAfter = 0;
@@ -79,6 +121,22 @@ async function budgetExceeded(): Promise<NextResponse | null> {
     429,
     { 'Retry-After': String(retryAfter) },
   );
+}
+
+/** Signal from outside any scope (refusal paths, after the scope has closed). */
+async function signal(kind: string, token: string | null) {
+  try {
+    if (token) {
+      await withPublicScope(token, async (_db, sql) => signalWith(sql, kind));
+    } else {
+      await withScopedDb({ kind: 'none' }, async (_db, sql) => signalWith(sql, kind));
+    }
+  } catch (e) {
+    console.error('[h5] public surface signal scope failed', {
+      kind,
+      sqlstate: (e as { code?: string })?.code ?? String((e as any)?.cause?.code ?? 'unknown'),
+    });
+  }
 }
 
 export async function POST(req: Request, { params }: { params: Promise<{ token: string }> }) {
@@ -124,6 +182,11 @@ export async function POST(req: Request, { params }: { params: Promise<{ token: 
   });
 
   if (!link) {
+    // An unusable bearer is the strongest abuse signal this endpoint produces
+    // (enumeration/forgery), so it is the one signal an anonymous caller may
+    // report. The reporter derives what it can from the bearer itself: nothing
+    // about the attempted token is stored.
+    await signal('submission_unknown_bearer', null);
     const status = await probePublicLinkStatus(token);
     if (status === 'EXPIRED') {
       return error('GONE', 'This payment link has expired.', 410);
@@ -164,6 +227,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ token: 
       // A retry returns the original outcome byte-for-byte; only the status
       // code and the replay header differ, so the payer can tell the two apart
       // while every field stays identical.
+      // H-5: the two outcomes are distinguishable operationally as well
+      // (a replay is pressure on the retry path, not new money).
+      await signalWith(sql, pay.replayed ? 'submission_replayed' : 'submission_accepted');
       return pay.replayed
         ? NextResponse.json(payload, { status: 200, headers: { 'Idempotent-Replayed': 'true' } })
         : NextResponse.json(payload, { status: 201 });
@@ -177,6 +243,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ token: 
         // R2/H-7: one live payment per (organization, reference) for every
         // non-CASH method. Report a stable conflict without revealing whether
         // the reference belongs to another submission on this link.
+        await signal('submission_reference_conflict', token);
         return error(
           'CONFLICT',
           'A payment with this reference has already been recorded. Check the reference or contact the school office.',
@@ -184,13 +251,16 @@ export async function POST(req: Request, { params }: { params: Promise<{ token: 
         );
       case '22023':
         // Amount binding: the claim disagrees with the amount due.
+        await signal('submission_amount_mismatch', token);
         return error(
           'AMOUNT_MISMATCH',
           'The amount submitted does not match the amount due on this payment link. Reload the page and try again.',
           409,
         );
       case '53400':
-        // Per-link submission bound.
+        // Per-link submission bound: either the hourly window or the
+        // unreconciled backlog. Both are abuse/queue-pressure signals.
+        await signal('submission_rate_limited', token);
         return error(
           'TOO_MANY_REQUESTS',
           'This payment link has received too many submissions. Please try again later or contact the school office.',
@@ -201,6 +271,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ token: 
       case '23000':
         // The submission key was reused for a different submission. Replaying
         // the first outcome would silently discard a real claim, so refuse.
+        await signal('submission_key_reused', token);
         return error(
           'IDEMPOTENCY_KEY_REUSED',
           'This submission was already recorded for a different payment reference. Reload the page and try again.',

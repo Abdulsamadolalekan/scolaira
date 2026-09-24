@@ -130,7 +130,16 @@ All POST endpoints require the existing session, CSRF, centralized authorization
 
 ### K. Payment Links (`/api/payment-links*`)
 
-Create, revoke, list. Public lookup/use is handled by separate public endpoints under `/pay/*` (SSR pages, not JSON API).
+| Method | Path                                    | Permission              | Purpose                                                                                                                                                                                                                                                                           |
+| ------ | --------------------------------------- | ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| POST   | `/api/payment-links`                    | `payment_link.create`   | Create a link for an invoice (or a standalone amount).                                                                                                                                                                                                                             |
+| PATCH  | `/api/payment-links/:token`             | `payment_link.revoke`   | Revoke a link.                                                                                                                                                                                                                                                                     |
+| GET    | `/api/payment-links`                    | `payment_link.read`     | List the tenant's links.                                                                                                                                                                                                                                                            |
+| POST   | `/api/payment-links/:token/rotate`      | `payment_link.rotate`   | **H-5.** (OWNER only.) Retire the link's bearer token and issue a new one. The link, its binding and every payment already attributed keep their provenance; the old URL stops authorizing anything immediately. Returns the new URL only. Audited (`payment_link.rotate`) and recorded as a `link_rotated` signal. |
+| GET    | `/api/payment-links/exposure`           | `payment_link.read`     | **H-5.** Tenant-scoped exposure report: which of the tenant's links still has its token in stored rows, how many, and the recommended action (`ROTATE` while ACTIVE). Never returns the token.                                                                                     |
+| GET    | `/api/payment-links/signals?since=&limit=` | `payment_link.read`  | **H-5.** Tenant-scoped, append-only, secret-free operational feed (refusals, abuse, rotation, pruning) with severities. The interval is validated and clamped server-side.                                                                                                          |
+
+Public lookup/use is handled by separate public endpoints under `/payment-links/*` (JSON) and `/p/*` (SSR pages, not JSON API). Operator maintenance that must bypass tenant RLS (the exposure/remediation reports, the replay-cache report and prune) is **not** HTTP: it is the owner-only CLI `scripts/public-surface-ops.ts`, documented in `docs/security/H5_OPERATIONAL_HARDENING_CLOSEOUT.md`.
 
 ### L. Communication (`/api/comms*`)
 
