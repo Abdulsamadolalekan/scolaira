@@ -195,8 +195,9 @@ sudo pg_ctlcluster 17 main start
 ## 10. Post-commit: local rehearsal of the pipeline, and the two defects it found
 
 The workflow could not be pushed from this environment, so all three jobs were
-replayed on the committed tree (`quality`, `readiness`, `e2e`) against purpose-built
-databases. Full method, transcript of the gate, defects and re-verification:
+replayed on the committed tree `6c6bd3728aea407061c7065f8b8a8c1589288a58`
+(`quality`, `readiness`, `e2e`) against purpose-built databases; the rehearsal, its
+two fixes and the re-verification are committed as `837184f`. Full method, transcript of the gate, defects and re-verification:
 **`docs/readiness/H6_CI_REHEARSAL.md`**. Two real defects surfaced and were fixed:
 
 - the `quality` job did not declare `SCOLAIRA_DEV_ECHO_RESET_TOKEN`, which `.env.test`

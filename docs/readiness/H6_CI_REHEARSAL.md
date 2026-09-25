@@ -8,7 +8,9 @@ scripts, the built artefact), on the **committed** tree
 (`99538122d2ce022186104900dc00d00705e587b3`). This document records that rehearsal,
 the two defects it exposed, and what it does and does not prove.
 
-Date: 2026-09-25 · Tree: H-6 commit + doc follow-up · Host: 2 GB sandbox, PostgreSQL 17.11.
+Date: 2026-09-25 · Tree: H-6 change set `6c6bd3728aea407061c7065f8b8a8c1589288a58` (doc follow-up `99538122d2ce022186104900dc00d00705e587b3`) · Host: 2 GB sandbox, PostgreSQL 17.11.
+
+The rehearsal's own result — the two fixes, the re-verification and this document — is committed as **`837184f`** (`H-6: local rehearsal of the rewritten CI pipeline, and the two defects it found`).
 
 ---
 
