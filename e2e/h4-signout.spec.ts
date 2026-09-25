@@ -10,7 +10,11 @@ import { expect, test } from '@playwright/test';
  * gone afterwards (a fresh visit lands on the sign-in page).
  */
 test.describe('H-4 sign-out lifecycle', () => {
-  test('the no-JS sign-out form posts the CSRF field and ends the session', async ({ page, request, context }) => {
+  test('the no-JS sign-out form posts the CSRF field and ends the session', async ({
+    page,
+    request,
+    context,
+  }) => {
     const stamp = Date.now().toString(36);
     const email = `e2e-signout-${stamp}@example.com`;
     const password = 'Str0ng!Passw0rd-For-E2E';
@@ -37,10 +41,14 @@ test.describe('H-4 sign-out lifecycle', () => {
       .map((h) => h.value.split(';')[0] ?? '')
       .filter((pair) => pair.includes('='));
     expect(setCookies.length).toBeGreaterThanOrEqual(2);
+    // The origin comes from the configured base URL, never a hard-coded one: the
+    // suite runs against the TLS front end by default (cookies are `Secure` in a
+    // production build), and a stale origin silently drops the cookies.
+    const origin = String(test.info().project.use.baseURL ?? 'http://127.0.0.1:3000');
     await page.context().addCookies(
       setCookies.map((pair) => {
         const eq = pair.indexOf('=');
-        return { name: pair.slice(0, eq), value: pair.slice(eq + 1), url: 'http://127.0.0.1:3000' };
+        return { name: pair.slice(0, eq), value: pair.slice(eq + 1), url: origin };
       }),
     );
 
@@ -63,10 +71,9 @@ test.describe('H-4 sign-out lifecycle', () => {
     // Submit it the way the browser does. Assert on the request (reliable for a
     // form submit that navigates) …
     const [logoutRequest] = await Promise.all([
-      page.waitForRequest(
-        (r) => r.url().includes('/api/auth/logout') && r.method() === 'POST',
-        { timeout: 20_000 },
-      ),
+      page.waitForRequest((r) => r.url().includes('/api/auth/logout') && r.method() === 'POST', {
+        timeout: 20_000,
+      }),
       form.locator('button[type="submit"]').click({ noWaitAfter: true }),
     ]);
     // … and the field was actually part of the submitted body.
@@ -76,9 +83,19 @@ test.describe('H-4 sign-out lifecycle', () => {
     // submit, so the effect is asserted instead: the browser's cookies were
     // cleared and the session was revoked server-side.
     await expect
-      .poll(async () => page.evaluate(async () => (await fetch('/api/auth/me')).status), {
-        timeout: 20_000,
-      })
+      .poll(
+        async () => {
+          try {
+            return await page.evaluate(async () => (await fetch('/api/auth/me')).status);
+          } catch {
+            // The submit navigates; WebKit rejects a fetch that is in flight
+            // while the document is replaced. That is not an answer yet, so the
+            // poll keeps asking rather than failing on the tooling.
+            return 0;
+          }
+        },
+        { timeout: 20_000 },
+      )
       .toBe(401);
 
     // Session is gone: a fresh page in the same context lands on sign-in.

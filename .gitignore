@@ -53,3 +53,6 @@ next-env.d.ts.bak
 # lib/db/migrations/meta/_journal.json is committed by us; ignore temp files only.
 e2e/screenshots/
 .env.test
+
+# H-6 E2E seed artefact (throwaway credentials for a throwaway database)
+e2e/.artifacts/

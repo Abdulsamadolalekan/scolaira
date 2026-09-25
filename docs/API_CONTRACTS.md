@@ -253,6 +253,61 @@ Separate route segment; requires PLATFORM_ADMIN role; every request audited.
   `details`. A closed period cannot be rewritten (database-enforced), and the runtime role
   has no `DELETE` on either new table.
 
+### V. Service Probes (`/api/health`, `/api/ready`) — H-6
+
+Two endpoints, two different jobs. Conflating them is what made the old release
+gate green on a broken deployment (see `docs/readiness/H6_SCOPE_MAP.md`, G1).
+
+**Liveness — `GET /api/health`** (public, no session):
+
+```json
+{
+  "status": "ok",
+  "probe": "liveness",
+  "readiness": "/api/ready",
+  "version": "0.1.0-M1",
+  "commit": "development",
+  "environment": "production",
+  "timestamp": "ISO-8601"
+}
+```
+
+- Always `200` while the process serves requests. It makes **no claim about any
+  dependency** — it is a restart/keep-alive probe, nothing else.
+- The former `checks.database` / `checks.auth` fields are removed: they reported
+  `not_configured` in a payload that also said `"status":"ok"`, which is how a
+  deployment with no database looked healthy.
+
+**Readiness — `GET /api/ready`** (public, no session, `Cache-Control: no-store`):
+
+- `200` with `{"status":"ready","probe":"readiness","build":{...},"timestamp":...,"checks":[...]}`
+  **only when every required dependency passes**, and `503` with
+  `{"status":"unavailable", ...}` otherwise. There is no third state: an
+  `ok`/`degraded` middle ground is not offered, because a gate that can say
+  "degraded" gets ignored.
+- `checks` are evaluated in order and carry `name` plus either `status:"ok"` with
+  a small `detail` (for example `{"applied":49,"expected":49,"latest":"0049_..."}`)
+  or `status:"fail"` with a machine-readable `reason`:
+
+  | check | reason | meaning |
+  | --- | --- | --- |
+  | `database` | `database_not_configured` | no `DATABASE_URL` in this deployment |
+  | `database` | `database_unreachable` / `database_timeout` | the database cannot be reached within the probe budget |
+  | `schema` | `schema_behind` | fewer migrations applied than this build requires |
+  | `schema` | `schema_ahead` | the database has migrations this build does not know |
+  | `schema` | `schema_version_mismatch` | the journal's latest tag is not this build's expected tag |
+  | `schema` | `schema_objects_missing` | required tables/functions are absent |
+  | `schema` | `schema_unverifiable` | the migration state cannot be read |
+  | `auth` | `auth_unconfigured` / `auth_crypto_broken` | the session secret is missing, too short, or signing/verification does not round-trip |
+  | any | `probe_failed` | the probe itself threw; the endpoint never throws |
+
+- The payload never contains a DSN, a secret, a SQLSTATE or SQL text. A caller
+  learns *that* something is wrong and *where*, not how to reach it.
+- The endpoint is reachable without a session (a gate nobody can probe is not a
+  gate) and is allow-listed in `middleware.ts`.
+- Readiness is the **deploy gate**: `npm run e2e` and CI wait on `/api/ready`
+  (which stays 503 until it passes), never on `/api/health`.
+
 ## III. Pagination, Filtering & Sorting Conventions
 
 - List endpoints accept `?cursor=...&limit=50&sort=field:dir&filter[status]=CONFIRMED`.

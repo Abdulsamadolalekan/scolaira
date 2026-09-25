@@ -4,7 +4,7 @@ import { test, expect } from '@playwright/test';
  * M1 accessibility smoke tests — keyboard navigation, focus rings, ARIA, reduced-motion.
  * These are lightweight runtime checks (not axe-core, which would be added in M2+).
  */
-test.describe('M1 a11y — keyboard navigation on Command Center', () => {
+test.describe('@design-system M1 a11y — keyboard navigation on Command Center', () => {
   test('focus rings appear when tabbing through nav and buttons', async ({ page }) => {
     await page.goto('/preview/command-center');
 

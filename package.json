@@ -14,11 +14,15 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:e2e": "playwright test",
-    "test:e2e:install": "playwright install --with-deps chromium",
+    "test:e2e": "playwright test --grep-invert @design-system",
+    "test:e2e:install": "playwright install --with-deps chromium webkit",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx scripts/migrate.ts",
-    "db:studio": "drizzle-kit studio"
+    "db:studio": "drizzle-kit studio",
+    "e2e:seed": "tsx --conditions=react-server scripts/seed-e2e.ts",
+    "e2e": "npm run e2e:seed && playwright test --grep-invert @design-system",
+    "test:e2e:design-system": "playwright test --grep @design-system",
+    "e2e:design-system": "npm run e2e:seed && playwright test --grep @design-system"
   },
   "dependencies": {
     "@radix-ui/react-alert-dialog": "^1.1.23",

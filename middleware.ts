@@ -34,11 +34,37 @@ const PUBLIC_API_PREFIXES = [
   '/api/auth/reset-request',
   '/api/auth/reset-confirm',
   '/api/health',
+  // H-6: the readiness gate. A deploy gate and an uptime monitor have no
+  // session; before this entry `/api/ready` did not exist AND an unauthenticated
+  // caller could not tell "missing route" from "protected route" (measured:
+  // 401 for a non-existent path). The payload it exposes is build identity,
+  // check names, stable reason codes and small counts only.
+  '/api/ready',
 ];
+
+/**
+ * Paths that are public BY DESIGN and must reach their route handler without a
+ * session cookie.
+ *
+ *   /p/<token>          the parent payment page (H-3/R3: the bearer token is
+ *                       the ONLY authority; the route re-validates it and the
+ *                       database re-derives the organization from the link row)
+ *   /api/p/<token>/...  its view + submit endpoints
+ *
+ * H-6 measured these as unreachable in a browser: an anonymous payer was
+ * redirected to /login (307) and the page's own view call answered 401, so the
+ * product's only no-auth, parent-facing journey could not be opened at all —
+ * while every test passed, because the suites call the route handlers directly
+ * and never traverse middleware. Allowing them here does not grant authority:
+ * middleware makes no security decision (see the header), and the handlers plus
+ * the public-context policies remain the boundary.
+ */
+const PUBLIC_PREFIXES = ['/p/', '/api/p/'];
 
 function isPublic(pathname: string): boolean {
   if (PUBLIC_PATHS.has(pathname)) return true;
   for (const p of PUBLIC_API_PREFIXES) if (pathname.startsWith(p)) return true;
+  for (const p of PUBLIC_PREFIXES) if (pathname.startsWith(p)) return true;
   if (pathname.startsWith('/_next') || pathname.startsWith('/favicon')) return true;
   // Design-system previews are mock-data-only and explicitly unavailable in production.
   if (pathname.startsWith('/preview')) return true;

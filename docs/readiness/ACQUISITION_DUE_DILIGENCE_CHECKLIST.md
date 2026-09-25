@@ -66,7 +66,7 @@ Legend — **Ready**: evidence exists. **Partial**: exists but incomplete or une
 
 | # | Diligence question | Status | Evidence today | Must close |
 |---|---|---|---|---|
-| D1 | Does health prove the system is usable? | **Gap** | Always `ok`; `database`/`auth` = `not_configured` (`app/api/health/route.ts:17-40`) | H-6 |
+| D1 | Does health prove the system is usable? | **Ready** (H-6, 2026-09-25) | **Proven:** `/api/ready` proves database connectivity, migration state (49/49 against the running build) and auth configuration, and fails closed — measured `503 database_unreachable` with Postgres stopped while `/api/health` returned `200` liveness only; `503 schema_behind` on a 48-state database; `503 schema_ahead` with a future migration; `503 auth_unconfigured` with a short session secret. `/api/health` no longer claims dependency health. Evidence: `docs/readiness/H6_RELEASE_EVIDENCE_CLOSEOUT.md` | closed (H-6) |
 | D2 | Does CI run the product end to end on a migrated seeded DB? | **Gap** | No migration/seed or authenticated journey; Chromium only; preview pages (`playwright.config.ts:7-30`, `tests/global-setup-db.ts`) | H-6 |
 | D3 | Do screenshots show the shipped product? | **Gap** | Preview/mock surfaces (`e2e/screenshots.spec.ts`) | H-6 |
 | D4 | Is backup/restore/PITR evidenced? | **Gap (E4)** | `docs/DISASTER_RECOVERY.md` describes intent; no drill record, no measured RTO/RPO, no named off-site owner | H-9 |
