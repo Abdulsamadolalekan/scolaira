@@ -1,6 +1,6 @@
 # H-6 — Release Evidence, Health/Observability & Deployment Verification (CLOSED)
 
-> **Status:** CLOSED, PROVEN — <COMMIT_SHA>
+> **Status:** CLOSED, PROVEN — commit `6c6bd3728aea407061c7065f8b8a8c1589288a58` (parent `ba451855bec3151f7ad8caf0503fd397ac3aca81`, 38 files, +3195/−148)
 > **Scope measured first:** `docs/readiness/H6_SCOPE_MAP.md` (G1–G11), read-only against the H-4 tree.
 > **Baselines preserved:** M1–M11, R1, R2, R3, H-5, H-2, H-4 untouched; `/api/health`'s false green is removed, not hidden.
 > **Out of scope, unchanged:** H-8 (platform-support journey), H-9 (provider/backup drill), A5, M12, and the M4 identity-visibility door (measured, documented, not redesigned).
