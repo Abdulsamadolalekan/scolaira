@@ -280,7 +280,22 @@ jobs:
           npx wait-on http://127.0.0.1:3000/api/ready -t 60000
           mkdir -p artifacts
           curl -sf http://127.0.0.1:3000/api/ready | tee artifacts/ready.json
+          # DIAGNOSTIC FIX, verified on run 36155700579: `npm start` spawns
+          # `next-server` as a child process, so killing the npm wrapper leaves
+          # the child holding port 3000. The next step's Playwright webServer
+          # then aborts in CI (reuseExistingServer: !process.env.CI -> false)
+          # with "http://127.0.0.1:3000/api/ready is already used". Release the
+          # port and wait for it to actually go away before the suite starts.
+          # The committed ci.yml still carries the defect; this is NOT applied there.
           kill %1 2>/dev/null || true
+          pkill -f 'next-server' 2>/dev/null || true
+          for i in $(seq 1 30); do
+            if ! curl -s -o /dev/null --max-time 2 http://127.0.0.1:3000/api/health; then
+              break
+            fi
+            sleep 1
+          done
+          echo "port 3000 released: $(curl -s -o /dev/null -w '%{http_code}' --max-time 2 http://127.0.0.1:3000/api/health)" 
 
       - name: Release-gate suite (authenticated journeys, both engines)
         run: npx playwright test --grep-invert @design-system
