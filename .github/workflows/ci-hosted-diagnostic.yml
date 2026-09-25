@@ -295,7 +295,7 @@ jobs:
             fi
             sleep 1
           done
-          echo "port 3000 released: $(curl -s -o /dev/null -w '%{http_code}' --max-time 2 http://127.0.0.1:3000/api/health)" 
+          echo "port 3000 released: $(curl -s -o /dev/null -w '%{http_code}' --max-time 2 http://127.0.0.1:3000/api/health)"
 
       - name: Release-gate suite (authenticated journeys, both engines)
         run: npx playwright test --grep-invert @design-system
