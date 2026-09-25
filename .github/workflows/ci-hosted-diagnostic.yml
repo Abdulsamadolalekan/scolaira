@@ -119,6 +119,13 @@ jobs:
         with:
           name: next-build
           path: .next
+          # DIAGNOSTIC FIX, verified on run 36154690325: upload-artifact@v4
+          # defaults `include-hidden-files: false`, and `.next` is a hidden
+          # directory, so with `if-no-files-found: error` this step could never
+          # pass — the build succeeded and the upload still failed with
+          # "No files were found with the provided path: .next". The committed
+          # ci.yml still carries the defect; this line is NOT applied there.
+          include-hidden-files: true
           retention-days: 1
           if-no-files-found: error
 
