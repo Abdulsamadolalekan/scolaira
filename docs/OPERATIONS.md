@@ -22,31 +22,77 @@ All environments run the same Next.js build. Environment-specific configuration 
 | Error tracking     | Sentry (free/cheap tier) — server + client                                                                              |
 | Logs               | Vercel build/runtime logs; Supabase logs; structured JSON logs from application                                         |
 | Metrics            | Vercel Analytics + simple in-app counters for invariants/rate-limit hits; proper Prometheus/Grafana deferred to Phase 9 |
-| Uptime checks      | External (e.g., Better Uptime or UptimeRobot free tier) for `/api/health` and public `/pay/` page                       |
+| Uptime checks      | External (e.g., Better Uptime or UptimeRobot free tier) for **`/api/ready`** (the deploy gate) and the public payment page. `/api/health` is liveness only and must NOT be used as a dependency check — measured in H-6: it answered `ok` with the database down. |
 | Audit              | In-app `audit_events` table (owned by SCOLAIRA; never deleted by app)                                                   |
 | Webhook monitoring | In-app `webhook_events` table; alert on > N failures/hour                                                               |
 | Backup monitoring  | Supabase dashboard alerts; weekly manual check script                                                                   |
 
-## III. Health Check
+## III. Health and Readiness (implemented contract, H-6)
 
-`GET /api/health` returns:
+Two probes with two different jobs. The contract is documented in full in
+`docs/API_CONTRACTS.md` §II.V; this is the operator's view.
 
-```json
-{
-  "status": "ok" | "degraded" | "down",
-  "version": "<git sha>",
-  "timestamp": "ISO-8601",
-  "checks": {
-    "database": "ok" | "down",
-    "auth": "ok" | "down",
-    "paystack": "ok" | "degraded" | "unknown"
-  }
-}
+**Liveness — `GET /api/health`.** Always `200` while the process serves traffic.
+It deliberately makes **no claim about the database, the schema or auth** — it
+answers "is this process alive", which is what a restart probe should ask. The
+`checks` block this endpoint used to advertise was removed in H-6: it reported
+`{"database":"not_configured"}` inside a `200 {"status":"ok"}`, so a deployment
+with no database, a half-applied schema and an unusable session secret all looked
+healthy to anything watching it.
+
+**Readiness — `GET /api/ready`.** `200` only when all three required
+dependencies pass; `503 { "status": "unavailable", "checks": [...] }` otherwise,
+with a machine-readable reason per failing check:
+
+```bash
+curl -s https://<host>/api/ready | jq .
+# 200 → {"status":"ready","probe":"readiness",
+#         "checks":[{"name":"database","status":"ok",...},
+#                   {"name":"schema","status":"ok","detail":{"applied":49,"expected":49,"latest":"0049_..."}},
+#                   {"name":"auth","status":"ok",...}]}
 ```
 
-Authenticated `GET /api/health/ready` (platform admin only) adds deeper checks (migration version, disk, queue depth).
+Diagnosis table:
+
+| reason | what it means | first action |
+| --- | --- | --- |
+| `database_not_configured` | `DATABASE_URL` is unset in this deployment | fix the environment, redeploy |
+| `database_unreachable` / `database_timeout` | the database cannot be reached inside the probe budget | check the database host, network rules and connection limits |
+| `schema_behind` | the database has fewer migrations than this build requires | run `npm run db:migrate` (owner credential) before serving traffic |
+| `schema_ahead` | the database has migrations this build does not know | you deployed app code older than the schema: roll forward, do not guess |
+| `schema_version_mismatch` | the newest journal tag is not the tag this build expects | same as above; verify the migration folder is what you think it is |
+| `schema_objects_missing` | a required table or function is absent | re-run migrations; if it persists, the database was restored from a partial dump |
+| `schema_unverifiable` | the migration journal cannot be read at all | run the migrations or check the runtime role's schema grants |
+| `auth_unconfigured` | `SCOLAIRA_SESSION_SECRET` is missing or shorter than 32 bytes | generate one with `openssl rand -base64 48` and redeploy |
+| `auth_crypto_broken` | signing and verifying a session/CSRF token does not round-trip | the secret is corrupt or two deployments disagree on it; rotate |
+
+Every non-ready result also emits exactly one single-line JSON event so a log
+scraper can alert without parsing prose:
+
+```json
+{"ts":"2026-09-25T12:31:44.188Z","level":"error","event":"readiness_failed",
+ "failed":"database:database_unreachable,schema:database_unreachable",
+ "expectedMigrations":49,"environment":"production"}
+```
+
+Measured behaviour (H-6 evidence, `docs/readiness/H6_RELEASE_EVIDENCE_CLOSEOUT.md`):
+with Postgres stopped, `/api/ready` returned `503 database_unreachable` **while
+`/api/health` still returned `200`** and login returned `500` — i.e. the old gate
+was green precisely when the product was unusable. On restart, `/api/ready`
+returned to `200` with no process restart (no cached "ready").
 
 ## IV. Logging
+
+> **What exists today (H-6):** structured single-line JSON events emitted by the
+> application (`lib/ops/log.ts`): one `startup_configuration` line per boot
+> (build, expected migration count/tag, whether the database and auth secret are
+> configured) and one `readiness_failed` line per non-ready probe. **What does not exist yet:** the Sentry
+> integration named in the stack table below — `SENTRY_DSN` is parsed by
+> `lib/security/env.ts` and never used, so nothing is shipped anywhere. Treat the
+> stdout JSON lines as the signal until the error-reporting work is scheduled (it
+> is not part of H-6; see `docs/readiness/H6_RELEASE_EVIDENCE_CLOSEOUT.md`,
+> residual items).
+
 
 - Structured JSON logs with fields: `timestamp`, `level`, `request_id`, `user_id` (hashed if not necessary), `organization_id` (hashed), `action`, `duration_ms`, `error` (if any).
 - **Never log:**
@@ -62,7 +108,7 @@ Authenticated `GET /api/health/ready` (platform admin only) adds deeper checks (
 
 Critical alerts (wake-up worthy):
 
-- `/api/health` reports `down` for > 2 minutes.
+- `/api/ready` fails (`503`) for > 2 minutes, or a `readiness_failed` event appears in the logs.
 - `FINANCIAL_INVARIANT_VIOLATION` error at any time.
 - Database backup failure (daily check).
 - Paystack webhook secret rotation mismatch (signature verification failure rate > 20% over 5 minutes).

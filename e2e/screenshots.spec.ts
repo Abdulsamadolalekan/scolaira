@@ -3,8 +3,12 @@ import * as path from 'node:path';
 import * as fs from 'node:fs';
 
 /**
- * Visual QA screenshot capture for M1.
- * Saves desktop / tablet / mobile screenshots for human pixel review.
+ * Visual QA screenshot capture for M1 (DESIGN SYSTEM ONLY).
+ *
+ * Tagged `@design-system`: it captures the /preview/* mock pages, which exist in
+ * dev builds only (they are 404 in a production build by design). It is a design
+ * review aid — it is NOT product evidence and must never be cited as such. The
+ * release gate runs with `--grep-invert @design-system`.
  */
 
 const OUT_DIR = path.resolve(__dirname, 'screenshots');
@@ -30,7 +34,7 @@ const pages = [
 
 for (const [device, vp] of Object.entries(viewports)) {
   for (const p of pages) {
-    test(`${device}: ${p.name}`, async ({ page }) => {
+    test(`${device}: ${p.name}`, { tag: '@design-system' }, async ({ page }) => {
       await page.setViewportSize(vp);
       const res = await page.goto(p.url);
       expect(res?.status()).toBe(200);
