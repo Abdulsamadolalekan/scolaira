@@ -9,11 +9,14 @@
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import postgres from 'postgres';
- 
 
-const APP_URL = process.env.DATABASE_URL?.replace(/\/[^/]+$/, '/scolaira_test') ??
+// H-6: the configured databases, verbatim — never rewritten to a fixed name.
+// A suite that reads one database and seeds another proves nothing about either.
+const APP_URL =
+  process.env.DATABASE_URL ??
   'postgresql://scolaira_app:scolaira_app_pw@localhost:5432/scolaira_test';
-const OWNER_URL = process.env.DATABASE_MIGRATION_URL?.replace(/\/[^/]+$/, '/scolaira_test') ??
+const OWNER_URL =
+  process.env.DATABASE_MIGRATION_URL ??
   'postgresql://scolaira_owner:scolaira_owner_pw@localhost:5432/scolaira_test';
 
 // Two seeded tenants, inserted as owner with system context.
@@ -28,7 +31,12 @@ describe('M4 DB-level tenant isolation (scolaira_app cannot escape)', () => {
   let app: postgres.Sql;
 
   beforeAll(async () => {
-    owner = (postgres as any)(OWNER_URL, { max: 1, onconnect: async (c: any) => { await c.simple(`SET search_path=pg_catalog,public`); } });
+    owner = (postgres as any)(OWNER_URL, {
+      max: 1,
+      onconnect: async (c: any) => {
+        await c.simple(`SET search_path=pg_catalog,public`);
+      },
+    });
     app = (postgres as any)(APP_URL, {
       max: 1,
       onconnect: async (c: any) => {
@@ -69,7 +77,7 @@ describe('M4 DB-level tenant isolation (scolaira_app cannot escape)', () => {
   });
 
   it('scolaira_app has NOSUPERUSER, NOBYPASSRLS, NOINHERIT, NOCREATEROLE, NOCREATEDB', async () => {
-    const r = await app<{rs:string; rb:string;ri:string;rcr:string;rcd:string}[]>`
+    const r = await app<{ rs: string; rb: string; ri: string; rcr: string; rcd: string }[]>`
       SELECT rolsuper::text rs, rolbypassrls::text rb, rolinherit::text ri,
              rolcreaterole::text rcr, rolcreatedb::text rcd
         FROM pg_roles WHERE rolname=current_user`;
@@ -78,13 +86,13 @@ describe('M4 DB-level tenant isolation (scolaira_app cannot escape)', () => {
     expect(r[0]!.ri).toBe('false');
     expect(r[0]!.rcr).toBe('false');
     expect(r[0]!.rcd).toBe('false');
-    expect(await app`SELECT current_user`.then(r=>r[0]!.current_user)).toBe('scolaira_app');
+    expect(await app`SELECT current_user`.then((r) => r[0]!.current_user)).toBe('scolaira_app');
   });
 
   it('cold connection returns 0 rows from all tenant tables (default-deny)', async () => {
-    const orgs = await app<{n:string}[]>`SELECT count(*)::text n FROM organizations`;
-    const mems = await app<{n:string}[]>`SELECT count(*)::text n FROM organization_members`;
-    const usrs = await app<{n:string}[]>`SELECT count(*)::text n FROM users`;
+    const orgs = await app<{ n: string }[]>`SELECT count(*)::text n FROM organizations`;
+    const mems = await app<{ n: string }[]>`SELECT count(*)::text n FROM organization_members`;
+    const usrs = await app<{ n: string }[]>`SELECT count(*)::text n FROM users`;
     expect(orgs[0]!.n).toBe('0');
     expect(mems[0]!.n).toBe('0');
     expect(usrs[0]!.n).toBe('0');
@@ -94,10 +102,12 @@ describe('M4 DB-level tenant isolation (scolaira_app cannot escape)', () => {
     let code: string | undefined;
     try {
       await app`SELECT set_tenant_context_for_system(NULL,NULL)`;
-    } catch (e: any) { code = e?.code; }
+    } catch (e: any) {
+      code = e?.code;
+    }
     expect(code).toBeDefined();
     // 42501 = permission denied; insufficient_privilege = our own guard.
-    expect(['42501','insufficient_privilege']).toContain(code);
+    expect(['42501', 'insufficient_privilege']).toContain(code);
   });
 
   it('set_config can be called, but even with is_platform_admin=1 set directly (without a valid platform user_id), RLS denies access to cross-tenant data', async () => {
@@ -109,11 +119,11 @@ describe('M4 DB-level tenant isolation (scolaira_app cannot escape)', () => {
              set_config('app.organization_id','',false),
              set_config('app.user_id','',false)`;
     try {
-      const orgs = await app<{n:string}[]>`SELECT count(*)::text n FROM organizations`;
+      const orgs = await app<{ n: string }[]>`SELECT count(*)::text n FROM organizations`;
       // Empty user_id: platform EXISTS clause fails, so count must be 0.
       expect(orgs[0]!.n).toBe('0');
     } finally {
-      await app`SELECT clear_app_context()`.catch(()=>{});
+      await app`SELECT clear_app_context()`.catch(() => {});
     }
   });
 
@@ -123,21 +133,23 @@ describe('M4 DB-level tenant isolation (scolaira_app cannot escape)', () => {
              set_config('app.user_id',${USER_A},false),
              set_config('app.organization_id','',false)`;
     try {
-      const orgs = await app<{n:string}[]>`SELECT count(*)::text n FROM organizations`;
+      const orgs = await app<{ n: string }[]>`SELECT count(*)::text n FROM organizations`;
       expect(orgs[0]!.n).toBe('0');
-      const mems = await app<{n:string}[]>`SELECT count(*)::text n FROM organization_members`;
+      const mems = await app<{ n: string }[]>`SELECT count(*)::text n FROM organization_members`;
       expect(mems[0]!.n).toBe('0');
     } finally {
-      await app`SELECT clear_app_context()`.catch(()=>{});
+      await app`SELECT clear_app_context()`.catch(() => {});
     }
   });
 
   it('valid tenant context scoped to A returns ONLY A rows', async () => {
     await app`SELECT set_tenant_context(${ORG_A}::uuid, ${USER_A}::uuid)`;
     try {
-      const orgs = await app<{id:string}[]>`SELECT id::text FROM organizations`;
-      const mems = await app<{org:string}[]>`SELECT organization_id::text org FROM organization_members`;
-      expect(orgs.map(r=>r.id)).toEqual([ORG_A]);
+      const orgs = await app<{ id: string }[]>`SELECT id::text FROM organizations`;
+      const mems = await app<
+        { org: string }[]
+      >`SELECT organization_id::text org FROM organization_members`;
+      expect(orgs.map((r) => r.id)).toEqual([ORG_A]);
       for (const m of mems) expect(m.org).toBe(ORG_A);
       // No writes to B allowed.
       let writeDenied: string | undefined;
@@ -145,17 +157,20 @@ describe('M4 DB-level tenant isolation (scolaira_app cannot escape)', () => {
         await app.unsafe(
           `INSERT INTO organization_members (organization_id, user_id, role, status, joined_at, created_at, updated_at)
            VALUES ($1, $2, 'STAFF'::membership_role, 'ACTIVE', now(), now(), now())`,
-          [ORG_B, USER_A]);
-      } catch (e: any) { writeDenied = e?.code; }
+          [ORG_B, USER_A],
+        );
+      } catch (e: any) {
+        writeDenied = e?.code;
+      }
       // Acceptable deny signals:
       //   42501 = RLS WITH CHECK rejected the forged org,
       //   23503 = foreign-key violation (if FK is checked before policy),
       //   23505 = unique violation (trigger overwrote organization_id to
       //           caller's tenant and the membership already exists there).
       // All three mean the write did NOT land in School B.
-      expect(['42501','23503','23505']).toContain(writeDenied);
+      expect(['42501', '23503', '23505']).toContain(writeDenied);
     } finally {
-      await app`SELECT clear_app_context()`.catch(()=>{});
+      await app`SELECT clear_app_context()`.catch(() => {});
     }
   });
 
@@ -167,32 +182,49 @@ describe('M4 DB-level tenant isolation (scolaira_app cannot escape)', () => {
       await app`SELECT count(*) FROM organizations`;
       await app`SELECT count(*) FROM organization_members`;
       // Financial / student / tenant-content tables must remain default-denied.
-      const tables = ['invoices','invoice_lines','payments','payment_allocations','receipts','reversals','payment_links','students','fee_definitions','classes'];
+      const tables = [
+        'invoices',
+        'invoice_lines',
+        'payments',
+        'payment_allocations',
+        'receipts',
+        'reversals',
+        'payment_links',
+        'students',
+        'fee_definitions',
+        'classes',
+      ];
       for (const t of tables) {
-        const r = await app.unsafe(`SELECT count(*)::text n FROM ${t}`) as Array<{n:string}>;
+        const r = (await app.unsafe(`SELECT count(*)::text n FROM ${t}`)) as Array<{ n: string }>;
         expect(r[0]!.n, `table ${t} must default-deny in bootstrap mode`).toBe('0');
       }
     } finally {
-      await app`SELECT clear_app_context()`.catch(()=>{});
+      await app`SELECT clear_app_context()`.catch(() => {});
     }
   });
 
   it('enter_platform_context() with a non-platform user is rejected', async () => {
     let code: string | undefined;
-    try { await app`SELECT enter_platform_context(${USER_A}::uuid)`; }
-    catch (e: any) { code = e?.code; }
+    try {
+      await app`SELECT enter_platform_context(${USER_A}::uuid)`;
+    } catch (e: any) {
+      code = e?.code;
+    }
     expect(code).toBeDefined();
-    expect(['42501','insufficient_privilege']).toContain(code);
+    expect(['42501', 'insufficient_privilege']).toContain(code);
     // After rejection, GUCs must be cleared.
-    const r = await app<{pa:string}[]>`SELECT current_setting('app.is_platform_admin',true) pa`;
-    expect(['0','',null]).toContain(r[0]!.pa as any);
+    const r = await app<{ pa: string }[]>`SELECT current_setting('app.is_platform_admin',true) pa`;
+    expect(['0', '', null]).toContain(r[0]!.pa as any);
   });
 
   it('set_tenant_context to a foreign tenant (user not a member) is rejected', async () => {
     let code: string | undefined;
-    try { await app`SELECT set_tenant_context(${ORG_B}::uuid, ${USER_A}::uuid)`; }
-    catch (e: any) { code = e?.code; }
+    try {
+      await app`SELECT set_tenant_context(${ORG_B}::uuid, ${USER_A}::uuid)`;
+    } catch (e: any) {
+      code = e?.code;
+    }
     expect(code).toBeDefined();
-    expect(['42501','insufficient_privilege']).toContain(code);
+    expect(['42501', 'insufficient_privilege']).toContain(code);
   });
 });

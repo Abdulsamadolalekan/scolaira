@@ -150,7 +150,7 @@ Actions from this environment; that is a residual item.)
 
 ## 6. Residual NOT-YET-VERIFIED (honest list)
 
-1. **The GitHub Actions workflow has not run on GitHub.** Every step was executed locally against the same services (`postgres:17`, the shipped scripts, the built artefact), but the YAML's runner behaviour (service containers, artifact upload, `sudo -u postgres` availability) is unverified from this environment.
+1. **The GitHub Actions workflow has not run on GitHub.** Every step was executed locally against the same services (`postgres:17`, the shipped scripts, the built artefact), and since the close-out all three jobs have been replayed end to end on the committed tree (§10, `docs/readiness/H6_CI_REHEARSAL.md`); the YAML's *runner* behaviour (service containers, artifact upload, runner image contents, `fetch-depth: 0`) is still unverified from this environment.
 2. **No backup/restore drill, no scheduled jobs, no provider limits** — H-9, untouched.
 3. **The platform-support journey** (platform admin operating on a tenant) is H-8: the seed provisions a platform identity and the suite proves it can authenticate; what it can *see* is the M4 identity-visibility door, measured (H-4/F11) and deliberately not redesigned.
 4. **Error reporting is logs only.** `SENTRY_DSN` remains parsed and unused; alerting depends on someone watching stdout JSON.
@@ -191,3 +191,25 @@ curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:3000/api/ready   # 503
 curl -s http://127.0.0.1:3000/api/health                                  # 200, liveness only
 sudo pg_ctlcluster 17 main start
 ```
+
+## 10. Post-commit: local rehearsal of the pipeline, and the two defects it found
+
+The workflow could not be pushed from this environment, so all three jobs were
+replayed on the committed tree (`quality`, `readiness`, `e2e`) against purpose-built
+databases. Full method, transcript of the gate, defects and re-verification:
+**`docs/readiness/H6_CI_REHEARSAL.md`**. Two real defects surfaced and were fixed:
+
+- the `quality` job did not declare `SCOLAIRA_DEV_ECHO_RESET_TOKEN`, which `.env.test`
+  sets and the reset-lifecycle suite needs — the test was failing on the pipeline's
+  environment, not on the product (fixed in `.github/workflows/ci.yml`);
+- `tests/db/r1-context-isolation.test.ts` and `tests/auth/rls-bypass-regression.test.ts`
+  rewrote the configured `DATABASE_URL` to a fixed database name while the fixture
+  seeder used the configured database verbatim, so on a dedicated CI database the
+  suites read one database and seeded another (fixed: both now use the configured
+  URLs; the whitespace churn that prettier then required on those two files is
+  confined to them and is semantics-free under `git diff -w`).
+
+No frozen change set was reworked: `tests/auth/auth.test.ts`, last modified by the
+frozen H-4 commit, was left untouched, and the interaction between that file's
+pre-existing prettier debt and the diff-scoped format step is recorded as an open
+item for the maintainer in `H6_CI_REHEARSAL.md` §4.

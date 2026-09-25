@@ -43,6 +43,12 @@ jobs:
       DATABASE_URL: postgresql://scolaira_app:scolaira_app_pw@localhost:5432/scolaira_test
       DATABASE_MIGRATION_URL: postgresql://scolaira_owner:scolaira_owner_pw@localhost:5432/scolaira_test
       SCOLAIRA_SESSION_SECRET: ci-session-secret-not-for-production-use-0123456789
+      # Reset tokens are echoed by the API only when a non-production deployment
+      # opts in (`SCOLAIRA_DEV_ECHO_RESET_TOKEN=1`); the reset-lifecycle suites need
+      # that to read the token they just issued. It is set here to match the
+      # documented local environment (.env.test) — and it can never take effect in
+      # production, where the route's own NODE_ENV guard disables the echo.
+      SCOLAIRA_DEV_ECHO_RESET_TOKEN: '1'
     steps:
       - uses: actions/checkout@v4
         with:

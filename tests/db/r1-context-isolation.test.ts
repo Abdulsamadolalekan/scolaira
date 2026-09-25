@@ -30,11 +30,20 @@ import * as invoiceLinesRepo from '@/lib/db/repo/invoice-lines';
 import { kobo } from '@/lib/money';
 import type { TenantCtx, UUID } from '@/lib/db/repo/_context';
 
+/**
+ * H-6: use the CONFIGURED database, verbatim.
+ *
+ * This used to rewrite whatever `DATABASE_URL` said into `…/scolaira_test`. The
+ * effect was that the suite read one database while seeding fixtures into
+ * another whenever the environment pointed elsewhere — measured as nine failures
+ * ("User … is not an active member of organization …") when the suite was run
+ * against a dedicated CI database, and a silent risk of asserting against the
+ * wrong database when the names happened to line up. A verification suite must
+ * exercise the database it was told to use.
+ */
 const APP_URL =
-  (process.env.DATABASE_URL ?? 'postgresql://scolaira_app:scolaira_app_pw@localhost:5432/scolaira_test').replace(
-    /\/[^/]+$/,
-    '/scolaira_test',
-  );
+  process.env.DATABASE_URL ??
+  'postgresql://scolaira_app:scolaira_app_pw@localhost:5432/scolaira_test';
 
 function makePool(max: number): postgres.Sql {
   return postgres(APP_URL, {
@@ -91,9 +100,7 @@ async function expectPoolNeutral(pool: postgres.Sql, size: number): Promise<void
   const held: any[] = [];
   try {
     for (let i = 0; i < size; i++) held.push(await pool.reserve());
-    const states = await Promise.all(
-      held.map((c) => contextOf(c as unknown as postgres.Sql)),
-    );
+    const states = await Promise.all(held.map((c) => contextOf(c as unknown as postgres.Sql)));
     for (const state of states) {
       expect(Object.entries(state).filter(([name, v]) => !isNeutralValue(name, v))).toEqual([]);
     }
@@ -117,7 +124,11 @@ async function insertInvoice(fx: ConcurrencyFixtures, pool: postgres.Sql, amount
       ]);
       const issued = await invoicesRepo.issue(db as any, ctx, inv.id);
       const pid = ((await sql.unsafe(`SELECT pg_backend_pid() AS pid`)) as any[])[0].pid;
-      return { id: issued.id as unknown as UUID, invoiceNumber: issued.invoiceNumber, pid: Number(pid) };
+      return {
+        id: issued.id as unknown as UUID,
+        invoiceNumber: issued.invoiceNumber,
+        pid: Number(pid),
+      };
     },
     { client: pool },
   );
@@ -167,7 +178,8 @@ describe('R1 C-1 — context is bound to the connection that runs the queries', 
       { kind: 'tenant', organizationId: fxA.orgId, userId: fxA.userId },
       async (_db, sql) => {
         const fromArg = ((await sql.unsafe(`SELECT pg_backend_pid() AS pid`)) as any[])[0].pid;
-        const fromGetSql = ((await getSql().unsafe(`SELECT pg_backend_pid() AS pid`)) as any[])[0].pid;
+        const fromGetSql = ((await getSql().unsafe(`SELECT pg_backend_pid() AS pid`)) as any[])[0]
+          .pid;
         const authorized = (await sql.unsafe(`SELECT auth_is_tenant_authorized() AS ok`)) as any[];
         return { fromArg: Number(fromArg), fromGetSql: Number(fromGetSql), ok: authorized[0].ok };
       },
@@ -187,7 +199,9 @@ describe('R1 C-1 — context is bound to the connection that runs the queries', 
         // cannot be scheduled onto the scope's connection.
         const other = await multiPool.reserve();
         try {
-          const otherPid = Number(((await other.unsafe(`SELECT pg_backend_pid() AS pid`)) as any[])[0].pid);
+          const otherPid = Number(
+            ((await other.unsafe(`SELECT pg_backend_pid() AS pid`)) as any[])[0].pid,
+          );
           expect(otherPid).not.toBe(insidePid);
           const state = await contextOf(other as unknown as postgres.Sql);
           expect(Object.values(state).every((v) => v === null)).toBe(true);
@@ -224,28 +238,61 @@ describe('R1 C-1 — concurrent requests for different tenants', () => {
     const invA = await insertInvoice(a, multiPool, 500_000);
     const invB = await insertInvoice(b, multiPool, 700_000);
 
-    const observations: Array<{ round: number; who: string; own: string[]; foreignHit: number; foreignMutated: number; ctxOrg: string | null }> = [];
+    const observations: Array<{
+      round: number;
+      who: string;
+      own: string[];
+      foreignHit: number;
+      foreignMutated: number;
+      ctxOrg: string | null;
+    }> = [];
 
-    const attack = (round: number, fx: ConcurrencyFixtures, ownInvoiceId: string, foreignInvoiceId: string, who: string) =>
+    const attack = (
+      round: number,
+      fx: ConcurrencyFixtures,
+      ownInvoiceId: string,
+      foreignInvoiceId: string,
+      who: string,
+    ) =>
       withScopedDb(
         { kind: 'tenant', organizationId: fx.orgId, userId: fx.userId },
         async (_db, sql) => {
           // Yield between statements so the other tenant's scope interleaves.
           await new Promise((r) => setTimeout(r, 3));
-          const ctxOrg = ((await sql.unsafe(`SELECT NULLIF(current_setting('app.organization_id', true), '') AS org`)) as any[])[0].org;
-          const own = (await sql.unsafe(`SELECT id::text AS id FROM invoices WHERE organization_id = $1::uuid`, [fx.orgId])) as Array<{ id: string }>;
+          const ctxOrg = (
+            (await sql.unsafe(
+              `SELECT NULLIF(current_setting('app.organization_id', true), '') AS org`,
+            )) as any[]
+          )[0].org;
+          const own = (await sql.unsafe(
+            `SELECT id::text AS id FROM invoices WHERE organization_id = $1::uuid`,
+            [fx.orgId],
+          )) as Array<{ id: string }>;
           await new Promise((r) => setTimeout(r, 3));
           // Reading the other tenant's invoice by its real UUID must return nothing.
-          const foreignHit = ((await sql.unsafe(`SELECT count(*)::int AS n FROM invoices WHERE id = $1::uuid`, [foreignInvoiceId])) as any[])[0].n;
+          const foreignHit = (
+            (await sql.unsafe(`SELECT count(*)::int AS n FROM invoices WHERE id = $1::uuid`, [
+              foreignInvoiceId,
+            ])) as any[]
+          )[0].n;
           // Attempting to mutate it must affect nothing.
-          const foreignMutated = ((await sql.unsafe(
-            `UPDATE invoices SET updated_at = now() WHERE id = $1::uuid RETURNING id`,
-            [foreignInvoiceId],
-          )) as any[]).length;
+          const foreignMutated = (
+            (await sql.unsafe(
+              `UPDATE invoices SET updated_at = now() WHERE id = $1::uuid RETURNING id`,
+              [foreignInvoiceId],
+            )) as any[]
+          ).length;
           const ownCheck = own.map((r) => r.id);
           expect(ownCheck).toContain(ownInvoiceId);
           expect(ownCheck).not.toContain(foreignInvoiceId);
-          observations.push({ round, who, own: ownCheck, foreignHit: Number(foreignHit), foreignMutated, ctxOrg });
+          observations.push({
+            round,
+            who,
+            own: ownCheck,
+            foreignHit: Number(foreignHit),
+            foreignMutated,
+            ctxOrg,
+          });
           return null;
         },
         { client: multiPool },
@@ -289,7 +336,11 @@ describe('R1 C-1 — concurrent requests for different tenants', () => {
         async (_db, sql) => {
           active += 1;
           maxActive = Math.max(maxActive, active);
-          const org = ((await sql.unsafe(`SELECT NULLIF(current_setting('app.organization_id', true), '') AS org`)) as any[])[0].org;
+          const org = (
+            (await sql.unsafe(
+              `SELECT NULLIF(current_setting('app.organization_id', true), '') AS org`,
+            )) as any[]
+          )[0].org;
           seen.push(`${tag}:${org}`);
           await new Promise((r) => setTimeout(r, 5));
           active -= 1;
@@ -318,14 +369,36 @@ describe('R1 C-1 — concurrent requests for different tenants', () => {
     const result = await withScopedDb(
       { kind: 'tenant', organizationId: a.orgId, userId: a.userId },
       async (_db, sql) => {
-        const outerBefore = ((await sql.unsafe(`SELECT NULLIF(current_setting('app.organization_id', true), '') AS org`)) as any[])[0].org;
-        const inner = await withScopedDb({ kind: 'tenant', organizationId: b.orgId, userId: b.userId }, async (_innerDb, innerSql) => {
-          const rows = (await innerSql.unsafe(`SELECT id::text AS id FROM invoices WHERE organization_id = $1::uuid`, [b.orgId])) as Array<{ id: string }>;
-          const org = ((await innerSql.unsafe(`SELECT NULLIF(current_setting('app.organization_id', true), '') AS org`)) as any[])[0].org;
-          return { org, count: rows.length };
-        }, { client: multiPool });
-        const outerAfter = ((await sql.unsafe(`SELECT NULLIF(current_setting('app.organization_id', true), '') AS org`)) as any[])[0].org;
-        const outerRows = (await sql.unsafe(`SELECT id::text AS id FROM invoices WHERE organization_id = $1::uuid`, [a.orgId])) as Array<{ id: string }>;
+        const outerBefore = (
+          (await sql.unsafe(
+            `SELECT NULLIF(current_setting('app.organization_id', true), '') AS org`,
+          )) as any[]
+        )[0].org;
+        const inner = await withScopedDb(
+          { kind: 'tenant', organizationId: b.orgId, userId: b.userId },
+          async (_innerDb, innerSql) => {
+            const rows = (await innerSql.unsafe(
+              `SELECT id::text AS id FROM invoices WHERE organization_id = $1::uuid`,
+              [b.orgId],
+            )) as Array<{ id: string }>;
+            const org = (
+              (await innerSql.unsafe(
+                `SELECT NULLIF(current_setting('app.organization_id', true), '') AS org`,
+              )) as any[]
+            )[0].org;
+            return { org, count: rows.length };
+          },
+          { client: multiPool },
+        );
+        const outerAfter = (
+          (await sql.unsafe(
+            `SELECT NULLIF(current_setting('app.organization_id', true), '') AS org`,
+          )) as any[]
+        )[0].org;
+        const outerRows = (await sql.unsafe(
+          `SELECT id::text AS id FROM invoices WHERE organization_id = $1::uuid`,
+          [a.orgId],
+        )) as Array<{ id: string }>;
         return { outerBefore, outerAfter, inner, outerCount: outerRows.length };
       },
       { client: multiPool },
@@ -405,10 +478,10 @@ describe('R1 C-1 — forged, stale and absent context fail closed', () => {
       withScopedDb(
         { kind: 'tenant', organizationId: fx.orgId, userId: fx.userId },
         async (_db, sql) => {
-          await sql.unsafe(`INSERT INTO students (organization_id, student_id, first_name, last_name, status) VALUES ($1::uuid, $2, 'R1', 'Rollback', 'ACTIVE')`, [
-            fx.orgId,
-            `R1RB-${marker.slice(0, 8)}`,
-          ]);
+          await sql.unsafe(
+            `INSERT INTO students (organization_id, student_id, first_name, last_name, status) VALUES ($1::uuid, $2, 'R1', 'Rollback', 'ACTIVE')`,
+            [fx.orgId, `R1RB-${marker.slice(0, 8)}`],
+          );
           throw new Error('boom');
         },
         { client: multiPool },
@@ -420,7 +493,10 @@ describe('R1 C-1 — forged, stale and absent context fail closed', () => {
     const left = await withScopedDb(
       { kind: 'tenant', organizationId: fx.orgId, userId: fx.userId },
       async (_db, sql) => {
-        const rows = (await sql.unsafe(`SELECT count(*)::int AS n FROM students WHERE student_id = $1`, [`R1RB-${marker.slice(0, 8)}`])) as any[];
+        const rows = (await sql.unsafe(
+          `SELECT count(*)::int AS n FROM students WHERE student_id = $1`,
+          [`R1RB-${marker.slice(0, 8)}`],
+        )) as any[];
         return Number(rows[0].n);
       },
       { client: multiPool },
@@ -461,7 +537,11 @@ describe('R1 C-1 — forged, stale and absent context fail closed', () => {
       { kind: 'tenant', organizationId: a.orgId, userId: a.userId },
       async (_db, sql) => {
         await sql.unsafe(`SELECT set_tenant_context($1::uuid, $2::uuid)`, [b.orgId, b.userId]);
-        const inner = ((await sql.unsafe(`SELECT NULLIF(current_setting('app.organization_id', true), '') AS org`)) as any[])[0].org;
+        const inner = (
+          (await sql.unsafe(
+            `SELECT NULLIF(current_setting('app.organization_id', true), '') AS org`,
+          )) as any[]
+        )[0].org;
         expect(inner).toBe(b.orgId);
         return null;
       },
@@ -479,7 +559,9 @@ describe('R1 C-1 — forged, stale and absent context fail closed', () => {
       { kind: 'system' },
       async (_db, sql) => {
         const users = (await sql.unsafe(`SELECT count(*)::int AS n FROM users`)) as any[];
-        const members = (await sql.unsafe(`SELECT count(*)::int AS n FROM organization_members`)) as any[];
+        const members = (await sql.unsafe(
+          `SELECT count(*)::int AS n FROM organization_members`,
+        )) as any[];
         const invoices = (await sql.unsafe(`SELECT count(*)::int AS n FROM invoices`)) as any[];
         const payments = (await sql.unsafe(`SELECT count(*)::int AS n FROM payments`)) as any[];
         return {
@@ -508,11 +590,18 @@ describe('R1 C-1 — the shared (harness) connection is neutral after every scop
     let state = await contextOf(sql);
     expect(Object.entries(state).filter(([, v]) => v !== null)).toEqual([]);
 
-    await withScopedDb({ kind: 'tenant', organizationId: fx.orgId, userId: fx.userId }, async (_db, scopedSql) => {
-      const org = ((await scopedSql.unsafe(`SELECT NULLIF(current_setting('app.organization_id', true), '') AS org`)) as any[])[0].org;
-      expect(org).toBe(fx.orgId);
-      return null;
-    });
+    await withScopedDb(
+      { kind: 'tenant', organizationId: fx.orgId, userId: fx.userId },
+      async (_db, scopedSql) => {
+        const org = (
+          (await scopedSql.unsafe(
+            `SELECT NULLIF(current_setting('app.organization_id', true), '') AS org`,
+          )) as any[]
+        )[0].org;
+        expect(org).toBe(fx.orgId);
+        return null;
+      },
+    );
     state = await contextOf(sql);
     expect(Object.entries(state).filter(([, v]) => v !== null)).toEqual([]);
   });
