@@ -109,8 +109,30 @@ jobs:
           #     never be used to hide new or newly-fixed formatting work.
           DEBT=".github/prettier-debt.txt"
           if [ ! -f "$DEBT" ]; then echo "::error::$DEBT is missing"; exit 1; fi
-          BAD=$(npx --no-install prettier --check $FILES 2>&1 \
-                | sed -n 's/^\[warn\] //p' | grep -v '^Code style issues found' || true)
+          # `--list-different` prints one path per line and needs no text parsing:
+          # an earlier version scraped `--check` output for "[warn]" and silently
+          # matched nothing, because prettier colourises that prefix on a CI runner
+          # ("[\e[33mwarn\e[39m] path"), which made every recorded debt file look
+          # newly-clean. ANSI is stripped anyway, and a prettier *error* (exit >= 2,
+          # e.g. a missing plugin) is now reported instead of being mistaken for a
+          # clean tree.
+          set +e
+          OUT=$(npx --no-install prettier --list-different $FILES 2>/tmp/prettier-err.txt)
+          RC=$?
+          set -e
+          # A prettier *error* (missing plugin, unreadable config) exits 1 — the
+          # same status as "differences found" — but writes to stderr, whereas a
+          # normal run with differences writes nothing at all (measured 0 bytes).
+          # So stderr, not the exit code, is what distinguishes a crash from a
+          # verdict; without this a crash looked like a clean tree and produced
+          # hundreds of misleading "now prettier-clean" errors instead.
+          ERRTXT=$(grep -v '^npm notice' /tmp/prettier-err.txt | grep -v '^[[:space:]]*$' || true)
+          if [ -n "$ERRTXT" ]; then
+            echo "::error::prettier reported an error (exit $RC) — this is not a formatting verdict"
+            printf '%s\n' "$ERRTXT"
+            exit 1
+          fi
+          BAD=$(printf '%s\n' "$OUT" | sed -e 's/\x1b\[[0-9;]*m//g' | grep -v '^[[:space:]]*$' || true)
           FAIL=0
           GRANDFATHERED=0
           for f in $BAD; do
