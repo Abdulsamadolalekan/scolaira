@@ -17,6 +17,7 @@ import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
 import { getSession, clearContext } from '@/lib/auth';
 import { readSupportClaim } from '@/lib/platform/support';
+import { ScolairaLockup } from '@/components/brand';
 
 export const metadata: Metadata = {
   title: { default: 'Platform', template: '%s · SCOLAIRA Platform' },
@@ -44,10 +45,12 @@ export default async function PlatformLayout({ children }: { children: React.Rea
         }}
       >
         <div className="mx-auto flex w-full max-w-6xl flex-wrap items-center gap-x-4 gap-y-1 px-4 py-3 sm:px-6">
-          <Link href="/platform" className="text-[14px] font-semibold tracking-tight">
-            SCOLAIRA Platform
+          <Link href="/platform" className="flex items-center" aria-label="SCOLAIRA Platform">
+            {/* Deep-green header: the on-dark tone keeps the gold coin and
+                reverses the cap to ivory so the mark is legible here. */}
+            <ScolairaLockup size={24} tone="onDark" wordmarkClassName="inline-flex" />
           </Link>
-          <span className="text-[12px] opacity-70">Support &amp; operations</span>
+          <span className="text-[12px] opacity-70">Platform · Support &amp; operations</span>
           <div className="ml-auto flex items-center gap-3">
             <Link href="/dashboard" className="text-[12px] underline decoration-dotted">
               Back to workspace

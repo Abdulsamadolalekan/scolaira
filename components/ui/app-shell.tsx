@@ -28,6 +28,7 @@
 
 import * as React from 'react';
 import Link from 'next/link';
+import { ScolairaSymbol } from '@/components/brand';
 import { usePathname, useRouter } from 'next/navigation';
 import { csrfHeaders } from '@/lib/ui/csrf';
 import {
@@ -266,42 +267,26 @@ export function AppShell({ user, org, nav, sessionAction, csrfToken, children }:
           borderBottom: '1px solid var(--color-border-subtle)',
         }}
       >
-        {/* Brand */}
+        {/* Brand. The symbol carries the identity at every width. The wordmark
+            is NOT dropped on narrow viewports: measured at 320px the whole
+            lockup occupies ~170px inside a full-width top band, so space always
+            permits it (probe: brand/verify/brand-overflow-probe.cjs — 0px
+            document overflow at 320/360/375/390/414/640px). The descriptor drops below md, where
+            the rail is only 256px wide. The symbol alone is still the fallback
+            the component offers via `wordmarkClassName`, and it is what the
+            favicon and app icon ship (requirement 11). */}
         <div className="flex items-center gap-2.5 px-4 pb-3 pt-4 md:pb-4 md:pt-5">
-          <div
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg"
-            style={{
-              backgroundColor: 'var(--color-forest-deep)',
-              color: 'var(--color-ivory)',
-              border: '1px solid var(--color-gold)',
-            }}
-            aria-hidden
-          >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-              <path
-                d="M4 7L12 3L20 7V17L12 21L4 17V7Z"
-                stroke="currentColor"
-                strokeWidth="1.8"
-                strokeLinejoin="round"
-              />
-              <path
-                d="M12 3V12M12 12L20 7M12 12L4 7"
-                stroke="currentColor"
-                strokeWidth="1.5"
-                strokeLinejoin="round"
-              />
-            </svg>
-          </div>
+          <ScolairaSymbol size={28} />
           <div className="flex min-w-0 flex-col leading-tight">
             <span
-              className="text-[15px] font-semibold tracking-tight"
-              style={{ color: 'var(--color-forest-deepest)', fontFamily: 'var(--font-serif)' }}
+              className="text-[15px] font-semibold tracking-[0.18em]"
+              style={{ color: 'var(--color-forest-deepest)', fontFamily: 'var(--font-sans)' }}
             >
               SCOLAIRA
             </span>
             <span
-              className="text-[10px] uppercase tracking-[0.14em]"
-              style={{ color: 'var(--color-text-faint)' }}
+              className="hidden text-[10px] uppercase tracking-[0.14em] md:block"
+              style={{ color: 'var(--color-text-muted)' }}
             >
               School finance
             </span>

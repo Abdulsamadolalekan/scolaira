@@ -17,6 +17,10 @@
 # those three were formatted and removed from this list in the same change. No
 # entry was added.
 #
+# Shrunk again, by the brand/logo production work (189 -> 188): that change had to
+# replace the inline logo block in app/(auth)/layout.tsx, so the file was formatted
+# and removed from this list in the same change. No entry was added.
+#
 # CI rule (.github/workflows/ci.yml, step "Prettier (files changed by this change)"):
 #   * a formattable file touched by a change MUST be prettier-clean unless it is
 #     listed here; listed files are reported as grandfathered, never hidden;
@@ -56,7 +60,6 @@ app/(app)/students/new/page.tsx
 app/(app)/students/page.tsx
 app/(app)/terms/[id]/bill/bill-preview.tsx
 app/(app)/terms/[id]/bill/page.tsx
-app/(auth)/layout.tsx
 app/(auth)/login/login-inner.tsx
 app/(auth)/register/page.tsx
 app/(auth)/reset/confirm/page.tsx

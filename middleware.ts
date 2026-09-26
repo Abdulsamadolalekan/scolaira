@@ -112,8 +112,20 @@ export function middleware(request: NextRequest) {
 export const config = {
   matcher: [
     /*
-     * Match all paths except Next internals, static assets.
+     * Match all paths except Next internals and static assets.
+     *
+     * `favicon.ico` was the only icon excluded, which was harmless while the app
+     * shipped no icons at all. Now that the App Router file conventions are in
+     * use (`app/icon.svg`, `app/apple-icon.png`), those paths were being caught
+     * by the auth redirect and answered with `307 -> /login` — so the favicon and
+     * the iOS home-screen icon never loaded for the public, which is precisely
+     * when they are used (browser tab on /login, link previews, home screen).
+     *
+     * These exclusions are static, non-tenant brand assets and carry no session
+     * or user data, so bypassing the auth redirect for them grants nothing: the
+     * files are served verbatim to anyone. Nothing else about the matcher changes
+     * — every application route is still authenticated as before.
      */
-    '/((?!_next/static|_next/image|favicon.ico).*)',
+    '/((?!_next/static|_next/image|favicon.ico|icon\\.svg|icon\\.png|apple-icon\\.png|apple-icon-precomposed\\.png).*)',
   ],
 };
