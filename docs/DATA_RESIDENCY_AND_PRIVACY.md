@@ -7,7 +7,24 @@
 
 ## Status: DRAFT — NOT FINAL
 
-This is the initial skeleton of the data-residency decision required by Founder Correction 7. It will be completed (with selected region, subprocessors, backup locations, legal sign-off) before any production student data is stored. Engineering will select a reasonable default for scaffolding, but the final decision requires founder approval and legal review.
+This is the initial skeleton of the data-residency decision required by Founder Correction 7. It will
+be completed (with selected region, subprocessors, backup locations, legal sign-off) before any
+production student data is stored. Engineering will select a reasonable default for scaffolding, but
+the final decision requires founder approval and legal review.
+
+### What is true today (H-9, 2026-09-26)
+
+| Item in this document            | State today                                                                                                          |
+| -------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| Selected region (§I)             | **Nothing is selected, and no host exists.** All region names below are candidates against a provider that is not integrated. |
+| Sub-processors (§III)            | **None are engaged.** No provider account, contract or DPA exists; the table is a candidate list (H9-F12).            |
+| Backup location (§III)           | **Does not exist** — there is no backup (H9-F1).                                                                     |
+| Legal review / DPAs              | **Not started.**                                                                                                     |
+| Personal data in production      | **None.** No environment has been deployed, so no school's data is hosted anywhere (H9-F7).                          |
+| Framework referenced             | The document cites the **NDPR (2019)**. Nigeria's data-protection framework has since changed (NDPA 2023, with the NDPC as regulator). **Counsel must confirm the governing instrument**, including breach-notification duties and any cross-border transfer mechanism — this document does not assert one. |
+
+**No residency decision is required to be made here, and none is made here.** It is blocked on the
+founder and counsel (H9-F19) and is deliberately left open.
 
 ---
 
@@ -48,22 +65,25 @@ Documented after selection.
 
 ## III. Data Residency Considerations
 
-- **Primary data store** (Supabase Postgres): in selected region.
+- **Primary data store** (intended: managed Postgres): region not selected.
 - **Storage** (receipts, CSV uploads): in same region.
 - **Edge / CDN** (Vercel): static assets served globally; dynamic responses come from region closest to request but talk to Postgres in the primary region.
 - **Backups:**
   - Supabase automated backups + PITR: same region as database.
   - Weekly off-site backup: stored in a separate cloud region, encrypted, documented in `/docs/DISASTER_RECOVERY.md`. Off-site backup location is chosen with legal review.
-- **Logging:** Sentry/Vercel data centers documented; PII scrubbing enforced so logs don't contain regulated data.
+- **Logging:** no third-party error reporting exists (Sentry is named in the stack and integrated
+  nowhere). Logs are single-line JSON written by the application to stdout, and the "never log"
+  rules in `docs/OPERATIONS.md` §IV are the actual control; there is no vendor data centre to
+  document.
 
 ## IV. Sub-processors (Initial List, to be Maintained)
 
 | Processor                  | Purpose                   | Location                                                                                          |
 | -------------------------- | ------------------------- | ------------------------------------------------------------------------------------------------- |
-| Supabase (selected region) | Database, Auth, Storage   | Selected region                                                                                   |
-| Vercel                     | Application hosting, CDN  | Global edge; primary region to be selected (likely `iad1` or `fra1` based on DB region proximity) |
-| Paystack                   | Online payment processing | Nigeria (Paystack is Nigeria-founded; card data never touches our systems)                        |
-| Resend                     | Transactional email       | US/EU (documented at provisioning time)                                                           |
+| Supabase (candidate, **not integrated**) | Database, Auth, Storage | *No region selected* |
+| Vercel (candidate, **not integrated**) | Application hosting, CDN | *No region selected*                                                                            |
+| Paystack (candidate, **not integrated**) | Online payment processing | The webhook receiver exists in the codebase; no live account or contract exists                 |
+| Resend (candidate, **not integrated**) | Transactional email     | No e-mail is sent by this application at all (H9-F13); nothing is provisioned                     |
 | Sentry                     | Error tracking            | EU or US; PII-scrubbed                                                                            |
 | GitHub                     | Source code hosting       | US; repository does not contain production data or secrets                                        |
 
