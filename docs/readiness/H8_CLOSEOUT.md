@@ -176,11 +176,18 @@ re-asserted at the breakpoint, not a second sign-out.
 
 | Gate | Result |
 | --- | --- |
-| Prettier policy (`.github/workflows/ci.yml` step, replayed locally against `origin/main`) | **OK: 278 touched file(s) checked, 189 grandfathered, 0 new or regressed** |
+| Prettier policy (`.github/workflows/ci.yml` step, replayed against `origin/main`) | **OK: 303 touched file(s) checked, 189 grandfathered, 0 new or regressed** |
 | Prettier policy, H-8 change set alone (against `dca6a84`) | **OK: 30 touched file(s) checked, 0 grandfathered, 0 new or regressed** |
 | Per-file format on the H-8 change set | `prettier --list-different` → empty |
 | Frozen-history diff gate | no file inside the frozen change sets changed; no migration `0000`–`0049` and no `meta/_journal.json` touched |
 | Migration manifest vs databases | `scolaira_test` = 50, `scolaira_e2e` = 50, **`scolaira` = 50** |
+
+The 303 figure is the **union** of the two change sets measured against `origin/main`: 278
+formattable files touched by H-6 (against `dca6a84`) and 30 touched by H-8 (against its base),
+with **5 files overlapping** — so the union is `278 + 30 − 5 = 303`. An earlier revision of this
+document reported 278 here; that was the H-6 set alone, read from a partially staged index
+during a working-tree measurement rather than the committed branch. The gate's verdict is the
+same either way: 0 new or regressed.
 
 **Debt baseline shrunk 192 → 189.** H-8 had to edit `app/(app)/layout.tsx`,
 `components/ui/app-shell.tsx` and `lib/db/schema/enums.ts`, so the three were formatted and
