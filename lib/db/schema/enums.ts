@@ -46,7 +46,11 @@ export const studentStatusEnum = pgEnum('student_status', [
 
 // --- Billing ---
 
-export const feeAssignmentStatusEnum = pgEnum('fee_assignment_status', ['DRAFT', 'ACTIVE', 'ARCHIVED']);
+export const feeAssignmentStatusEnum = pgEnum('fee_assignment_status', [
+  'DRAFT',
+  'ACTIVE',
+  'ARCHIVED',
+]);
 
 export const waiverReasonEnum = pgEnum('waiver_reason', [
   'SCHOLARSHIP',
@@ -151,3 +155,7 @@ export const guardianRelationshipEnum = pgEnum('guardian_relationship', [
  * explicit, auditable opt-in.
  */
 export const invoiceScopeEnum = pgEnum('invoice_scope', ['TERM', 'ALL_TERM']);
+
+// H-8 invitations. PENDING is the only state a token can be consumed from;
+// acceptance and revocation are terminal.
+export const invitationStatusEnum = pgEnum('invitation_status', ['PENDING', 'ACCEPTED', 'REVOKED']);

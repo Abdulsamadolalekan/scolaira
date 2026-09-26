@@ -14,7 +14,7 @@
  */
 
 /** Number of `.sql` migrations that must be applied for this build to be ready. */
-export const EXPECTED_MIGRATION_COUNT = 49;
+export const EXPECTED_MIGRATION_COUNT = 50;
 
 /** Tag (filename without extension) of the newest migration this build ships. */
-export const LATEST_MIGRATION_TAG = '0049_h6_release_evidence';
+export const LATEST_MIGRATION_TAG = '0050_member_invitations';

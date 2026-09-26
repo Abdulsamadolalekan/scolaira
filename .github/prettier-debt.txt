@@ -12,6 +12,11 @@
 #       (lib/db/migrate.ts, lib/money/index.ts via 38c9bfb) — i.e. frozen history,
 #       so they cannot be reformatted as part of this work.
 #
+# Shrunk once, by the H-8 platform-support work (192 -> 189): H-8 had to edit
+# app/(app)/layout.tsx, components/ui/app-shell.tsx and lib/db/schema/enums.ts, so
+# those three were formatted and removed from this list in the same change. No
+# entry was added.
+#
 # CI rule (.github/workflows/ci.yml, step "Prettier (files changed by this change)"):
 #   * a formattable file touched by a change MUST be prettier-clean unless it is
 #     listed here; listed files are reported as grandfathered, never hidden;
@@ -33,7 +38,6 @@ app/(app)/invoices/[id]/page.tsx
 app/(app)/invoices/new/new-invoice-form.tsx
 app/(app)/invoices/new/page.tsx
 app/(app)/invoices/page.tsx
-app/(app)/layout.tsx
 app/(app)/members/page.tsx
 app/(app)/not-found.tsx
 app/(app)/payments/[id]/page.tsx
@@ -122,7 +126,6 @@ app/p/[token]/page.tsx
 app/p/[token]/submit-form.tsx
 components/access-denied.tsx
 components/permission-guard.tsx
-components/ui/app-shell.tsx
 components/ui/icons.tsx
 e2e/h5-operational-surface.spec.ts
 lib/auth/config.ts
@@ -162,7 +165,6 @@ lib/db/schema/_columns.ts
 lib/db/schema/academic.ts
 lib/db/schema/auth.ts
 lib/db/schema/communications.ts
-lib/db/schema/enums.ts
 lib/db/schema/financials.ts
 lib/db/schema/platform.ts
 lib/db/schema/tenancy.ts
