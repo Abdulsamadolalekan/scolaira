@@ -24,7 +24,7 @@ All mutations run in a single Postgres transaction at `READ COMMITTED` isolation
 - **STATE TRANSITION:** Each successful tx creates a new payment in CONFIRMED state and drives allocations/invoice state transitions.
 - **EXPECTED RESULT:**
   - If officers used the same idempotency key (same form submit double-click): one payment created; second is a no-op.
-  - If officers intentionally entered two distinct records (different idempotency keys, e.g., one entered cash, another entered the same cash thinking it was missed): two separate CONFIRMED payments are created. The duplicate is NOT silently prevented by the system (cash has no authoritative reference). Instead, the reconciliation flag **"Suspicious: same amount, same student, within 1 hour"** fires for manual review. The second payment remains in CONFIRMED or moves to DUPLICATE_SUSPECT if heuristics match strongly (configurable threshold). Finance officer resolves; reversal path is audited. This is intentional: it is safer to surface a possible duplicate than to silently drop a legitimate payment.
+  - If officers intentionally entered two distinct records (different idempotency keys), two separate CONFIRMED payments are created. The system does not silently prevent or classify the second record with a heuristic. An operator may manually open a reconciliation case, attach evidence, and flag it; any reversal/refund uses the existing audited correction path. This is intentional: ambiguity remains visible rather than becoming an automatic financial decision.
 
 ## Case B — Two requests attempt the same allocation simultaneously
 
@@ -156,6 +156,27 @@ If a client omits the idempotency key: server accepts (for API friendliness) but
 - **EXPECTED RESULT:** Over-reversal is impossible. User sees a clear message and the current state. No race condition can cause Σ reversals > payment amount.
 
 ---
+
+## M10 — Reconciliation control-plane races
+
+### Case M10-A — Two operators open the same payment case
+
+- **LOCK/CONSTRAINT:** The payment is tenant-scoped; the open-case partial unique index `m10_reconciliation_one_open_payment_idx` permits at most one open case per payment.
+- **IDEMPOTENCY:** Evidence, match, flag, confirm, allocate, and resolve mutations require the shared 24-hour `Idempotency-Key` boundary.
+- **TRANSACTION:** Each creator first reads the open case, then inserts with `ON CONFLICT DO NOTHING` against the partial index and reads the winner if another transaction committed first.
+- **EXPECTED RESULT:** Both callers receive the same case id; no duplicate review history or second control record is created.
+
+### Case M10-B — Two operators make competing reconciliation decisions
+
+- **LOCK/CONSTRAINT:** Case updates use an optimistic `version` predicate and the database transition trigger. A candidate has one partial unique accepted decision per case. Evidence is append-only.
+- **TRANSACTION:** The service checks the current open case and evidence precondition, updates `version = version + 1`, and writes the audit event in the same transaction. A stale update affects zero rows and returns 409. A competing accepted candidate waits on the unique index and returns 409 to the loser.
+- **EXPECTED RESULT:** Exactly one decision commits. The losing operator refreshes; no stale state or duplicate accepted candidate is silently merged.
+
+### Case M10-C — Reconciliation allocation races with an existing financial path
+
+- **LOCK/CONSTRAINT:** Reconciliation allocation locks the authoritative payment first, then delegates to the existing allocation repository and database triggers. The legacy payment allocation path remains authoritative and is not shadowed.
+- **TRANSACTION:** After the payment lock, the service re-reads `unallocated_kobo`, checks the accepted human candidate, and inserts through `payment_allocations`. Trigger-maintained payment and invoice balances are read back after the insert.
+- **EXPECTED RESULT:** One allocation consumes the available amount; a concurrent caller sees the reduced authoritative balance and fails deterministically rather than creating an over-allocation. Reconciliation state is only updated after the financial operation succeeds.
 
 ## General Concurrency Guardrails
 

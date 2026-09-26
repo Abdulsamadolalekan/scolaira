@@ -67,7 +67,7 @@ Required env vars (all environments):
 | `RESEND_API_KEY`            | Email provider API key (server-side)                                     |
 | `FROM_EMAIL_ADDRESS`        | Transactional sender (e.g. `receipts@scolaira.app`)                      |
 | `SESSION_SECRET`            | Secret for signing any additional cookies outside Supabase (if any)      |
-| `SENTRY_DSN`                | (optional) Error reporting DSN                                           |
+| `SENTRY_DSN`                | (optional) Error reporting DSN — **parsed but not used**: no error-reporting integration exists yet; the operational signal today is the structured JSON log lines |
 | `NODE_ENV`                  | `development` / `production` / `test`                                    |
 
 `.env.example` is committed with placeholder values and comments.
@@ -95,24 +95,55 @@ Awaiting D4 approval. Initial recommendation:
 
 ## VIII. Deploy Process Checklist
 
-For each production deploy:
+Because app code and schema must move together, the deploy order is:
+**migrate first, then serve, then confirm readiness.**
 
-1. CI green on `main`.
+1. CI green on `main`. The pipeline provisions a real Postgres, runs the real
+   migrations from zero, seeds a disposable database, starts the **production
+   build** and requires `/api/ready` to pass before the release-gate suite runs
+   (see `.github/workflows/ci.yml`).
 2. Staging smoke tests pass (auth, record payment, reconcile, view Command Center).
-3. Database migrations reviewed and confirmed reversible or low-risk.
+3. Database migrations reviewed and confirmed reversible or low-risk. Readiness
+   compares the database's migration count and newest tag against the values this
+   build ships (`lib/ops/migration-manifest.ts`), so a build deployed against the
+   wrong schema is reported, not guessed at.
 4. Changelog updated for users (even if simple "we shipped improvements" note).
 5. Founder (or delegated) approves promotion.
-6. Deploy to production.
-7. Post-deploy smoke (3-5 min): `/api/health` green; login works; payment page loads; test payment (test mode against Paystack) processes.
-8. Monitor Sentry/metrics for 30 minutes.
-9. Announce to pilot school if user-facing change.
+6. Apply migrations with the OWNER credential, not the runtime credential:
+
+   ```bash
+   DATABASE_MIGRATION_URL=postgres://scolaira_owner:...@host/db npm run db:migrate
+   ```
+
+   A fresh environment is provisioned the same way it always was — roles first,
+   then databases, then migrations:
+
+   ```bash
+   sudo -u postgres psql -f scripts/bootstrap-roles.sql
+   sudo -u postgres psql -d scolaira -v boot_db=1 -f scripts/bootstrap-roles.sql
+   DATABASE_MIGRATION_URL=... npm run db:migrate     # 49 migrations, from zero
+   ```
+
+7. Deploy the app. **Serving traffic before readiness passes is a mistake the gate
+   now catches**: until the schema matches the build, `/api/ready` answers `503`
+   with `schema_behind`/`schema_ahead`/`schema_version_mismatch`, and the platform
+   must keep the instance out of rotation.
+8. Post-deploy smoke (3-5 min): `curl -s https://<host>/api/ready` is `200`
+   `"status":"ready"` (this is the gate — `/api/health` is liveness only and says
+   nothing about the database); login works; payment page loads; test payment
+   (test mode against Paystack) processes.
+9. Monitor logs/metrics for 30 minutes. The failure signal is a single-line JSON
+   event (`"event":"readiness_failed"` with the failed checks and reasons); the
+   Sentry integration in the stack table is **not wired yet** — `SENTRY_DSN` is
+   parsed and unused, and nothing is shipped to a vendor.
+10. Announce to pilot school if user-facing change.
 
 ## IX. Rollback
 
 - Vercel instant rollback to previous deployment for app code.
 - Database rollback: migrations are written to be reversible; if a migration is non-reversible, a follow-up revert migration must be prepared before deploy.
 - For data-corruption incidents: Supabase PITR to nearest safe timestamp; replay auditable events that post-date the restore point.
-- Never roll back the app without considering DB state; app version and DB schema must be compatible.
+- Never roll back the app without considering DB state; app version and DB schema must be compatible. Readiness enforces this at the door: a build rolled back in front of a newer schema reports `schema_ahead` and stays `503` until it is rolled forward again, and `/api/health` will happily report `ok` the whole time — trust `/api/ready`, not liveness.
 
 ## X. CI/CD Tooling
 
