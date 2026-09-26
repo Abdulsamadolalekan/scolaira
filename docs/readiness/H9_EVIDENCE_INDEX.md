@@ -21,6 +21,7 @@
 | Readiness probe output — hosted CI, H-8                   | Engineering (no named individual, H9-F4) | 2026-09-25 | PRESENT | Run `36238146341`; gate outputs recorded in `docs/readiness/H8_CLOSEOUT.md` |
 | Readiness probe output — hosted CI, H-6                   | Engineering (no named individual, H9-F4) | 2026-09-25 | PRESENT | Run `36211198924`; `docs/readiness/H6_RELEASE_EVIDENCE_CLOSEOUT.md`   |
 | Seeded, authenticated CI run — both engines (H-8)         | Engineering (no named individual, H9-F4) | 2026-09-25 | PRESENT | Run `36238146341` — 642 unit / 68 release / 32 design-system / format gate |
+| Hosted CI verification — H-9 Tranche 1                    | Engineering (no named individual, H9-F4) | 2026-09-26 | PRESENT | Run `36245942023` at commit `48d1044` — full results in the run ledger below |
 | Release gate: `/api/ready` refusing a real broken state   | Engineering (no named individual, H9-F4) | 2026-09-25 | PRESENT | Measured `503 database_unreachable` with Postgres stopped; `docs/readiness/H6_RELEASE_EVIDENCE_CLOSEOUT.md` §4 |
 | Restore-verification tool                                 | H-9 change set                          | 2026-09-26 | PRESENT | `lib/ops/restore-verification.ts`, `scripts/verify-restored-db.ts`    |
 | Restore-verification adversarial evidence (damage detected) | H-9 change set                        | 2026-09-26 | PRESENT | `tests/db/h9-restore-verification.test.ts` (12 tests)                 |
@@ -37,6 +38,7 @@
 | ------------- | ------------------------------------------ | -------------------------------------------------------------------------- | ------ |
 | `36211198924` | `dca6a84dde48254b45f233fe09d4654098a5ab48` | H-6 gate: quality + readiness jobs, seeded authenticated run, both engines   | green  |
 | `36238146341` | `e919d40` (H-8 docs commit `547232c`)       | H-8 change set: 642 unit / 68 release / 32 design-system; format gate 303 touched · 189 grandfathered | green |
+| `36245942023` | `48d1044bf01eac5934974026bb51214c91df6cbc` (T1 implementation `d9c9b4b`, recon `1094414`) | 2026-09-26 · H-9 Tranche 1 change set, verified after the push: quality **55 files / 660 tests** + lint, typecheck and production build; readiness **fail-closed negative control** (`schema:schema_behind` on the unmigrated database) then **50/50 migrations** and the gate opening `200 ready`; release gate **68/68** and design-system **32/32** on chromium + webkit; format gate **308 touched · 189 grandfathered · 0 new or regressed** | **success (3/3 jobs)** |
 
 These runs are **hosted CI evidence**, not production evidence: nothing was deployed. Their artefacts
 expire (7–14 days); the results above are recorded here so a later reader can still see what was
