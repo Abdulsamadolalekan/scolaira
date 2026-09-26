@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { addKobo, formatKobo, formatKoboDisplay, parseNaira, ZERO_KOBO } from './index';
+import { add, formatKobo, formatKoboDisplay, parseNaira, ZERO_KOBO } from './index';
 
 describe('money utilities', () => {
   describe('parseNaira', () => {
@@ -59,10 +59,10 @@ describe('money utilities', () => {
     });
   });
 
-  describe('addKobo', () => {
+  describe('add', () => {
     it('adds two kobo amounts without floating point error', () => {
       expect(
-        addKobo(
+        add(
           100 as unknown as ReturnType<typeof parseNaira>,
           250 as unknown as ReturnType<typeof parseNaira>,
         ),
@@ -72,7 +72,7 @@ describe('money utilities', () => {
     it('throws on overflow', () => {
       const max = Number.MAX_SAFE_INTEGER;
       expect(() =>
-        addKobo(
+        add(
           max as unknown as ReturnType<typeof parseNaira>,
           1 as unknown as ReturnType<typeof parseNaira>,
         ),

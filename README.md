@@ -32,9 +32,16 @@ See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md). Summary:
 - **Database:** PostgreSQL via Drizzle ORM (schema & migrations in M2)
 - **Testing:** Vitest (unit) + Playwright (E2E)
 - **Validation:** Zod (used by all API endpoints in future slices)
-- **Auth:** Supabase Auth (M3)
-- **Payments:** Paystack webhook integration (Phase 2)
-- **Hosting:** Vercel + Supabase (founder-owned)
+- **Auth:** first-party session/CSRF tokens minted by this application (M3/M4); there is no Supabase Auth
+- **Payments:** Paystack webhook integration is **not implemented** (Phase 2, unstarted) — see the status note below
+- **Hosting:** **none provisioned.** Nothing has been deployed anywhere; Vercel/Supabase appear in the planning documents as intent, not as the stack
+
+> **Stack reality (H-9, 2026-09-26).** Supabase Auth, Resend, Sentry, Vercel and Paystack are named in
+> the planning documents; **none of them is integrated** — there is no provider SDK in `package.json`,
+> no deployment configuration, and no deployed environment. What runs today is a Next.js application
+> on plain PostgreSQL (Drizzle), with everything in this repository. The operational status of each
+> claimed control is tabulated in [`docs/OPERATIONS.md`](docs/OPERATIONS.md) §0 and
+> [`docs/ops/README.md`](docs/ops/README.md).
 
 ### Non-negotiable product principles
 
