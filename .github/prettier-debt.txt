@@ -130,7 +130,6 @@ lib/db/schema/_columns.ts
 lib/db/schema/academic.ts
 lib/db/schema/auth.ts
 lib/db/schema/communications.ts
-lib/db/schema/financials.ts
 lib/db/schema/platform.ts
 lib/db/schema/tenancy.ts
 lib/db/scope.ts
