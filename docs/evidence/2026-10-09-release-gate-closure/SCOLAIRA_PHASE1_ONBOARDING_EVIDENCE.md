@@ -584,3 +584,16 @@ addendum's changes are two `e2e/` spec files and one line removed from
 `.github/prettier-debt.txt` (a file that is now prettier-clean). The full closure record —
 including the design-system gate's root cause, the opening-balance invariant review, the diff
 review and the backup position — is §3.11 of `SCOLAIRA_10_10_TRANSFORMATION_REPORT.md`.
+
+---
+
+## Where this work now lives
+
+The commits above are no longer only on the working machine: Phase 0–2 and the closure pass were
+pushed on 2026-10-09 to `github.com/Abdulsamadolalekan/scolaira`, branch `arena/h8-platform-support`,
+as `e1d8c69` (the phase work), `b6b9751` (the format-gate debt entry) and `0646ef5` (this evidence
+archive under `docs/evidence/`). A clean clone of that branch reproduces the tree exactly
+(`HEAD^{tree}` = `d21efa83c601a129010d57706ea1b62881da9674`, 585 tracked files, 52 migrations), and
+the gate re-runs on that committed tree came back 909/909 vitest, 86/86 release gate on chromium and
+webkit, and 32/32 design-system on each engine. Details in §3.12 of
+`SCOLAIRA_10_10_TRANSFORMATION_REPORT.md`.
