@@ -1,0 +1,23 @@
+{
+  "rehearsal": "h9-restore-rehearsal",
+  "classification": "LOCAL REHEARSAL — not production, not provider evidence",
+  "generatedAt": "2026-10-09T12:54:39Z",
+  "source": { "database": "scolaira_e2e" },
+  "dump": {
+    "file": "/home/user/backups/restore-drill-20261009/source-20261009T125437Z.dump",
+    "bytes": 555840,
+    "sha256": "d25f838b64eba4e2dcb9b26c2bf42535096b8c9afc7e9df60e671307a92e4e72",
+    "seconds": 0
+  },
+  "restore": { "targetDatabase": "scolaira_rehearsal", "seconds": 1, "ignoredErrors": 1 },
+  "migrations": { "seconds": 0 },
+  "rows": "organizations=2 users=4 invoices=5",
+  "verification": {
+    "ok": "true",
+    "passed": "10",
+    "failed": "0",
+    "skipped": "0",
+    "platformAdminSupplied": true
+  },
+  "wallClockSeconds": 2
+}

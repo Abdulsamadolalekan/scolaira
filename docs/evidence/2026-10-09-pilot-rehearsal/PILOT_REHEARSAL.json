@@ -1,0 +1,957 @@
+{
+  "base": "https://localhost:3443",
+  "slug": "rehearsal-mv0z8poc",
+  "tally": {
+    "PASS": 12,
+    "FAIL": 3,
+    "NOT COVERED": 3
+  },
+  "results": [
+    {
+      "id": "S0",
+      "title": "Preflight — what the deployed configuration proves about itself",
+      "checks": [
+        {
+          "label": "GET /api/ready status",
+          "expected": 200,
+          "actual": 200,
+          "pass": true,
+          "note": ""
+        },
+        {
+          "label": "readiness status",
+          "expected": "ready",
+          "actual": "ready",
+          "pass": true,
+          "note": ""
+        },
+        {
+          "label": "build environment",
+          "expected": "production",
+          "actual": "production",
+          "pass": true,
+          "note": ""
+        },
+        {
+          "label": "check database",
+          "expected": "ok",
+          "actual": "ok",
+          "pass": true,
+          "note": ""
+        },
+        {
+          "label": "check schema",
+          "expected": "ok",
+          "actual": "ok",
+          "pass": true,
+          "note": ""
+        },
+        {
+          "label": "check auth (session+CSRF round trip)",
+          "expected": "ok",
+          "actual": "ok",
+          "pass": true,
+          "note": ""
+        },
+        {
+          "label": "migrations applied == expected",
+          "expected": 52,
+          "actual": 52,
+          "pass": true,
+          "note": ""
+        },
+        {
+          "label": "scolaira_app superuser",
+          "expected": false,
+          "actual": false,
+          "pass": true,
+          "note": ""
+        },
+        {
+          "label": "scolaira_app bypassrls",
+          "expected": false,
+          "actual": false,
+          "pass": true,
+          "note": ""
+        },
+        {
+          "label": "scolaira_app inherits",
+          "expected": false,
+          "actual": false,
+          "pass": true,
+          "note": ""
+        },
+        {
+          "label": "tables with FORCE ROW LEVEL SECURITY > 0",
+          "expected": true,
+          "actual": true,
+          "pass": true,
+          "note": ""
+        },
+        {
+          "label": "GET /login status",
+          "expected": 200,
+          "actual": 200,
+          "pass": true,
+          "note": ""
+        },
+        {
+          "label": "header x-content-type-options",
+          "expected": "nosniff",
+          "actual": "nosniff",
+          "pass": true,
+          "note": ""
+        },
+        {
+          "label": "header x-frame-options",
+          "expected": "DENY",
+          "actual": "DENY",
+          "pass": true,
+          "note": ""
+        },
+        {
+          "label": "header referrer-policy",
+          "expected": "strict-origin-when-cross-origin",
+          "actual": "strict-origin-when-cross-origin",
+          "pass": true,
+          "note": ""
+        },
+        {
+          "label": "header strict-transport-security",
+          "expected": "max-age=31536000; includeSubDomains",
+          "actual": "max-age=31536000; includeSubDomains",
+          "pass": true,
+          "note": ""
+        },
+        {
+          "label": "header permissions-policy",
+          "expected": "camera=(), microphone=(), geolocation=(), interest-cohort=()",
+          "actual": "camera=(), microphone=(), geolocation=(), interest-cohort=()",
+          "pass": true,
+          "note": ""
+        },
+        {
+          "label": "CSP frame-ancestors locked",
+          "expected": "frame-ancestors 'none'",
+          "actual": "frame-ancestors 'none'",
+          "pass": true,
+          "note": ""
+        },
+        {
+          "label": "protected APIs reject an anonymous caller",
+          "expected": "401",
+          "actual": "401",
+          "pass": true,
+          "note": ""
+        }
+      ],
+      "notes": [
+        "latest migration: 0052_opening_balances",
+        "tables with RLS but without FORCE: app_meta",
+        "CSP still allows 'unsafe-inline'/'unsafe-eval' in script-src: yes (documented M3 hardening item)",
+        "anonymous probes: /api/students=401 /api/invoices=401 /api/org/settings=401 /api/ready=200 /api/health=200"
+      ],
+      "status": "PASS",
+      "started": "2026-10-09T13:04:15.765Z",
+      "finished": "2026-10-09T13:04:15.895Z"
+    },
+    {
+      "id": "S1",
+      "title": "Register a school and land in the setup guide",
+      "checks": [
+        {
+          "label": "organization row created",
+          "expected": 1,
+          "actual": 1,
+          "pass": true,
+          "note": ""
+        },
+        {
+          "label": "school name",
+          "expected": "Rehearsal Model School",
+          "actual": "Rehearsal Model School",
+          "pass": true,
+          "note": ""
+        },
+        {
+          "label": "currency",
+          "expected": "NGN",
+          "actual": "NGN",
+          "pass": true,
+          "note": ""
+        },
+        {
+          "label": "students on a new school",
+          "expected": 0,
+          "actual": 0,
+          "pass": true,
+          "note": ""
+        },
+        {
+          "label": "invoices on a new school",
+          "expected": 0,
+          "actual": 0,
+          "pass": true,
+          "note": ""
+        },
+        {
+          "label": "memberships",
+          "expected": 1,
+          "actual": 1,
+          "pass": true,
+          "note": ""
+        }
+      ],
+      "notes": [
+        "landed on /dashboard",
+        "founder membership role as stored: OWNER"
+      ],
+      "status": "PASS",
+      "started": "2026-10-09T13:04:15.895Z",
+      "finished": "2026-10-09T13:04:17.265Z"
+    },
+    {
+      "id": "S2",
+      "title": "Guided setup: academic session, term, classes",
+      "checks": [
+        {
+          "label": "academic sessions",
+          "expected": 1,
+          "actual": 1,
+          "pass": true,
+          "note": ""
+        },
+        {
+          "label": "terms",
+          "expected": 1,
+          "actual": 1,
+          "pass": true,
+          "note": ""
+        },
+        {
+          "label": "classes",
+          "expected": 2,
+          "actual": 2,
+          "pass": true,
+          "note": ""
+        }
+      ],
+      "notes": [
+        "term status after activation: ACTIVE"
+      ],
+      "status": "PASS",
+      "started": "2026-10-09T13:04:17.265Z",
+      "finished": "2026-10-09T13:04:20.537Z"
+    },
+    {
+      "id": "S3",
+      "title": "CSV import of 8 students (must create no charges)",
+      "checks": [
+        {
+          "label": "students imported",
+          "expected": 8,
+          "actual": 8,
+          "pass": true,
+          "note": ""
+        },
+        {
+          "label": "class enrolments",
+          "expected": 8,
+          "actual": 8,
+          "pass": true,
+          "note": ""
+        },
+        {
+          "label": "invoices created by the import (must be zero)",
+          "expected": 0,
+          "actual": 0,
+          "pass": true,
+          "note": ""
+        }
+      ],
+      "notes": [
+        "the review screen reported the file before anything was written",
+        "guardians auto-created by the import: 8; links: 8"
+      ],
+      "status": "PASS",
+      "started": "2026-10-09T13:04:20.537Z",
+      "finished": "2026-10-09T13:04:21.973Z"
+    },
+    {
+      "id": "S4",
+      "title": "Fee structure: two definitions assigned to both classes",
+      "checks": [
+        {
+          "label": "fee definitions created",
+          "expected": 2,
+          "actual": 2,
+          "pass": true,
+          "note": ""
+        },
+        {
+          "label": "tuition default amount (kobo)",
+          "expected": 4500000,
+          "actual": 4500000,
+          "pass": true,
+          "note": ""
+        },
+        {
+          "label": "levy default amount (kobo)",
+          "expected": 500000,
+          "actual": 500000,
+          "pass": true,
+          "note": ""
+        },
+        {
+          "label": "fee assignments present",
+          "expected": true,
+          "actual": true,
+          "pass": true,
+          "note": ""
+        }
+      ],
+      "notes": [
+        "structure being edited for: First Term · ACTIVE",
+        "row 1: TUITION · Tuition · school-wide · ₦45,000",
+        "row 2: PTA_LEVY · PTA levy · school-wide · ₦5,000",
+        "fee assignments rows: 2 (TUITION, PTA_LEVY)"
+      ],
+      "status": "PASS",
+      "started": "2026-10-09T13:04:21.973Z",
+      "finished": "2026-10-09T13:04:25.562Z"
+    },
+    {
+      "id": "S5",
+      "title": "Term billing: 8 invoices at the sum of their lines",
+      "checks": [
+        {
+          "label": "the billing request was accepted",
+          "expected": true,
+          "actual": true,
+          "pass": true,
+          "note": ""
+        },
+        {
+          "label": "invoices issued",
+          "expected": 8,
+          "actual": 8,
+          "pass": true,
+          "note": ""
+        },
+        {
+          "label": "invoice lines",
+          "expected": 16,
+          "actual": 16,
+          "pass": true,
+          "note": ""
+        },
+        {
+          "label": "billed for the school (kobo)",
+          "expected": 40000000,
+          "actual": 40000000,
+          "pass": true,
+          "note": ""
+        },
+        {
+          "label": "collected so far",
+          "expected": 0,
+          "actual": 0,
+          "pass": true,
+          "note": ""
+        },
+        {
+          "label": "outstanding == billed",
+          "expected": 40000000,
+          "actual": 40000000,
+          "pass": true,
+          "note": ""
+        },
+        {
+          "label": "invoices whose total ≠ sum(lines)",
+          "expected": 0,
+          "actual": 0,
+          "pass": true,
+          "note": ""
+        },
+        {
+          "label": "invoices paid beyond their total",
+          "expected": 0,
+          "actual": 0,
+          "pass": true,
+          "note": ""
+        },
+        {
+          "label": "term marked billed",
+          "expected": true,
+          "actual": true,
+          "pass": true,
+          "note": ""
+        }
+      ],
+      "notes": [
+        "POST /api/terms/<id>/bill → HTTP 200 {\"bill\":{\"term\":{\"id\":\"3b41a0ae-810b-4f6c-b52f-5b6bb881ecdf\",\"name\":\"First Term\",\"label\":\"1st\",\"status\":\"BILLED\",\"billed\":true,\"dueDate\":\"2026-12-01\",\"sessionId\":\"06147c4a-1f00-4698-bb82-93896c61fa37\"},\"createdInvoices\":8,\"createdLines\":16,\"unchanged\":0,\"total",
+        "invoice numbers visible: INV-2026-000001, INV-2026-000002, INV-2026-000003"
+      ],
+      "status": "PASS",
+      "started": "2026-10-09T13:04:25.563Z",
+      "finished": "2026-10-09T13:04:56.585Z"
+    },
+    {
+      "id": "S6",
+      "title": "Staff-recorded part payment (₦20,000) against the oldest invoice",
+      "checks": [
+        {
+          "label": "payment row exists",
+          "expected": 1,
+          "actual": 1,
+          "pass": true,
+          "note": ""
+        },
+        {
+          "label": "payment amount (kobo)",
+          "expected": 2000000,
+          "actual": 2000000,
+          "pass": true,
+          "note": ""
+        },
+        {
+          "label": "allocated to the invoice (kobo)",
+          "expected": 2000000,
+          "actual": 2000000,
+          "pass": true,
+          "note": ""
+        },
+        {
+          "label": "unallocated remainder",
+          "expected": 0,
+          "actual": 0,
+          "pass": true,
+          "note": ""
+        },
+        {
+          "label": "the payment was allocated to an open invoice",
+          "expected": 1,
+          "actual": 1,
+          "pass": true,
+          "note": ""
+        },
+        {
+          "label": "invoice paid_kobo",
+          "expected": 2000000,
+          "actual": 2000000,
+          "pass": true,
+          "note": ""
+        },
+        {
+          "label": "invoice outstanding after part payment",
+          "expected": 3000000,
+          "actual": 3000000,
+          "pass": true,
+          "note": ""
+        },
+        {
+          "label": "school collected (kobo)",
+          "expected": 2000000,
+          "actual": 2000000,
+          "pass": true,
+          "note": ""
+        },
+        {
+          "label": "school outstanding",
+          "expected": 38000000,
+          "actual": 38000000,
+          "pass": true,
+          "note": ""
+        },
+        {
+          "label": "paid_kobo ≠ Σ allocations on any invoice",
+          "expected": 0,
+          "actual": 0,
+          "pass": true,
+          "note": ""
+        },
+        {
+          "label": "payment amount ≠ allocated + unallocated anywhere",
+          "expected": 0,
+          "actual": 0,
+          "pass": true,
+          "note": ""
+        }
+      ],
+      "notes": [
+        "payment PMT-2026-000001 status=CONFIRMED method=BANK_TRANSFER"
+      ],
+      "status": "PASS",
+      "started": "2026-10-09T13:04:56.585Z",
+      "finished": "2026-10-09T13:04:57.647Z"
+    },
+    {
+      "id": "S7",
+      "title": "Overpayment (₦60,000) leaves a credit, never a negative balance",
+      "checks": [
+        {
+          "label": "overpayment row exists",
+          "expected": 1,
+          "actual": 1,
+          "pass": true,
+          "note": ""
+        },
+        {
+          "label": "payment amount",
+          "expected": 6000000,
+          "actual": 6000000,
+          "pass": true,
+          "note": ""
+        },
+        {
+          "label": "capped at the invoice total (never overpaid)",
+          "expected": 5000000,
+          "actual": 5000000,
+          "pass": true,
+          "note": ""
+        },
+        {
+          "label": "credit held as unallocated",
+          "expected": 1000000,
+          "actual": 1000000,
+          "pass": true,
+          "note": ""
+        },
+        {
+          "label": "invoices paid beyond their total",
+          "expected": 0,
+          "actual": 0,
+          "pass": true,
+          "note": ""
+        },
+        {
+          "label": "payment amount ≠ allocated + unallocated",
+          "expected": 0,
+          "actual": 0,
+          "pass": true,
+          "note": ""
+        }
+      ],
+      "notes": [],
+      "status": "PASS",
+      "started": "2026-10-09T13:04:57.647Z",
+      "finished": "2026-10-09T13:04:59.137Z"
+    },
+    {
+      "id": "S8",
+      "title": "Receipt of record, frozen allocation snapshot",
+      "checks": [
+        {
+          "label": "receipt issued for the payment",
+          "expected": 1,
+          "actual": 1,
+          "pass": true,
+          "note": ""
+        },
+        {
+          "label": "receipt amount == payment amount",
+          "expected": 2000000,
+          "actual": 2000000,
+          "pass": true,
+          "note": ""
+        },
+        {
+          "label": "snapshot carries the allocation amount",
+          "expected": 2000000,
+          "actual": 2000000,
+          "pass": true,
+          "note": ""
+        },
+        {
+          "label": "printable region rendered",
+          "expected": true,
+          "actual": true,
+          "pass": true,
+          "note": ""
+        }
+      ],
+      "notes": [
+        "snapshot shape: 1 allocation row(s)",
+        "receipt number RCP-2026-000001, status ISSUED"
+      ],
+      "status": "PASS",
+      "started": "2026-10-09T13:04:59.137Z",
+      "finished": "2026-10-09T13:04:59.999Z"
+    },
+    {
+      "id": "S9",
+      "title": "Public payment link: parent claim lands PENDING, staff confirms",
+      "checks": [
+        {
+          "label": "parent can open the page without a session",
+          "expected": true,
+          "actual": true,
+          "pass": true,
+          "note": ""
+        },
+        {
+          "label": "a PENDING claim was recorded by the public route",
+          "expected": 1,
+          "actual": 0,
+          "pass": false,
+          "note": ""
+        }
+      ],
+      "notes": [
+        "token recovered from a payment-links response (HTTP 201)",
+        "link token 65PEkN… (24 chars) for INV-2026-000001",
+        "amount due shown to the parent: ₦30,000"
+      ],
+      "status": "FAIL",
+      "started": "2026-10-09T13:05:00.000Z",
+      "finished": "2026-10-09T13:05:06.217Z"
+    },
+    {
+      "id": "S10",
+      "title": "Carry-in from the previous session (opening balance), approved and posted",
+      "checks": [],
+      "notes": [
+        "prior session created via POST /api/academic-sessions (HTTP 201)",
+        "prior term via POST /api/terms → HTTP 201",
+        "error: locator.click: Timeout 12000ms exceeded.\nCall log:\n  - waiting for getByRole('button', { name: /record it|new entry|add entry/i }).first()\n    - locator resolved to <button disabled type=\"button\" data-size=\"sm\" data-variant=\"primary\" class=\"inline-flex items-center justify-center whitespace-nowrap font-medium transition-[background-color,border-color,color,filter] duration-fast ease-standard focus-visible:shadow-focus-ring disabled:cursor-not-allowed select-none [&>svg]:shrink-0 bg-forest-deep text-ivory hover:brightness-110 active:brightness-95 disabled:bg-ink-subtle disabled:text-ivory h-8 px-3 text-sm gap-1.5 rounded-sm\">…</button>\n  - attempting click action\n    2 × waiting for element to be visible, enabled and stable\n      - element is not enabled\n    - retrying click action\n    - waiting 20ms\n    2 × waiting for element to be visible, enabled and stable\n      - element is not enabled\n    - retrying click action\n      - waiting 100ms\n    23 × waiting for element to be visible, enabled and stable\n       - element is not enabled\n     - retrying click action\n       - waiting 500ms\n",
+        "page text: Opening balances Carry in what was owed before SCOLAIRA, with the paper it came from. Nothing here becomes a charge until you post it, and only past-term debt can be posted. THE REGISTER Five separate figures, deliberately never added together. Owed from before, still outstanding ₦0.00 Nothing has been posted yet, so nothing is owed in the ledger. Waiting to be reviewed 0 figures recorded and not "
+      ],
+      "status": "FAIL",
+      "started": "2026-10-09T13:05:06.217Z",
+      "finished": "2026-10-09T13:05:19.204Z"
+    },
+    {
+      "id": "S11",
+      "title": "Reconciliation: flag, match and resolve a payment case",
+      "checks": [],
+      "notes": [
+        "reconciliation cases before rehearsal: 1",
+        "buttons on /reconcile: PMT-2026-000003 Rehearsal Parent · REH-CLAIM-MV0Z8POC BANK TRANSFER 09 Oct 2026 Not established No invoice linked ₦30,000 Fully allocated UNMATCHED 0 evidence + | PMT-2026-000002 Payer not recorded · REH-CASH-MV0Z8POC-2 BANK TRANSFER 09 Oct 2026 Tunde Bello INV-2026-000005 ₦60,000 ₦10,000.00 unallocated UNMATCHED 0 evidence +",
+        "absent: the reconciliation queue offers no way to open a case from this page",
+        "page text: Reconciliation Payment cases that need a human decision. Balances stay authoritative in payments, allocations and invoices. Record payment VISIBLE OPEN CASES 2 PENDING CONFIRMATION ₦30,000.00 UNALLOCATED CREDIT ₦10,000.00 FLAGGED EXCEPTIONS 0 OPERATIONAL QUEUE Derived payment work is visible even before a case is opened. Expand a row to add evidence, establish context, and take a permitted action."
+      ],
+      "status": "NOT COVERED",
+      "started": "2026-10-09T13:05:19.204Z",
+      "finished": "2026-10-09T13:05:20.045Z"
+    },
+    {
+      "id": "S12",
+      "title": "Guardian records: who the school can reach, and adding a second contact",
+      "checks": [
+        {
+          "label": "guardian records for the imported roster",
+          "expected": 8,
+          "actual": 8,
+          "pass": true,
+          "note": ""
+        },
+        {
+          "label": "pupil–guardian links",
+          "expected": 8,
+          "actual": 8,
+          "pass": true,
+          "note": ""
+        },
+        {
+          "label": "pupils with no guardian at all",
+          "expected": 0,
+          "actual": 0,
+          "pass": true,
+          "note": ""
+        },
+        {
+          "label": "every guardian has a phone in the single local form",
+          "expected": 8,
+          "actual": 8,
+          "pass": true,
+          "note": ""
+        }
+      ],
+      "notes": [
+        "stored phone shapes: nnnnnnnnnnn×8",
+        "absent: a second guardian was refused; the page said: nothing recognised",
+        "page text: Students REH-MV0Z8POC-001 · ACTIVE Bisi Adeyemi New invoice Record payment Archive student BILLED ₦50,000.00 PAID ₦20,000.00 OUTSTANDING ₦30,000.00 INVOICES 1 invoice issued to this student. INVOICE TOTAL PAID BALANCE STATUS INV-2026-000001 ₦50,000.00 ₦20,000.00 ₦30,000.00 Part paid PAYMENT HISTORY Payments allocated to this student's invoices. PMT-2026-000001 BANK_TRANSFER · REH-TRANSFER-MV0Z8POC"
+      ],
+      "status": "NOT COVERED",
+      "started": "2026-10-09T13:05:20.045Z",
+      "finished": "2026-10-09T13:05:21.043Z"
+    },
+    {
+      "id": "S13",
+      "title": "Reporting: dashboard, debtors and statement agree with the ledger",
+      "checks": [
+        {
+          "label": "dashboard Collected (₦) equals the ledger",
+          "expected": 70000,
+          "actual": 70000,
+          "pass": true,
+          "note": ""
+        },
+        {
+          "label": "dashboard Outstanding (₦) equals the ledger",
+          "expected": 330000,
+          "actual": 330000,
+          "pass": true,
+          "note": ""
+        },
+        {
+          "label": "debtors list is non-empty when balances are outstanding",
+          "expected": true,
+          "actual": true,
+          "pass": true,
+          "note": ""
+        },
+        {
+          "label": "every owing pupil appears at most once in the ledger",
+          "expected": true,
+          "actual": true,
+          "pass": true,
+          "note": ""
+        }
+      ],
+      "notes": [
+        "dashboard text did not expose a \"Billed\" figure to parse: FIRST TERM · CURRENT TERM Good afternoon, Rehearsal. The school's financial position, and what needs attention before it ages. Issue an invoice Record a payment COLLECTED TO DATE All terms — includes any debt carried for",
+        "/debtors rows rendered: 8; page begins \"ACCOUNTS RECEIVABLE Debtors and aging Students with outstanding balances, ranked by how long the oldest invoice has been overdue. Covers eve\""
+      ],
+      "status": "PASS",
+      "started": "2026-10-09T13:05:21.044Z",
+      "finished": "2026-10-09T13:05:23.621Z"
+    },
+    {
+      "id": "S14",
+      "title": "Reversal: a mistaken payment returns the ledger to its prior state",
+      "checks": [],
+      "notes": [
+        "the inline panel was expanded but the harness did not identify its confirm control; the same reversal through POST /api/payments/<id>/reverse returned HTTP 400 {\"error\":{\"code\":\"BAD_REQUEST\",\"message\":\"Invalid request\",\"issues\":[{\"code\":\"invalid_type\",\"expected\":\"number\",\"received\":\"undefined\",\"path\":[\"amount",
+        "absent: neither the panel control nor the API path completed a reversal (HTTP 400)",
+        "page text: Payments Fully allocated PMT-2026-000001 Print receipt Reverse Print receipt REVERSE / REFUND Reversing unwinds allocations and restores invoice balances. This action is append-only and cannot be undone from the UI. Type Reversal Refund Correction Amount (₦) Reason Reference (optional) Record reversal Bank Transfer · ref REH-TRANSFER-MV0Z8POC-1 9 Oct, 0:00 Recorded by Rehearsal Head RECEIVED ₦20,0"
+      ],
+      "status": "NOT COVERED",
+      "started": "2026-10-09T13:05:23.622Z",
+      "finished": "2026-10-09T13:05:24.706Z"
+    },
+    {
+      "id": "S15",
+      "title": "Audit trail: every mutating act left a row",
+      "checks": [
+        {
+          "label": "audit events recorded for this school",
+          "expected": true,
+          "actual": true,
+          "pass": true,
+          "note": ""
+        },
+        {
+          "label": "every audit row names an actor (user or labelled system actor)",
+          "expected": 0,
+          "actual": 0,
+          "pass": true,
+          "note": ""
+        },
+        {
+          "label": "money-bearing actions are represented in the trail",
+          "expected": true,
+          "actual": true,
+          "pass": true,
+          "note": ""
+        }
+      ],
+      "notes": [
+        "top actions: term.create×2, term.bill×1, term.activate×1, student.import×1, student.create×8, receipt.issue×1, payment_link.create×1, payment.record×2",
+        "actor types: USER: 42 (no user id: 1)",
+        "reversal audit rows carrying a reason: 0"
+      ],
+      "status": "PASS",
+      "started": "2026-10-09T13:05:24.706Z",
+      "finished": "2026-10-09T13:05:24.713Z"
+    },
+    {
+      "id": "S16",
+      "title": "Tenant isolation from the outside: a second school sees nothing of the first",
+      "checks": [
+        {
+          "label": "another school cannot read students by id",
+          "expected": true,
+          "actual": true,
+          "pass": true,
+          "note": "HTTP 404"
+        },
+        {
+          "label": "another school cannot read invoices by id",
+          "expected": true,
+          "actual": true,
+          "pass": true,
+          "note": "HTTP 404"
+        },
+        {
+          "label": "another school cannot read opening-balances by id",
+          "expected": true,
+          "actual": true,
+          "pass": true,
+          "note": "HTTP 404"
+        },
+        {
+          "label": "pupil list of the other school contains no rehearsal row",
+          "expected": false,
+          "actual": false,
+          "pass": true,
+          "note": ""
+        }
+      ],
+      "notes": [],
+      "status": "PASS",
+      "started": "2026-10-09T13:05:24.713Z",
+      "finished": "2026-10-09T13:05:25.955Z"
+    },
+    {
+      "id": "S17",
+      "title": "Permissions: a Bursar cannot issue billing, approve carry-in or reverse",
+      "checks": [
+        {
+          "label": "a second member joined the school",
+          "expected": 2,
+          "actual": 1,
+          "pass": false,
+          "note": ""
+        },
+        {
+          "label": "a restricted page tells the bursar why",
+          "expected": true,
+          "actual": true,
+          "pass": true,
+          "note": "Sign in\n\nEnter your credentials to open your school’s worksp"
+        }
+      ],
+      "notes": [
+        "invitation PENDING for role SCHOOL_ADMIN",
+        "bursar probes → issue term billing: 200, read another pupil record: 401, open the member list: 401 (the page-level guard answers 403/redirect; the API check is in the product's own suite)"
+      ],
+      "status": "FAIL",
+      "started": "2026-10-09T13:05:25.955Z",
+      "finished": "2026-10-09T13:06:28.392Z"
+    }
+  ],
+  "ledger": {
+    "invoices": 8,
+    "invoiceTotalSum": 40000000,
+    "lines": 16,
+    "lineTotalSum": 40000000,
+    "allocatedTotal": 7000000,
+    "allocationCount": 2,
+    "paymentsByStatus": [
+      {
+        "status": "PENDING",
+        "n": 1,
+        "total": "3000000",
+        "unallocated": "0"
+      },
+      {
+        "status": "CONFIRMED",
+        "n": 2,
+        "total": "8000000",
+        "unallocated": "1000000"
+      }
+    ],
+    "invoiceStatuses": [
+      {
+        "status": "ISSUED",
+        "n": 6,
+        "total": "30000000",
+        "paid": "0"
+      },
+      {
+        "status": "PARTIALLY_PAID",
+        "n": 1,
+        "total": "5000000",
+        "paid": "2000000"
+      },
+      {
+        "status": "PAID",
+        "n": 1,
+        "total": "5000000",
+        "paid": "5000000"
+      }
+    ],
+    "voidLikeStatuses": [],
+    "receipts": 1,
+    "receiptTotal": 2000000,
+    "openingBalancesByStatus": [],
+    "audit": [
+      {
+        "action": "term.create",
+        "n": 2
+      },
+      {
+        "action": "term.bill",
+        "n": 1
+      },
+      {
+        "action": "term.activate",
+        "n": 1
+      },
+      {
+        "action": "student.import",
+        "n": 1
+      },
+      {
+        "action": "student.create",
+        "n": 8
+      },
+      {
+        "action": "receipt.issue",
+        "n": 1
+      },
+      {
+        "action": "payment_link.create",
+        "n": 1
+      },
+      {
+        "action": "payment.record",
+        "n": 2
+      },
+      {
+        "action": "payment.pending",
+        "n": 1
+      },
+      {
+        "action": "invoice.issue",
+        "n": 8
+      },
+      {
+        "action": "invoice.create",
+        "n": 8
+      },
+      {
+        "action": "guardian.create_link",
+        "n": 1
+      },
+      {
+        "action": "fee_definition.create",
+        "n": 2
+      },
+      {
+        "action": "fee_assignment.replace",
+        "n": 1
+      },
+      {
+        "action": "class.create",
+        "n": 2
+      },
+      {
+        "action": "academic_session.create",
+        "n": 2
+      }
+    ],
+    "billed": 40000000,
+    "collected": 7000000,
+    "outstanding": 33000000
+  },
+  "integrity": {
+    "invoiceHeaderVsLines": 0,
+    "paidVsAllocations": 0,
+    "overpaidInvoices": 0,
+    "orphanReceipts": 0,
+    "paymentSplitDrift": 1,
+    "sample": []
+  }
+}
