@@ -41,8 +41,14 @@ export interface MoneyProps extends React.HTMLAttributes<HTMLSpanElement> {
   hideDecimals?: boolean;
   /** Id reference for accessible labelling (aria-labelledby). */
   labelledBy?: string;
+  /**
+   * Render in the tabular mono face. Defaults to true for the figure sizes
+   * (lg/xl/display): money is read as a shape before it is read as a string,
+   * and proportional digits make columns of figures impossible to compare.
+   * Body-size money (sm/md) stays in the UI sans so it can sit inside prose.
+   */
   mono?: boolean;
-  size?: 'sm' | 'md' | 'lg' | 'xl';
+  size?: 'sm' | 'md' | 'lg' | 'xl' | 'display';
 }
 
 /**
@@ -83,25 +89,41 @@ export function Money({
   showSymbol = true,
   hideDecimals = false,
   labelledBy,
-  mono = false,
+  mono,
   size = 'md',
   className,
   ...rest
 }: MoneyProps) {
+  /*
+   * The figure face.
+   *
+   * Money is set in the UI sans with TABULAR figures rather than in the
+   * monospace face. Two reasons, both measured:
+   *   1. JetBrains Mono draws a slashed/dotted zero. In a ledger a zero and an
+   *      eight must never be confusable, but ₦700,000.00 rendered as
+   *      ₦7ΘΘ,ΘΘΘ.ΘΘ reads as a code sample rather than as money.
+   *   2. Institutional practice (the private-bank references) sets figures in
+   *      the brand's own face with tabular lining numerals, and reserves the
+   *      monospace for identifiers. Passing `mono` still opts in for the rare
+   *      case that wants it (references, codes, hex).
+   * `tabular-nums` is what makes columns of money line up.
+   */
+  const useMono = mono ?? false;
   const full = formatKoboFull(kobo, showSymbol, hideDecimals);
   const display = compact ? formatKoboCompact(kobo, showSymbol) : full;
   const sizeClass = {
     sm: 'text-sm',
     md: 'text-base',
-    lg: 'text-lg font-semibold',
-    xl: 'text-2xl font-semibold',
+    lg: 'text-figure font-medium',
+    xl: 'text-figure-lg font-normal',
+    display: 'text-figure-xl font-normal',
   }[size];
 
   const node = (
     <span
       className={cn(
-        'font-feature-tnum tabular-nums',
-        mono ? 'font-mono' : 'font-sans',
+        'tabular-nums',
+        useMono ? 'font-mono' : 'font-sans',
         variantColor[variant],
         sizeClass,
         className,

@@ -10,7 +10,7 @@ Entity: `payments`
 - `REVERSED` — fully reversed; no longer contributes to collected totals.
 - `REFUNDED` — money returned to payer; treated like reversal in totals but kept distinct for reporting.
 - `FAILED` — payment attempt failed (online payment declined, or webhook confirms failure); no financial effect.
-- `REJECTED` — (for DUPLICATE_SUSPECT resolution) confirmed as duplicate/unwanted and rejected; no allocation.
+- `REJECTED` — a payment attempt rejected before it becomes authoritative collected money. The M10 reconciliation control plane does not invent a duplicate-to-rejected transition; duplicate financial consequences use the existing reversal/refund mechanisms.
 
 ## Allowed Transitions
 
@@ -26,8 +26,7 @@ Entity: `payments`
 | CONFIRMED                         | REFUNDED          | OWNER, SCHOOL_ADMIN (with permission)                  | Refund processed (Paystack refund or cash refund); reason required                                                               |
 | CONFIRMED                         | DUPLICATE_SUSPECT | OWNER, FINANCE_OFFICER                                 | User manually flags as possible duplicate (rare after initial confirm)                                                           |
 | DUPLICATE_SUSPECT                 | CONFIRMED         | OWNER, FINANCE_OFFICER                                 | After review: confirmed legitimate (e.g., different siblings/same ref)                                                           |
-| DUPLICATE_SUSPECT                 | REJECTED          | OWNER, FINANCE_OFFICER                                 | After review: confirmed duplicate/unwanted                                                                                       |
-| DUPLICATE_SUSPECT                 | REVERSED          | OWNER, FINANCE_OFFICER                                 | After review: duplicate and money needs reversal/refund                                                                          |
+| DUPLICATE_SUSPECT                 | REVERSED          | OWNER, FINANCE_OFFICER                                 | After review: duplicate and money needs reversal/refund; use the existing reversal/refund path                                   |
 | PENDING                           | REJECTED          | OWNER, FINANCE_OFFICER                                 | Unmatched / unowned payment rejected (e.g., wrong school)                                                                        |
 | REVERSED/REFUNDED/FAILED/REJECTED | (terminal)        | —                                                      | Corrections done via new payment records, not by reopening (to preserve history)                                                 |
 
@@ -38,8 +37,8 @@ Entity: `payments`
 - Record (initial): INSERT payments with status per above. For manual (cash/transfer/POS), default CONFIRMED. For online, initial PENDING.
 - PENDING → CONFIRMED: UPDATE status; insert any missing audit; trigger allocations if payment links to a known invoice/student (auto-allocation rules in `/docs/FINANCIAL_INVARIANTS.md` §V).
 - CONFIRMED → REVERSED/REFUNDED: INSERT reversals (append-only); reverse allocations (mark allocations reversed); recompute invoice states; update payment status.
-- DUPLICATE_SUSPECT → CONFIRMED: UPDATE status; proceed to allocation.
-- DUPLICATE_SUSPECT → REJECTED: UPDATE status; no allocation; payment does NOT contribute to collected; visible in audit/reconciliation history.
+- DUPLICATE_SUSPECT → CONFIRMED: only after human evidence and only when the existing unallocated balance is positive; the M10 route delegates to the existing payment status trigger and then leaves allocation to the existing allocation path. Fully allocated duplicate-suspect payments are not re-confirmed because the legacy timestamp trigger must not reinitialize `unallocated_kobo`.
+- M10 `DUPLICATE_REVIEWED` resolution records a durable reconciliation decision without changing payment money. If money must be undone, the operator uses the existing reversal/refund endpoint.
 - All state changes happen inside a transaction; if any allocation/invoice update fails, the payment state does not change.
 
 ## Audit Events

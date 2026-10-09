@@ -12,20 +12,61 @@
  *   - Ivory #FDFBF6
  *   - Near-black ink #17201C
  * When final brand system lands, swap hex values here; no component changes.
+ *
+ * ─────────────────────────────────────────────────────────────────────────────
+ * VISUAL POLISH PASS — the colour hierarchy, stated (2026-10)
+ *
+ * The palette below is still the founder's four references. What this pass
+ * changed is the ARRANGEMENT: which of them carries which job, and how many
+ * hues the product is allowed to show at once.
+ *
+ * The problem it corrects, measured: six families of colour were competing for
+ * attention — forest, gold, and four status hues — and the brightest green in
+ * the scale (#046A38) was doing the most frequent job (every primary action,
+ * every link, every progress fill). A screen where the loudest colour is also
+ * the most common one has no hierarchy; everything is a little bit important,
+ * which is what makes an interface read as assembled rather than composed.
+ *
+ * The arrangement now, in descending order of authority:
+ *
+ *   GROUND      ivory paper (#FDFBF6). The product is a document. Nothing
+ *               competes with it and nothing tints it.
+ *   STRUCTURE   deepest forest (#0B3D2E). The workspace rail and the security
+ *               band — the two places the institution itself is speaking.
+ *   COMMITMENT  deep forest (#1B4332). Every primary action, and the section
+ *               labels that head a block. One green means "this is the thing to
+ *               do" or "this is the thing you are reading", never decoration.
+ *   MARK        primary green (#0F5A38, deepened from #046A38). Links, small
+ *               icons, progress fills, focus. Present at small scale only.
+ *   RECORD      gold (#C9A227). Reserved for marks of record — the selected
+ *               destination, a figure of account, the seal. Never a background,
+ *               never a button face.
+ *   STATE       four hues, all pulled toward the paper: a forest green for
+ *               settled, an ochre for outstanding, a slate for awaiting, and a
+ *               deepened brick reserved for genuine exceptions. Their tints were
+ *               desaturated by roughly a third, so a register of forty rows is
+ *               legible field-by-field without turning into a traffic light.
+ *
+ * Neutrals were warmed rather than cooled: the ink scale now leans brown-grey
+ * (#E8E6DF hairlines) instead of blue-grey (#E6EAE7), so rules read as printed
+ * keylines on stock rather than as borders on a web page. The subtle-background
+ * tier (--color-forest-wash) is warm paper too, not a green tint — a green wash
+ * behind half the page is the single clearest tell of a generated interface.
+ * ─────────────────────────────────────────────────────────────────────────────
  */
 @layer tokens {
   :root {
     /* ---- Brand primitives (emerald / gold / ivory / ink) ---- */
     --color-forest-deepest: #0b3d2e;
     --color-forest-deep: #1b4332;
-    --color-forest-primary: #046a38;
-    --color-forest-accent: #2f8f5c;
-    --color-forest-tint: #eaf4ee;
-    --color-forest-wash: #f5faf7;
+    --color-forest-primary: #0f5a38;
+    --color-forest-accent: #2f7a55;
+    --color-forest-tint: #edf4ef;
+    --color-forest-wash: #f6f6f0;
 
     --color-gold-rich: #c9a227;
     --color-gold-reference: #d4af37;
-    --color-gold-tint: #f5eedc;
+    --color-gold-tint: #f6f0dd;
 
     --color-ivory: #fdfbf6;
     --color-white: #ffffff;
@@ -33,9 +74,9 @@
     --color-ink-deepest: #17201c;
     --color-ink-primary: #0b1f16;
     --color-ink-secondary: #25372d;
-    --color-ink-muted: #5c6b64;
-    --color-ink-subtle: #b7c0bb;
-    --color-ink-faint: #e6eae7;
+    --color-ink-muted: #5a675f;
+    --color-ink-subtle: #bcbeb5;
+    --color-ink-faint: #e8e6df;
 
     /* ---- Semantic colors (components use these) ---- */
     --color-bg-page: var(--color-ivory);
@@ -60,23 +101,82 @@
     --color-overlay: rgba(23, 32, 28, 0.45);
 
     /* ---- Status semantic ---- */
-    --color-success-fg: #1b5e20;
+    --color-success-fg: #1a5c39;
     --color-success-bg: var(--color-forest-tint);
-    --color-warning-fg: #8a5a00;
-    --color-warning-bg: #fef4e1;
-    --color-danger-fg: #b42318;
-    --color-danger-bg: #fdecec;
-    --color-info-fg: #1e5a8b;
-    --color-info-bg: #e8f1f8;
+    --color-warning-fg: #7c5c12;
+    --color-warning-bg: #f8f1df;
+    --color-danger-fg: #a32b1c;
+    --color-danger-bg: #f9ece8;
+    --color-info-fg: #2c566b;
+    --color-info-bg: #edf2f4;
     --color-neutral-fg: var(--color-ink-secondary);
-    --color-neutral-bg: #eef1ef;
+    --color-neutral-bg: #f0f1ec;
 
-    /* ---- Typography ---- */
+    /*
+     * ── ALIASES: tokens the product already references ──────────────────────
+     *
+     * These eight names were referenced in 391 declarations across app/ and
+     * components/ from the beginning, but were never defined here. A var() with no
+     * fallback and no definition makes the WHOLE declaration invalid, so the CSS
+     * parser dropped every one of them silently:
+     *
+     *   var(--color-forest)         → background fell back to transparent; the
+     *                                 "New invoice" CTA rendered as white text on
+     *                                 nothing — a fully invisible button
+     *   var(--color-border-subtle)  → border-color fell back to currentColor, so
+     *                                 hairlines inherited their text colour and read
+     *                                 heavy instead of subtle
+     *   var(--color-text-faint)     → colour fell back to inherited
+     *
+     * Nothing is invented here. Each value is either taken from a fallback the
+     * original author already wrote inline, or is an alias to a token that already
+     * exists in the palette above — so this restores the intended appearance rather
+     * than restyling the product.
+     */
+    --color-forest: var(--color-forest-primary);
+    --color-gold: var(--color-gold-rich);
+    /* Author-written fallback, 31 inline uses. */
+    --color-gold-dark: #7c5c12;
+    /* Author-written fallback, 57 inline uses. */
+    --color-danger: #9e2a1b;
+    /* The reference draws rules at ~8% ink; --color-border (#e6eae7) is a mid-grey,
+       so "subtle" is an alpha of the ink colour. */
+    --color-border-subtle: rgba(23, 32, 28, 0.09);
+    /* The established muted-metadata tier, reused so no new contrast is introduced
+       across its 168 usages. */
+    --color-text-faint: var(--color-ink-muted);
+    --color-bg-panel: var(--color-white);
+    --color-surface-muted: var(--color-forest-wash);
+
+    /* ---- Typography ----
+     * These previously named 'Inter' and 'JetBrains Mono' with nothing loading either,
+     * so every declaration resolved to the OS default and the declared brand typeface
+     * was never on screen. They now bind to the fonts actually loaded by app/fonts.ts.
+     * The literal family names remain as a fallback chain.
+     *
+     * --font-wordmark is what the brand components bind to. It is a separate token so
+     * the identity can change typeface without touching product UI, and vice versa.
+     */
     --font-sans:
-      'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial,
-      sans-serif;
+      var(--font-inter), 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto,
+      'Helvetica Neue', Arial, sans-serif;
+    --font-wordmark:
+      var(--font-archivo), 'Archivo', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto,
+      'Helvetica Neue', Arial, sans-serif;
     --font-mono:
-      'JetBrains Mono', ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+      var(--font-jetbrains), 'JetBrains Mono', ui-monospace, SFMono-Regular, 'SF Mono', Menlo,
+      Consolas, monospace;
+    /*
+     * THE EDITORIAL VOICE — defined here for the first time.
+     *
+     * Every page title in the product has referenced `var(--font-serif)` since
+     * M1, but the token was never declared, so the declaration was invalid and
+     * every title silently inherited the body sans. The redesign's whole
+     * typographic hierarchy depends on this token resolving to a real face.
+     * It binds to the Source Serif 4 instance loaded in app/fonts.ts.
+     */
+    --font-serif:
+      var(--font-source-serif), 'Source Serif 4', Georgia, Cambria, 'Times New Roman', serif;
 
     --text-xs-size: 12px;
     --text-xs-line: 1.5;
@@ -99,6 +199,32 @@
     --text-5xl-size: 48px;
     --text-5xl-line: 1.1;
 
+    /* ---- Display scale (editorial voice) ----
+     * Page titles, statement headers, the one dominant figure per surface.
+     * Deliberately restrained: this is an operating system, not a magazine.
+     */
+    --text-display-sm: 22px;
+    --text-display-md: 28px;
+    --text-display-lg: 36px;
+    --text-display-xl: 46px;
+
+    /* ---- Financial figure scale (tabular mono) ----
+     * Money is set larger and tighter than prose of the same rank, because a
+     * figure is read as a shape before it is read as a string.
+     */
+    --text-figure: 17px;
+    --text-figure-lg: 26px;
+    --text-figure-xl: 40px;
+
+    /* ---- Editorial rules ----
+     * Structure is drawn with rules rather than boxes. A hairline separates
+     * rows; a heavier rule closes a total; the section rule introduces a block.
+     */
+    --rule-hair: 1px solid var(--color-ink-faint);
+    --rule-mid: 1px solid var(--color-ink-subtle);
+    --rule-strong: 1.5px solid var(--color-ink-deepest);
+    --rule-accent: 2px solid var(--color-forest-deep);
+
     --font-normal: 400;
     --font-medium: 500;
     --font-semibold: 600;
@@ -119,10 +245,45 @@
     --space-20: 80px;
 
     /* ---- Radii (restrained) ---- */
+    /* ————————————————————————————————————————————————————————————————————————
+     RADIUS LADDER — four steps, and no more.
+
+     Radius grows with the size of the thing it rounds, and stops well short of
+     a pill. Before this was written down the product used five radii and no
+     rule for choosing between them: the shared Button rounded at 2px while
+     hand-rolled buttons on the same screen rounded at 4px, so a control's shape
+     depended on who wrote the page rather than on what the control was.
+
+       step 0  •  none          editorial rules, dividers, section marks
+       step 1  •  --radius-sm   CONTROLS and CONTAINERS — buttons, inputs,
+                                selects, tabs, non-pill badges, inline notices,
+                                table wrappers, queue panels
+       step 2  •  --radius-lg   SURFACES — cards, panels, dropdowns, empty
+                                states, tooltips
+       step 3  •  --radius-xl   OVERLAYS — dialogs, confirmations, drawers
+               •  full          STATUS DOTS and AVATAR SEALS only
+
+     VISUAL POLISH PASS (2026-10) — every step above "sm" was tightened. The
+     previous ladder (2 / 4 / 6 / 8) was reasonable in isolation, but each
+     surface rounded more than the thing it contained, so a panel was visibly
+     softer than the control inside it and the product took on the softened,
+     rounded-everything cast that reads as template work. Rounding now stays
+     close to square: a panel at 3px is a ruled sheet with its corner eased, not
+     a card. The only true circles left in the product are status dots, avatar
+     seals and the progress cap — places where the circle is the datum rather
+     than the decoration.
+
+       2px  controls, containers, inputs, chips
+       2px  --radius-md is retained as an ALIAS of sm rather than a step of its
+            own. It was the drift value: close enough to both 2px and 3px to look
+            intentional on any single screen, and wrong on all of them together.
+       3px  surfaces: panels, cards, dropdowns
+       6px  overlays: dialogs, confirmations, drawers
+     ———————————————————————————————————————————————————————————————————————— */
     --radius-sm: 2px;
-    --radius-md: 4px;
-    --radius-lg: 6px;
-    --radius-xl: 8px;
+    --radius-md: 2px;
+    --radius-lg: 3px;
+    --radius-xl: 6px;
 
     /* ---- Shadows (restrained, no colored glows) ---- */
     --shadow-xs: 0 1px 2px rgba(11, 31, 22, 0.04);

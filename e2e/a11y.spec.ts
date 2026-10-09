@@ -4,9 +4,9 @@ import { test, expect } from '@playwright/test';
  * M1 accessibility smoke tests — keyboard navigation, focus rings, ARIA, reduced-motion.
  * These are lightweight runtime checks (not axe-core, which would be added in M2+).
  */
-test.describe('M1 a11y — keyboard navigation on Command Center', () => {
+test.describe('@design-system M1 a11y — keyboard navigation on Command Center', () => {
   test('focus rings appear when tabbing through nav and buttons', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('/preview/command-center');
 
     // Tab past the skip link; confirm focus advances onto an interactive element
     // (we can't cross-browser assert computed outline reliably, but we confirm the
@@ -32,7 +32,7 @@ test.describe('M1 a11y — keyboard navigation on Command Center', () => {
   });
 
   test('skip link appears on first Tab (accessibility shortcut)', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('/preview/command-center');
     await page.keyboard.press('Tab');
     const skipLink = page.locator('a[href="#main-content"]');
     // Skip link may be visually hidden until focus; just verify it exists as first tab stop
@@ -40,7 +40,7 @@ test.describe('M1 a11y — keyboard navigation on Command Center', () => {
   });
 
   test('page has one main landmark and one h1', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('/preview/command-center');
     await expect(page.locator('main')).toHaveCount(1);
     await expect(page.locator('h1')).toHaveCount(1);
   });

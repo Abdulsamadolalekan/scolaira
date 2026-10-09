@@ -82,7 +82,7 @@ export function DetailPage({
       <div className="no-print flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
           <div className="mb-1 flex flex-wrap items-center gap-2">
-            <h1 className="text-xl font-semibold leading-tight text-ink-deepest lg:text-2xl">
+            <h1 className="text-display-sm font-normal leading-tight tracking-[-0.01em] text-forest-deepest">
               {title}
             </h1>
             {status}

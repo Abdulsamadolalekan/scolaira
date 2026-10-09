@@ -46,7 +46,7 @@ export function CommandCenter({
       <div className="mb-6 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <p className="text-xs uppercase tracking-wider text-ink-muted">{termLabel}</p>
-          <h1 className="mt-1 text-xl font-semibold leading-tight text-ink-deepest lg:text-2xl">
+          <h1 className="mt-1 text-display-sm font-normal leading-tight tracking-[-0.01em] text-forest-deepest">
             {greeting}
           </h1>
           <p className="mt-1 text-sm text-ink-muted">
@@ -228,9 +228,9 @@ function QuickAction({
   return (
     <button
       type="button"
-      className="-mx-2 flex w-full items-start gap-3 rounded p-2 text-left transition-colors hover:bg-forest-wash focus-visible:shadow-focus-ring"
+      className="-mx-2 flex w-full items-start gap-3 rounded-sm p-2 text-left transition-colors hover:bg-forest-wash focus-visible:shadow-focus-ring"
     >
-      <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded bg-forest-tint text-forest-primary">
+      <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-sm bg-forest-tint text-forest-primary">
         {icon}
       </span>
       <span className="min-w-0 flex-1">

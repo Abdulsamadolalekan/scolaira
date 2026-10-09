@@ -36,9 +36,9 @@ export const TableHeader = React.forwardRef<
   <thead
     ref={ref}
     className={cn(
-      'text-xs uppercase tracking-wide text-ink-muted',
+      'text-2xs uppercase tracking-[0.12em] text-ink-muted',
       sticky &&
-        'sticky top-0 z-10 bg-white after:absolute after:bottom-0 after:left-0 after:right-0 after:h-px after:bg-border',
+        'sticky top-0 z-10 bg-ivory after:absolute after:bottom-0 after:left-0 after:right-0 after:h-px after:bg-ink-subtle',
       className,
     )}
     {...props}
@@ -61,9 +61,9 @@ export const TableRow = React.forwardRef<
   <tr
     ref={ref}
     className={cn(
-      'border-b border-border',
-      'transition-colors',
-      'hover:bg-forest-wash/60',
+      'border-b border-ink-faint',
+      'transition-colors duration-150',
+      'hover:bg-forest-wash',
       clickable && 'cursor-pointer',
       selected && 'bg-forest-tint/70 hover:bg-forest-tint',
       className,
@@ -87,8 +87,8 @@ export const TableHead = React.forwardRef<HTMLTableCellElement, TableHeadProps>(
         type="button"
         onClick={onSort}
         className={cn(
-          'inline-flex items-center gap-1 text-xs font-medium uppercase tracking-wide',
-          '-ml-1 rounded px-1 py-0.5 text-ink-muted transition-colors hover:text-ink-primary',
+          'inline-flex items-center gap-1 text-2xs font-semibold uppercase tracking-[0.12em]',
+          '-ml-1 rounded-sm px-1 py-0.5 text-ink-muted transition-colors hover:text-ink-primary',
           'focus-visible:shadow-focus-ring',
         )}
       >
@@ -104,7 +104,7 @@ export const TableHead = React.forwardRef<HTMLTableCellElement, TableHeadProps>(
         </span>
       </button>
     ) : (
-      <span className="text-xs font-medium uppercase tracking-wide">{children}</span>
+      <span className="text-2xs font-semibold uppercase tracking-[0.12em]">{children}</span>
     );
     return (
       <th
@@ -112,7 +112,7 @@ export const TableHead = React.forwardRef<HTMLTableCellElement, TableHeadProps>(
         scope="col"
         style={width ? { width } : undefined}
         className={cn(
-          'h-10 px-3 py-2 font-medium text-ink-muted',
+          'h-9 whitespace-nowrap px-3 py-2 text-2xs font-semibold uppercase tracking-[0.12em] text-ink-muted',
           numeric && 'text-right tabular-nums',
           className,
         )}
@@ -138,7 +138,7 @@ export const TableCell = React.forwardRef<HTMLTableCellElement, TableCellProps>(
       ref={ref}
       className={cn(
         'px-3 py-3 align-middle',
-        numeric && 'font-feature-tnum text-right tabular-nums',
+        numeric && 'text-right tabular-nums',
         muted && 'text-ink-muted',
         mono && 'font-mono text-xs',
         className,

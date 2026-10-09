@@ -27,15 +27,25 @@ export default function GlobalError({
       <body>
         <main className="mx-auto flex min-h-screen max-w-xl flex-col justify-center px-6 py-16">
           <div className="space-y-4">
-            <h1 className="text-2xl font-semibold text-neutral-900">Something went wrong</h1>
-            <p className="text-neutral-600">
+            <h1
+              className="text-display-md font-semibold"
+              style={{ color: 'var(--color-forest-deepest, #0b3d2e)' }}
+            >
+              Something went wrong
+            </h1>
+            <p style={{ color: 'var(--color-text-secondary, #3f4a44)' }}>
               An unexpected error occurred while loading this page. Please try again. If the problem
               persists, contact support.
             </p>
             <button
               type="button"
               onClick={reset}
-              className="rounded-md border border-neutral-300 bg-white px-4 py-2 text-sm font-medium text-neutral-900 hover:bg-neutral-50"
+              className="rounded-sm border px-4 py-2 text-sm font-medium"
+              style={{
+                borderColor: 'rgba(11, 31, 22, 0.22)',
+                backgroundColor: '#ffffff',
+                color: 'var(--color-forest-deepest, #0b3d2e)',
+              }}
             >
               Try again
             </button>

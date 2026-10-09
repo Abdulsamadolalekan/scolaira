@@ -1,0 +1,42 @@
+import { NextResponse } from 'next/server';
+import { z } from 'zod';
+import { register, AuthError } from '@/lib/auth';
+import { clientIpFor } from '@/lib/http/client-ip';
+
+export const runtime = 'nodejs';
+
+const bodySchema = z.object({
+  email: z.string().trim().toLowerCase().email().max(255),
+  password: z.string().min(10).max(128),
+  firstName: z.string().trim().min(1).max(120),
+  lastName: z.string().trim().min(1).max(120),
+  organizationName: z.string().trim().min(2).max(160),
+  organizationSlug: z.string().trim().toLowerCase().min(2).max(64).regex(/^[a-z0-9][a-z0-9-]*[a-z0-9]$/),
+});
+
+export async function POST(request: Request) {
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: { code: 'BAD_REQUEST', message: 'Invalid JSON' } }, { status: 400 });
+  }
+  const parsed = bodySchema.safeParse(body);
+  if (!parsed.success) {
+    return NextResponse.json({ error: { code: 'VALIDATION', message: 'Invalid request', details: parsed.error.flatten() } }, { status: 400 });
+  }
+  try {
+    // H-4/F9: the rate-limit identity comes from the declared proxy topology,
+    // never from a header the caller can choose.
+    const ip = clientIpFor(request);
+    const userAgent = request.headers.get('user-agent') ?? null;
+    const result = await register(parsed.data, { ip, userAgent: userAgent ?? undefined });
+    return NextResponse.json({ ok: true, organizationId: result.organizationId }, { status: 201 });
+  } catch (e) {
+    if (e instanceof AuthError) {
+      return NextResponse.json({ error: { code: e.code, message: e.message } }, { status: e.status });
+    }
+    console.error('register error', e);
+    return NextResponse.json({ error: { code: 'INTERNAL', message: 'Internal error' } }, { status: 500 });
+  }
+}

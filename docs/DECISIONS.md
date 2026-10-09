@@ -161,3 +161,63 @@
 ## Section III — Remaining Open Items From D1–D15, Updated
 
 Original D1–D15 have been resolved by D-011 through D-028 except where noted below. Items still needing explicit founder sign-off in the revised gate are listed in the executive review §DD (Approval Checklist).
+
+---
+
+## Section IV — H-9 Operational Decisions (2026-09-26)
+
+Recorded during H-9 Tranche 1. Each is a decision about what is *claimed*, not a change to the
+product: they exist so no reader has to guess whether an operational control is present.
+
+### D-029 | 2026-09-26 | MUST | OPERATIONS
+
+**Decision:** The readiness dependency set stays exactly what H-6 shipped — **three required checks:
+`database`, `schema`, `auth`** — pinned by `e2e/readiness.spec.ts`. No check is added by H-9.
+**Why:** `/api/ready` answers "can this build serve traffic against this database". Every candidate
+addition was measured against that question and rejected: a *backup* check would assert a control
+that does not exist (H9-F1) and would turn a missing capability into a permanent `503`; a *financial
+invariant* check would require the probe to read tenant data on every request, widening the runtime's
+data access on a public endpoint; an *alert consumer* check is not a readiness property at all. H-6's
+measured failure modes (`database_unreachable`, `schema_behind`, `auth_crypto_broken`, …) already
+cover every way this build can be unable to serve, and each has a measured `503` behind it.
+**Consequence:** H-6's `lib/ops/readiness.ts`, `app/api/ready/route.ts` and `e2e/readiness.spec.ts`
+are **not modified**, so no H-6-verified file is touched and the tested SHA `dca6a84` stays valid.
+**Status:** DECIDED. Revisit only if a new dependency becomes load-bearing for serving traffic.
+
+### D-030 | 2026-09-26 | MUST | OPERATIONS
+
+**Decision:** Until an environment exists to run it in, alerting is **manual**: a daily check of
+`/api/ready` and of the `readiness_failed` log event, owned by the founder/support, documented in
+`docs/ops/INCIDENT_SEVERITY.md`. No alert consumer is built by H-9 and **no alerting capability is
+claimed**.
+**Why:** `readiness_failed` already emits a machine-readable line (H-6), so the signal exists; what
+does not exist is a host, a log sink and a destination. Building a consumer against an unselected
+provider would be inventing an integration (H9-F12). A manual cadence is the honest interim control,
+and its limits are written down rather than implied.
+**Consequence:** `docs/OPERATIONS.md` §V states plainly that nothing is delivered anywhere.
+**Status:** DECIDED (interim). Superseded by the first real deployment's alerting evidence (H9-9).
+
+### D-031 | 2026-09-26 | MUST | DATA
+
+**Decision:** The `communications` table **stays as it is** — provider-shaped, unused, and documented
+as unused. No writer or reader is added, no provider is integrated, and no migration is created by
+H-9.
+**Why:** There is no e-mail/SMS provider, no delivery channel beyond link copy and print, and no
+authorised work to add one (H9-F13 is a separate, later authorisation). Dropping or altering the
+table would mean editing an applied migration, which is forbidden while history is frozen; leaving it
+undocumented would let a reader mistake a schema shape for a capability.
+**Consequence:** Operational documents no longer list e-mail/SMS delivery as a working channel.
+**Status:** DECIDED. Revisit only if provider delivery is authorised (that work would add `0051`+).
+
+### D-032 | 2026-09-26 | MUST | OPERATIONS, FINANCIAL
+
+**Decision:** A restored database is **verified before it serves traffic**, using
+`scripts/verify-restored-db.ts` (read-only; catalog + financial-invariant + privilege checks). A run
+that reports `SKIPPED` checks is `NOT VERIFIED` and does not count as a pass.
+**Why:** "The restore finished" is not evidence that financial truth survived it, and a human
+eyeballing rows cannot check 42 row-level-secured tables and six invariants. The tool also makes the
+privilege posture part of a restore, which is how the E2E seed divergence (H9-F24) was found.
+**Consequence:** The restore runbook (`docs/ops/RESTORE_TO_CLEAN_DATABASE.md` §6) makes this step
+mandatory, and the tool is exercised against deliberate damage in
+`tests/db/h9-restore-verification.test.ts` so a silent PASS is itself a failing test.
+**Status:** DECIDED. Applies from the first real restore (T2) onward.

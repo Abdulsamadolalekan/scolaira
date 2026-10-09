@@ -1,36 +1,38 @@
 /**
- * GET /api/health
+ * GET /api/health — LIVENESS (H-6).
  *
- * Liveness / readiness endpoint used by uptime monitors and platform checks.
+ * "Is this process serving?" and nothing else. It deliberately does not touch
+ * the database or the auth configuration: a liveness probe that fails when a
+ * dependency fails turns a dependency outage into a restart loop, and one that
+ * reports on dependencies it never checked is a false green.
  *
- * Returns a JSON payload including the current build (commit SHA via
- * NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA when deployed on Vercel), application
- * version, and downstream health. In M0 there are no downstream services to
- * check (DB/auth added in M2/M3), so the endpoint always reports "ok" when
- * the process is serving.
+ * That second failure mode is what H-6 closed. This endpoint used to return
+ * `status: "ok"` together with `checks: { database: "not_configured", auth:
+ * "not_configured" }` — a claim about two dependencies it never looked at. It
+ * was measured reporting `ok` with the database unreachable, with a 47-of-49
+ * schema, and with an unusable session secret, which is how a deployment with
+ * a broken database came to look healthy (docs/readiness/H6_SCOPE_MAP.md).
  *
- * Fatal internal errors in the process prevent this route from being reached
- * at all, which is the desired behavior for a basic health probe.
+ * The dependency claims are gone. Readiness lives at `GET /api/ready`, which
+ * proves database connectivity, migrated-schema state and auth configuration,
+ * and fails closed with `503`:
+ *
+ *   200 { status: "ok",      probe: "liveness",  readiness: "/api/ready" }
+ *   503 { status: "unavailable", probe: "readiness", ... }   ← the deploy gate
  */
 import { NextResponse } from 'next/server';
+import { buildInfo } from '@/lib/ops/build-info';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET() {
-  const commitSha = process.env.NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA ?? 'development';
-  const version = process.env.npm_package_version ?? '0.0.0';
-  const now = new Date().toISOString();
-
   const body = {
     status: 'ok' as const,
-    version,
-    commit: commitSha,
-    timestamp: now,
-    checks: {
-      // M0: no DB/auth yet. M2+ will report 'ok' | 'down' per dependency.
-      database: 'not_configured' as const,
-      auth: 'not_configured' as const,
-    },
+    probe: 'liveness' as const,
+    /** Where a deployment/monitor should look for real dependency checks. */
+    readiness: '/api/ready',
+    ...buildInfo(),
+    timestamp: new Date().toISOString(),
   };
 
   return NextResponse.json(body, {

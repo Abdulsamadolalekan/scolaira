@@ -52,3 +52,15 @@ next-env.d.ts.bak
 # Drizzle meta (generated, not committed)
 # lib/db/migrations/meta/_journal.json is committed by us; ignore temp files only.
 e2e/screenshots/
+.env.test
+
+# H-6 E2E seed artefact (throwaway credentials for a throwaway database)
+e2e/.artifacts/
+
+# H-9 rehearsal/evidence artefacts (may contain dump filenames; never committed)
+h9-evidence/
+
+# Local environment backups — never committed (they carry live secrets).
+# Added during the release-gate closure: `.env.local.bak` existed untracked and
+# unignored, so a future `git add -A` would have committed real credentials.
+.env*.bak

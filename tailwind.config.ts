@@ -75,6 +75,9 @@ const config: Config = {
       fontFamily: {
         sans: ['var(--font-sans)'],
         mono: ['var(--font-mono)'],
+        // The editorial voice. Bound to a real loaded face — see app/fonts.ts.
+        // `--font-serif` is the token every page title already asks for.
+        serif: ['var(--font-serif)'],
       },
       fontSize: {
         '2xs': ['11px', { lineHeight: '1.4', letterSpacing: '0.02em' }],
@@ -88,6 +91,16 @@ const config: Config = {
         '3xl': ['var(--text-3xl-size)', { lineHeight: 'var(--text-3xl-line)' }],
         '4xl': ['var(--text-4xl-size)', { lineHeight: 'var(--text-4xl-line)' }],
         '5xl': ['var(--text-5xl-size)', { lineHeight: 'var(--text-5xl-line)' }],
+        // Display scale — the editorial voice. Used for page titles, statement
+        // headers and the one dominant figure per surface.
+        'display-sm': ['var(--text-display-sm)', { lineHeight: '1.15', letterSpacing: '-0.01em' }],
+        'display-md': ['var(--text-display-md)', { lineHeight: '1.1', letterSpacing: '-0.015em' }],
+        'display-lg': ['var(--text-display-lg)', { lineHeight: '1.05', letterSpacing: '-0.02em' }],
+        'display-xl': ['var(--text-display-xl)', { lineHeight: '1', letterSpacing: '-0.025em' }],
+        // Financial figure scale — tabular mono, tightening as it grows.
+        figure: ['var(--text-figure)', { lineHeight: '1.15', letterSpacing: '-0.01em' }],
+        'figure-lg': ['var(--text-figure-lg)', { lineHeight: '1.1', letterSpacing: '-0.015em' }],
+        'figure-xl': ['var(--text-figure-xl)', { lineHeight: '1.05', letterSpacing: '-0.02em' }],
       },
       fontWeight: {
         normal: 'var(--font-normal)',
