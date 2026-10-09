@@ -16,7 +16,7 @@
 | Deploy pipeline                            | **Does not exist.** CI runs quality + readiness jobs only; nothing deploys anywhere.                            |
 | Hosting provider                           | **Undecided** (H9-F5). Vercel is a candidate in this document, not a decision, and is integrated nowhere.       |
 | Database provider                          | **Undecided.** The application targets plain PostgreSQL via Drizzle; no managed provider is wired in (H9-F12). |
-| Migrations                                 | **Present and rehearsed.** 50 migrations, applied from zero in CI and locally; owner credential only.           |
+| Migrations                                 | **Present and rehearsed.** 52 migrations, applied from zero in CI and locally; owner credential only.           |
 | Readiness gate                             | **Present and hosted-proven in CI** (H-6): `/api/ready` three checks, `/api/health` liveness only.               |
 | Rollback (§IX)                             | **Partial.** Redeploying a previous commit works; there is no one-click rollback and no PITR.                   |
 | Deployment record                          | **None exists** — shape defined in [`docs/ops/DEPLOYMENT_RECORD.md`](./ops/DEPLOYMENT_RECORD.md) (H9-F8).       |
@@ -43,7 +43,8 @@
 - Install Node.js 20+.
 - Run local Postgres (Docker command documented in `/apps/web/README.md` to be written at scaffolding time).
 - Copy `.env.example` to `.env.local` and fill in local Supabase/Postgres values.
-- `npm install` (or pnpm) → `npm run db:migrate` → `npm run db:seed` → `npm run dev`.
+- `npm install` (or pnpm) → `npm run db:migrate` → `npm run e2e:seed` → `npm run dev`.
+  (`db:seed` was never implemented; the deterministic seed is `npm run e2e:seed`.)
 
 ### Preview (PR) — NOT PROVISIONED
 
@@ -79,26 +80,56 @@
 
 ## IV. Environment Variables (Schema)
 
-Required env vars (all environments):
+Corrected 2026-09-28 against the code, not against intent: this table now lists what the running
+build actually reads. `.env.example` carries the same four sections.
 
-| Name                        | Description                                                              |
-| --------------------------- | ------------------------------------------------------------------------ |
-| `NEXT_PUBLIC_APP_URL`       | Canonical app base URL (e.g. `https://app.scolaira.app`)                 |
-| `NEXT_PUBLIC_PAY_URL`       | Parent payment base URL (e.g. `https://pay.scolaira.app` or same origin) |
-| `DATABASE_URL`              | Postgres connection string (server-side only)                            |
-| `SUPABASE_URL`              | Supabase project URL                                                     |
-| `SUPABASE_ANON_KEY`         | Supabase anon public key (client-safe)                                   |
-| `SUPABASE_SERVICE_ROLE_KEY` | Supabase service role (server-side only; never to client)                |
-| `PAYSTACK_SECRET_KEY`       | Paystack secret key (server-side)                                        |
-| `PAYSTACK_PUBLIC_KEY`       | Paystack public key (client-safe, for inline pay)                        |
-| `PAYSTACK_WEBHOOK_SECRET`   | Paystack webhook signature secret                                        |
-| `RESEND_API_KEY`            | Email provider API key (server-side)                                     |
-| `FROM_EMAIL_ADDRESS`        | Transactional sender (e.g. `receipts@scolaira.app`)                      |
-| `SESSION_SECRET`            | Secret for signing any additional cookies outside Supabase (if any)      |
-| `SENTRY_DSN`                | (optional) Error reporting DSN — **parsed but not used**: no error-reporting integration exists yet; the operational signal today is the structured JSON log lines |
-| `NODE_ENV`                  | `development` / `production` / `test`                                    |
+### Required to serve traffic
 
-`.env.example` is committed with placeholder values and comments.
+| Name                      | Read by                        | Notes                                                                              |
+| ------------------------- | ------------------------------ | ---------------------------------------------------------------------------------- |
+| `DATABASE_URL`            | `lib/db/index.ts`              | Runtime role (`scolaira_app`) only. A `ready` deployment proves it works.           |
+| `DATABASE_MIGRATION_URL`  | `lib/db/index.ts`, migrations   | Schema-owner role; used by migrations, provisioning and restore verification.       |
+| `SCOLAIRA_SESSION_SECRET` | `lib/auth/config.ts`           | 32+ bytes. A short value fails `/api/ready` closed with `auth:auth_unconfigured`.   |
+| `NODE_ENV`                | throughout                     | `development` / `test` / `production`.                                             |
+| `NEXT_PUBLIC_APP_URL`     | `lib/security/env.ts`          | Canonical origin; defaults to `http://localhost:3000`.                              |
+
+### Optional / operational
+
+| Name                               | Effect                                                                            |
+| ---------------------------------- | --------------------------------------------------------------------------------- |
+| `SCOLAIRA_SESSION_SECRET_PREVIOUS` | Previous secret accepted during rotation; remove when old sessions expire.         |
+| `SCOLAIRA_DB_POOL_MAX`             | Pool ceiling per process (a resource cap; isolation does not depend on it).        |
+| `SCOLAIRA_BUILD_COMMIT`            | Build identity in `/api/health`, `/api/ready` and the startup log line.            |
+| `TRUSTED_PROXY_HOPS`               | Trusted proxy hops for client-IP resolution. Unset = trust nothing.                |
+| `NEXT_PUBLIC_PAY_URL`              | Accepted by the environment module; no feature reads it yet.                       |
+
+### Development only — must not be set in a deployed environment
+
+| Name                        | Why                                                                                     |
+| --------------------------- | --------------------------------------------------------------------------------------- |
+| `SCOLAIRA_BOOTSTRAP=1`      | Runs the request path on the migration (owner) credential. Asserted by the runtime-role safety test. |
+| `SCOLAIRA_DEV_ECHO_RESET_TOKEN` | Echoes reset tokens in responses for local testing.                                 |
+
+### Declared but read by nothing in this build
+
+`NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`,
+`NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY`, `PAYSTACK_SECRET_KEY`, `PAYSTACK_WEBHOOK_SECRET`,
+`RESEND_API_KEY`, `FROM_EMAIL_ADDRESS`, `SENTRY_DSN`, `SENTRY_AUTH_TOKEN`.
+
+These names exist as accessors in `lib/security/env.ts` with no consumer. **Authentication is
+implemented in-repo** (session cookies + CSRF), not Supabase; payments are recorded manually (the
+only "Paystack" strings are a payment-method label and reference comments); no email integration
+exists, and `SENTRY_DSN` is **parsed but not used** — no error-reporting integration exists either.
+An operator does **not** need to set any of them, and setting one has no effect. The operational
+signal today is the structured JSON log lines.
+
+### Unresolved, because it is provider-specific
+
+- The **dump/backup credential**: a role that can bypass RLS does not exist yet (H9-F25), and
+  choosing the mechanism is a provider decision.
+- Whether the selected provider permits `BYPASSRLS` for a customer role at all.
+- Managed-host equivalents of `SCOLAIRA_BUILD_COMMIT` (a git SHA is usually injected automatically).
+- The real proxy topology that makes `TRUSTED_PROXY_HOPS` meaningful.
 
 ## V. DNS & Domains (Recommended)
 
@@ -151,7 +182,7 @@ Because app code and schema must move together, the deploy order is:
    ```bash
    sudo -u postgres psql -f scripts/bootstrap-roles.sql
    sudo -u postgres psql -d scolaira -v boot_db=1 -f scripts/bootstrap-roles.sql
-   DATABASE_MIGRATION_URL=... npm run db:migrate     # 50 migrations, from zero
+   DATABASE_MIGRATION_URL=... npm run db:migrate     # 52 migrations, from zero
    ```
 
 7. Deploy the app. **Serving traffic before readiness passes is a mistake the gate

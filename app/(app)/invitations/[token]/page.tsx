@@ -14,7 +14,7 @@ import { redirect } from 'next/navigation';
 import Link from 'next/link';
 import { Card, CardHeader } from '@/components/ui/nav-shell';
 import { getSession, clearContext } from '@/lib/auth';
-import { previewInvitation } from '@/lib/members/invitations';
+import { previewInvitation, InvitationError } from '@/lib/members/invitations';
 import { AcceptInvitation } from './accept-invitation';
 
 export const runtime = 'nodejs';
@@ -46,7 +46,16 @@ export default async function InvitationPage({ params }: { params: Promise<{ tok
     redirect(`/login?next=${encodeURIComponent(`/invitations/${token}`)}`);
   }
 
-  const preview = await previewInvitation(token);
+  // `previewInvitation` rejects with INVALID_TOKEN (404) for a malformed or
+  // truncated link — a user pasting half a URL is a normal arrival, not a
+  // server fault. Catch that one contract case and fall through to the
+  // "not recognised" state below; anything else is a real error and rethrows.
+  let preview: Awaited<ReturnType<typeof previewInvitation>> = null;
+  try {
+    preview = await previewInvitation(token);
+  } catch (e) {
+    if (!(e instanceof InvitationError) || e.code !== 'INVALID_TOKEN') throw e;
+  }
   await clearContext();
 
   if (!preview) {
@@ -91,7 +100,7 @@ export default async function InvitationPage({ params }: { params: Promise<{ tok
         </p>
         <Link
           href="/login"
-          className="mt-4 inline-block rounded-md px-3 py-2 text-[13px] font-medium"
+          className="mt-4 inline-block rounded-sm px-3 py-2 text-[13px] font-medium"
           style={{ backgroundColor: 'var(--color-forest)', color: 'var(--color-ivory)' }}
         >
           Go to sign in

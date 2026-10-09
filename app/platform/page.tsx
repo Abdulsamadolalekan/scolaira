@@ -13,6 +13,7 @@ import { notFound } from 'next/navigation';
 import { getSession, clearContext } from '@/lib/auth';
 import { listPlatformOrgs, readSupportClaim } from '@/lib/platform/support';
 import { EnterSupportButton, ExitSupportButton } from './support-controls';
+import { PageHeader } from '@/components/ui/page-header';
 
 export const dynamic = 'force-dynamic';
 export const metadata = { title: 'Organizations' };
@@ -36,18 +37,10 @@ export default async function PlatformHome() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div>
-        <h1
-          className="text-[22px] font-semibold tracking-tight sm:text-2xl"
-          style={{ color: 'var(--color-forest-deepest)', fontFamily: 'var(--font-serif)' }}
-        >
-          Organizations
-        </h1>
-        <p className="mt-1 text-sm" style={{ color: 'var(--color-text-secondary)' }}>
-          {orgs.length} organization{orgs.length === 1 ? '' : 's'} visible to platform support.
-          Opening one is a read-only visit and leaves an audit record.
-        </p>
-      </div>
+      <PageHeader
+        title="Organizations"
+        lede={`${orgs.length} organization${orgs.length === 1 ? '' : 's'} visible to platform support. Opening one is a read-only visit and leaves an audit record.`}
+      />
 
       {support && (
         <div
@@ -102,7 +95,7 @@ export default async function PlatformHome() {
               <div className="flex shrink-0 flex-wrap items-center gap-2">
                 <a
                   href={`/api/platform/orgs/${org.id}`}
-                  className="rounded-md px-3 py-1.5 text-[12px] font-medium"
+                  className="rounded-sm px-3 py-1.5 text-[12px] font-medium"
                   style={{
                     border: '1px solid var(--color-border-subtle)',
                     color: 'var(--color-text-secondary)',

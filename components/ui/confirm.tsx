@@ -107,7 +107,7 @@ export function ConfirmDialogContent({
                   rows={2}
                   placeholder={reasonPlaceholder}
                   className={cn(
-                    'mt-1.5 w-full rounded border border-border-strong bg-white px-3 py-2 text-sm',
+                    'mt-1.5 w-full rounded-sm border border-border-strong bg-surface-base px-3 py-2 text-sm',
                     'resize-y text-ink-primary outline-none',
                     'focus:border-border-focus focus:shadow-focus-ring',
                   )}

@@ -16,6 +16,7 @@ import Link from 'next/link';
 import { getSession, clearContext } from '@/lib/auth';
 import { listPlatformOrgs, loadSupportOrgDetail, readSupportClaim } from '@/lib/platform/support';
 import { ExitSupportButton } from '../../support-controls';
+import { Crumb, PageHeader } from '@/components/ui/page-header';
 
 export const dynamic = 'force-dynamic';
 export const metadata = { title: 'Organization' };
@@ -41,23 +42,13 @@ export default async function PlatformOrgPage({ params }: { params: Promise<{ id
     if (!listed) notFound();
     return (
       <div className="flex flex-col gap-4">
-        <Link
-          href="/platform"
-          className="text-[12px]"
-          style={{ color: 'var(--color-text-secondary)' }}
-        >
-          ← All organizations
-        </Link>
-        <h1
-          className="text-[20px] font-semibold tracking-tight"
-          style={{ color: 'var(--color-forest-deepest)', fontFamily: 'var(--font-serif)' }}
-        >
-          {listed.name}
-        </h1>
-        <p className="text-[13px]" style={{ color: 'var(--color-text-secondary)' }}>
-          Status {listed.status}. Detailed figures require a support window, which is a recorded
-          read-only visit.
-        </p>
+        <PageHeader
+          breadcrumbs={
+            <Crumb parent="All organizations" parentHref="/platform" trail={listed.name} />
+          }
+          title={listed.name}
+          lede={`Status ${listed.status}. Detailed figures require a support window, which is a recorded read-only visit.`}
+        />
       </div>
     );
   }
@@ -78,20 +69,14 @@ export default async function PlatformOrgPage({ params }: { params: Promise<{ id
         ← All organizations
       </Link>
 
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div className="min-w-0">
-          <h1
-            className="text-[22px] font-semibold tracking-tight sm:text-2xl"
-            style={{ color: 'var(--color-forest-deepest)', fontFamily: 'var(--font-serif)' }}
-          >
-            {detail.name}
-          </h1>
-          <p className="mt-1 text-[13px]" style={{ color: 'var(--color-text-secondary)' }}>
-            Status {detail.status} · support window open until {dateFmt.format(support.expiresAt)}
-          </p>
-        </div>
-        <ExitSupportButton />
-      </div>
+      <PageHeader
+        breadcrumbs={
+          <Crumb parent="All organizations" parentHref="/platform" trail={detail.name} />
+        }
+        title={detail.name}
+        lede={`Status ${detail.status} · support window open until ${dateFmt.format(support.expiresAt)}`}
+        actions={<ExitSupportButton />}
+      />
 
       <dl className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         {[

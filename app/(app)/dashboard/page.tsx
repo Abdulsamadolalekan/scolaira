@@ -1,41 +1,53 @@
 /**
- * Command Center (server component).
+ * Command Center (server component) — THE POSITION.
  *
- * Deliberate design choices (level 4):
- *  - Greets the human by name; names the active term.
- *  - Five KPI tiles arranged by operator priority: Billed / Collected /
- *    Outstanding / Overdue / Unreconciled. Each has a tiny interpretation
- *    line, not just a number.
- *  - "Needs attention" is not a to-do list; it is the things that will
- *    quietly age into problems if ignored today (overdue balances, pending
- *    bank transfers waiting to be matched, drafts not yet sent).
- *  - Recent activity is human-readable ("Payment of ₦150,000 confirmed by
- *    Chidi Okafor"), not raw audit rows.
- *  - Calm color: forest + gold + ivory. Red is reserved for things that
- *    mean money is at risk; amber for operational attention.
+ * Redesign (2026-09): the previous screen was six equally-weighted KPI cards.
+ * A proprietor opening it could not tell whether the school was funded or in
+ * trouble, because "₦1.0M billed" and "3 students" were the same size in the
+ * same box. This composition answers, in order:
+ *
+ *   1. WHAT IS THE POSITION?      → one dominant figure (money actually in)
+ *   2. HOW DOES THAT COMPARE?     → collection rate against what was billed
+ *   3. WHAT IS STILL OWED?        → outstanding, overdue, unreconciled
+ *   4. WHAT NEEDS ACTION TODAY?   → the attention queue, with severity
+ *   5. WHAT JUST HAPPENED?        → the ledger of recent activity
+ *
+ * Every figure, scope label, classification and link is unchanged: this is a
+ * recomposition of the same server data, not a change to what is computed.
+ *
+ * Deliberate invariants kept from before:
+ *  - The H-2 classification (this term / carried forward / other terms) stays
+ *    on screen: the partition the headline was computed from must never be
+ *    invisible again.
+ *  - The declared headline scope stays on screen, in the server's own words.
+ *  - Red is reserved for money at risk; gold for the commitment.
  */
-import { headers } from 'next/headers';
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
-import { KpiCard } from '@/components/ui/kpi-card';
-import { Card, CardHeader } from '@/components/ui/nav-shell';
-import { Badge } from '@/components/ui/badge';
 import { EmptyState } from '@/components/ui/empty';
+import { PageHeader, SectionHead } from '@/components/ui/page-header';
 import {
-  Naira, Plus, FileText, Users, AlertTriangle, Clock, CheckCircle, ArrowRight, Inbox,
+  Naira,
+  Plus,
+  FileText,
+  Users,
+  AlertTriangle,
+  Clock,
+  CheckCircle,
+  ArrowRight,
+  Inbox,
 } from '@/components/ui/icons';
 import type { Summary } from '@/app/api/dashboard/summary/route';
+import { internalBaseUrl, requestCookieHeader } from '@/lib/http/internal-origin';
 
 export const runtime = 'nodejs';
 
 // Server-side fetch using the internal URL (same origin, same host header).
 async function loadSummary(): Promise<Summary | null> {
-  const h = await headers();
-  const host = h.get('x-forwarded-host') || h.get('host');
-  const proto = h.get('x-forwarded-proto') ?? 'http';
-  const cookie = h.get('cookie') ?? '';
-  if (!host) return null;
-  const res = await fetch(`${proto}://${host}/api/dashboard/summary`, {
+  const cookie = await requestCookieHeader();
+  const base = await internalBaseUrl();
+  if (!base) return null;
+  const res = await fetch(`${base}/api/dashboard/summary`, {
     cache: 'no-store',
     headers: { cookie },
   });
@@ -49,14 +61,18 @@ export default async function CommandCenterPage() {
 
   const hour = new Date().getHours();
   const greeting =
-    hour < 5 ? 'Still working?'
-    : hour < 12 ? 'Good morning'
-    : hour < 17 ? 'Good afternoon'
-    : 'Good evening';
+    hour < 5
+      ? 'Still working?'
+      : hour < 12
+        ? 'Good morning'
+        : hour < 17
+          ? 'Good afternoon'
+          : 'Good evening';
   const name = s.greetingName ? `, ${s.greetingName}` : '';
 
-  const collectionRate = (s.kpis.collectionRateBps / 100).toFixed(1);
-  const hasDanger = s.attention.some(a => a.severity === 'danger');
+  const collectionRate = s.kpis.collectionRateBps / 100;
+  const ratePct = collectionRate.toFixed(1);
+  const hasDanger = s.attention.some((a) => a.severity === 'danger');
   const unrec = s.kpis.unreconciledPayments;
   // H-2: the headline's scope is declared by the server, never assumed by the
   // screen. A proprietor can see at a glance whether the figures on this page
@@ -64,304 +80,482 @@ export default async function CommandCenterPage() {
   const kpiScope = s.scope.kpis;
   const carriedForward = s.buckets.find((b) => b.key === 'PRIOR_TERM');
   const otherTerms = s.buckets.find((b) => b.key === 'OTHER_TERM');
-  const formatKobo = (k: number) => '₦' + (k / 100).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const formatKobo = (k: number) =>
+    '₦' + (k / 100).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+  const measures = [
+    {
+      key: 'outstanding',
+      label: 'Outstanding',
+      value: formatKobo(s.kpis.outstandingKobo),
+      hint: 'across issued invoices',
+      tone: 'default' as const,
+    },
+    {
+      key: 'overdue',
+      label: 'Overdue',
+      value: formatKobo(s.kpis.overdueKobo),
+      hint: s.kpis.overdueKobo > 0 ? 'past due today' : 'nothing past due',
+      tone: s.kpis.overdueKobo > 0 ? ('danger' as const) : ('default' as const),
+    },
+    {
+      key: 'unreconciled',
+      label: 'Unreconciled',
+      value: String(unrec),
+      hint: unrec === 1 ? 'payment pending match' : 'payments pending match',
+      tone: unrec > 0 ? ('attention' as const) : ('default' as const),
+    },
+    {
+      key: 'students',
+      label: 'Students',
+      value: String(s.kpis.activeStudents),
+      hint: s.scope.activeStudents.label,
+      tone: 'default' as const,
+    },
+  ];
 
   return (
-    <div className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
-      {/* Greeting strip */}
-      <div className="mb-6 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <p className="text-xs uppercase tracking-[0.14em] font-medium" style={{ color: 'var(--color-text-faint)' }}>
-            {s.termLabel}
-          </p>
-          <h1
-            className="mt-1 text-[22px] sm:text-2xl font-semibold leading-tight tracking-tight"
-            style={{ color: 'var(--color-forest-deepest)', fontFamily: 'var(--font-serif)' }}
-          >
-            {greeting}{name}.
-          </h1>
-          <p className="mt-1 text-sm" style={{ color: 'var(--color-text-secondary)' }}>
-            Here is the financial position, and what needs attention before it ages.
-          </p>
-          <p className="mt-2 inline-flex flex-wrap items-center gap-2 text-xs" style={{ color: 'var(--color-text-muted)' }}>
-            <span
-              className="rounded-full px-2 py-0.5 font-medium"
-              style={{ background: 'var(--color-surface-muted)', color: 'var(--color-text-secondary)' }}
+    <div className="mx-auto w-full max-w-6xl px-5 py-7 sm:px-8 md:py-10">
+      <PageHeader
+        eyebrow={s.termLabel}
+        title={`${greeting}${name}.`}
+        lede="The school's financial position, and what needs attention before it ages."
+        actions={
+          <>
+            <QuietLink href="/invoices/new" icon={<Plus size={14} />}>
+              Issue an invoice
+            </QuietLink>
+            <PrimaryLink href="/payments/new" icon={<Naira size={14} />}>
+              Record a payment
+            </PrimaryLink>
+          </>
+        }
+      />
+
+      <div className="grid gap-x-10 gap-y-8 lg:grid-cols-[minmax(0,1fr)_290px]">
+        {/* ——————————————————— MAIN COLUMN ——————————————————— */}
+        <div className="min-w-0">
+          {/* ─── THE POSITION ─── */}
+          <section aria-labelledby="position-label">
+            <div className="flex flex-col gap-1 sm:flex-row sm:items-baseline sm:justify-between sm:gap-4">
+              <h2
+                id="position-label"
+                className="text-2xs font-semibold uppercase tracking-[0.16em] text-ink-muted"
+              >
+                Collected to date
+              </h2>
+              <span className="text-xs text-ink-muted">
+                {kpiScope.label}
+                {kpiScope.isDefault ? ' · default' : ''}
+              </span>
+            </div>
+
+            {/* The one dominant figure on this surface. */}
+            <p
+              className="mt-3 font-normal tabular-nums text-forest-deepest"
+              style={{
+                fontFamily: 'var(--font-sans)',
+                fontSize: 'var(--text-display-xl)',
+                lineHeight: 1.02,
+                letterSpacing: '-0.02em',
+              }}
             >
-              Headline scope: {kpiScope.label}
-              {kpiScope.isDefault ? ' (default)' : ''}
-            </span>
-            {kpiScope.termName ? <span>Cut-over: {kpiScope.termName} began {kpiScope.cutoverOn}</span> : null}
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <ServerButton variant="secondary" icon={<Plus size={14} />} href="/invoices/new">New invoice</ServerButton>
-          <ServerButton variant="primary" icon={<Naira size={14} />} href="/payments/new">Record payment</ServerButton>
-        </div>
-      </div>
+              {formatKobo(s.kpis.collectedKobo)}
+            </p>
 
-      {/* KPI row */}
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
-        <KpiCard label="Billed" value={s.kpis.billedKobo} valueIsMoney compact hint={`${s.scope.activeStudents.label.toLowerCase()}`} />
-        <KpiCard
-          label="Collected"
-          value={s.kpis.collectedKobo}
-          valueIsMoney compact
-          delta={`${collectionRate}%`}
-          deltaDirection="up"
-          deltaTone="positive"
-          hint="of total billed to date"
-        />
-        <KpiCard
-          label="Outstanding"
-          value={s.kpis.outstandingKobo}
-          valueIsMoney compact
-          hint="across issued invoices"
-        />
-        <KpiCard
-          label="Overdue"
-          value={s.kpis.overdueKobo}
-          valueIsMoney compact
-          delta={s.kpis.overdueKobo > 0 ? 'action needed' : 'none'}
-          deltaDirection="up"
-          deltaTone={s.kpis.overdueKobo > 0 ? 'negative' : 'positive'}
-          hint="past due date today"
-        />
-        <KpiCard
-          label="Unreconciled"
-          value={s.kpis.unreconciledPayments}
-          compact
-          hint="payments pending matching"
-        />
-        <KpiCard
-          label="Students"
-          value={s.kpis.activeStudents}
-          compact
-          hint={`${s.scope.activeStudents.label} — not scoped to the headline`}
-        />
-      </div>
+            {/* Rate against what was billed. A meter, not a chart: there is one
+                quantity to compare, so a bar beats an axis. */}
+            <div className="mt-5">
+              <div className="flex items-baseline justify-between gap-4 text-xs">
+                <span className="text-ink-muted">
+                  <span className="font-medium text-forest-deep">{ratePct}%</span> of{' '}
+                  <span className="tabular-nums">{formatKobo(s.kpis.billedKobo)}</span> billed
+                </span>
+                <span className="tabular-nums text-ink-muted">
+                  {formatKobo(s.kpis.outstandingKobo)} outstanding
+                </span>
+              </div>
+              <div
+                className="mt-2.5 h-[3px] w-full overflow-hidden"
+                style={{ backgroundColor: 'rgba(11, 31, 22, 0.09)' }}
+                role="img"
+                aria-label={`${ratePct}% of billed fees have been collected`}
+              >
+                <div
+                  className="h-full"
+                  style={{
+                    width: `${Math.min(100, Math.max(0, collectionRate))}%`,
+                    backgroundColor: 'var(--color-forest-primary)',
+                  }}
+                />
+              </div>
+            </div>
 
-      {/* H-2: the partition the headline was computed from. Carried-forward debt
-          is shown on its own line, so it can never be invisible again — which
-          was the measured defect this milestone closes. */}
-      <div className="mt-3 flex flex-col gap-2 rounded-lg border px-3 py-2 text-xs sm:flex-row sm:items-center sm:justify-between"
-        style={{ borderColor: 'var(--color-border-subtle)', color: 'var(--color-text-secondary)' }}>
-        <span>
-          Classified as{' '}
-          {s.buckets.map((b, i) => (
-            <span key={b.key}>
-              {i > 0 ? ' · ' : ''}
-              <span className="font-medium">{b.label}</span>
-              {': '}{formatKobo(b.outstandingKobo)}
-            </span>
-          ))}
-        </span>
-        {carriedForward && carriedForward.outstandingKobo > 0 ? (
-          <Link href="/invoices" className="font-medium underline">
-            {formatKobo(carriedForward.outstandingKobo)} carried forward from an earlier term
-            {otherTerms && otherTerms.outstandingKobo > 0
-              ? ` (+ ${formatKobo(otherTerms.outstandingKobo)} in other terms)`
-              : ''}
-          </Link>
-        ) : null}
-      </div>
+            {/* Secondary measures — a ruled ledger strip, not four more cards.
+                Hairlines and alignment carry the structure; the eye can compare
+                the figures because the digits line up. */}
+            <dl className="mt-6 grid grid-cols-2 border-t border-ink-faint sm:grid-cols-4">
+              {measures.map((m, i) => (
+                <div
+                  key={m.key}
+                  className={
+                    'flex flex-col gap-1 py-4 pr-4 ' +
+                    (i > 0 ? 'sm:border-l sm:border-ink-faint sm:pl-5 ' : '') +
+                    (i === 1 ? 'border-l border-ink-faint pl-5 sm:pl-5 ' : '') +
+                    (i > 1 ? 'border-t border-ink-faint sm:border-t-0' : '')
+                  }
+                >
+                  <dt className="text-2xs font-semibold uppercase tracking-[0.14em] text-ink-muted">
+                    {m.label}
+                  </dt>
+                  <dd
+                    className={
+                      'text-figure tabular-nums leading-tight ' +
+                      (m.tone === 'danger'
+                        ? 'text-danger-fg'
+                        : m.tone === 'attention'
+                          ? 'text-forest-deep'
+                          : 'text-ink-primary')
+                    }
+                  >
+                    {m.value}
+                  </dd>
+                  <span className="text-[11px] leading-snug text-ink-subtle">{m.hint}</span>
+                </div>
+              ))}
+            </dl>
 
-      {/* Attention + Quick Actions */}
-      <div className="mt-6 grid gap-4 lg:grid-cols-3">
-        <Card className="lg:col-span-1">
-          <CardHeader title="Quick actions" description="Things you are likely to do next." />
-          <div className="flex flex-col gap-1.5 p-2">
-            <QuickAction
-              icon={<Naira size={16} />}
-              title="Record a payment"
-              hint="Mark a bank transfer or cash payment against invoices"
-              href="/payments/new"
-            />
-            <QuickAction
-              icon={<FileText size={16} />}
-              title="Issue an invoice"
-              hint="Create a new term fee invoice for a student"
-              href="/invoices/new"
-            />
-            <QuickAction
-              icon={<Inbox size={16} />}
-              title="Reconcile pending"
-              hint={`Match ${unrec} unallocated payment${unrec === 1 ? '' : 's'}`}
-              href="/payments?status=PENDING"
-              disabled={unrec === 0}
-            />
-            <QuickAction
-              icon={<Users size={16} />}
-              title="Invite a member"
-              hint="Add a finance officer or administrator"
-              href="/members"
-            />
-          </div>
-        </Card>
+            {/* H-2: the partition the headline was computed from. Carried-forward
+                debt is shown on its own line so it can never be invisible again. */}
+            <p className="mt-4 text-xs leading-relaxed text-ink-muted" data-scope-classification>
+              <span className="font-medium text-ink-secondary">Classified as</span>{' '}
+              {s.buckets.map((b, i) => (
+                <span key={b.key}>
+                  {i > 0 ? ' · ' : ''}
+                  <span className="font-medium text-ink-secondary">{b.label}</span>
+                  {': '}
+                  <span className="tabular-nums">{formatKobo(b.outstandingKobo)}</span>
+                </span>
+              ))}
+              {carriedForward && carriedForward.outstandingKobo > 0 ? (
+                <>
+                  {' — '}
+                  <Link href="/invoices" className="font-medium text-forest-deep underline">
+                    {formatKobo(carriedForward.outstandingKobo)} carried forward from an earlier
+                    term
+                    {otherTerms && otherTerms.outstandingKobo > 0
+                      ? ` (+ ${formatKobo(otherTerms.outstandingKobo)} in other terms)`
+                      : ''}
+                  </Link>
+                </>
+              ) : null}
+            </p>
+          </section>
 
-        <Card className="lg:col-span-2">
-          <CardHeader
-            title="Needs attention"
-            description="Items that get worse if you leave them."
-            actions={
-              s.attention.length > 0 ? (
-                <Badge variant={hasDanger ? 'danger' : 'warning'}>
-                  {s.attention.length} item{s.attention.length === 1 ? '' : 's'}
-                </Badge>
+          {/* ─── NEEDS ATTENTION ─── */}
+          <section className="mt-10" aria-labelledby="attention-label">
+            <SectionHead
+              title={<span id="attention-label">Needs attention</span>}
+              hint="Items that get worse if you leave them."
+              count={
+                s.attention.length > 0 ? (
+                  <span
+                    className="font-medium"
+                    style={{
+                      color: hasDanger ? 'var(--color-danger-fg)' : 'var(--color-gold-rich)',
+                    }}
+                  >
+                    {s.attention.length} item{s.attention.length === 1 ? '' : 's'}
+                  </span>
+                ) : (
+                  <span className="text-success-fg">All clear</span>
+                )
+              }
+            />
+            <div className="border-t border-ink-faint">
+              {s.attention.length === 0 ? (
+                <div className="py-8">
+                  <EmptyState
+                    icon={<CheckCircle size={20} />}
+                    title="Nothing requires action"
+                    description="All issued invoices are within their terms and no payments are pending reconciliation."
+                  />
+                </div>
               ) : (
-                <Badge variant="success">All clear</Badge>
-              )
-            }
-          />
-          {s.attention.length === 0 ? (
-            <div className="py-8 px-4">
-              <EmptyState
-                icon={<CheckCircle size={20} />}
-                title="Nothing requires action"
-                description="All issued invoices are within their terms and no payments are pending reconciliation."
+                <ul>
+                  {s.attention.map((a) => (
+                    <li key={a.id} className="border-b border-ink-faint">
+                      <AttentionRow tone={a.severity} title={a.title} meta={a.meta} href={a.href} />
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </section>
+
+          {/* ─── RECENT ACTIVITY ─── */}
+          <section className="mt-10" aria-labelledby="activity-label">
+            <SectionHead
+              title={<span id="activity-label">Recent activity</span>}
+              hint="Latest payments and invoices."
+              count="Last 24 hours"
+            />
+            <div className="border-t border-ink-faint">
+              {s.activity.length === 0 ? (
+                <div className="py-8">
+                  <EmptyState
+                    icon={<Clock size={20} />}
+                    title="No recent activity"
+                    description="Once invoices are issued and payments begin to arrive, activity will appear here."
+                  />
+                </div>
+              ) : (
+                <ul>
+                  {s.activity.map((ev) => {
+                    const isPayment = ev.kind === 'payment_confirmed';
+                    return (
+                      <li
+                        key={ev.id}
+                        className="flex items-baseline gap-4 border-b border-ink-faint py-3"
+                      >
+                        <span
+                          aria-hidden
+                          className="mt-[6px] h-1.5 w-1.5 shrink-0 rounded-full"
+                          style={{
+                            backgroundColor: isPayment
+                              ? 'var(--color-forest-primary)'
+                              : 'var(--color-ink-subtle)',
+                          }}
+                        />
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate text-[13.5px] text-ink-primary">{ev.title}</div>
+                          <div className="truncate text-xs text-ink-muted">{ev.meta}</div>
+                        </div>
+                        <span className="shrink-0 text-[11px] tabular-nums text-ink-subtle">
+                          {relativeTime(ev.at)}
+                        </span>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </div>
+          </section>
+        </div>
+
+        {/* ——————————————————— ASIDE ——————————————————— */}
+        <aside className="min-w-0 lg:pt-1">
+          <section aria-labelledby="next-label">
+            <SectionHead title={<span id="next-label">Next steps</span>} />
+            <div className="border-t border-ink-faint">
+              <ActionRow
+                icon={<Naira size={15} />}
+                title="Record a payment"
+                hint="Mark a bank transfer or cash payment against invoices"
+                href="/payments/new"
+              />
+              <ActionRow
+                icon={<FileText size={15} />}
+                title="Issue an invoice"
+                hint="Create a new term fee invoice for a student"
+                href="/invoices/new"
+              />
+              <ActionRow
+                icon={<Inbox size={15} />}
+                title="Reconcile pending"
+                hint={
+                  unrec === 0
+                    ? 'Nothing waiting to be matched'
+                    : `Match ${unrec} unallocated payment${unrec === 1 ? '' : 's'}`
+                }
+                href="/payments?status=PENDING"
+                disabled={unrec === 0}
+              />
+              <ActionRow
+                icon={<Users size={15} />}
+                title="Invite a member"
+                hint="Add a finance officer or administrator"
+                href="/members"
               />
             </div>
-          ) : (
-            <ul className="divide-y" style={{ borderColor: 'var(--color-border-subtle)' }}>
-              {s.attention.map((a) => (
-                <li key={a.id}>
-                  <AttentionRow
-                    tone={a.severity}
-                    title={a.title}
-                    meta={a.meta}
-                    href={a.href}
-                    kind={a.kind}
-                  />
-                </li>
-              ))}
-            </ul>
-          )}
-        </Card>
-      </div>
+          </section>
 
-      {/* Recent activity */}
-      <Card className="mt-4">
-        <CardHeader
-          title="Recent activity"
-          description="Latest payments and invoices."
-          actions={
-            <span className="text-[12px]" style={{ color: 'var(--color-text-faint)' }}>Last 24 hours</span>
-          }
-        />
-        {s.activity.length === 0 ? (
-          <div className="py-8 px-4">
-            <EmptyState
-              icon={<Clock size={20} />}
-              title="No recent activity"
-              description="Once invoices are issued and payments begin to arrive, activity will appear here."
-            />
-          </div>
-        ) : (
-          <ul className="divide-y" style={{ borderColor: 'var(--color-border-subtle)' }}>
-            {s.activity.map((ev) => (
-              <li key={ev.id} className="py-3 px-5 flex items-center gap-3">
-                <div
-                  className="h-7 w-7 rounded-full flex items-center justify-center shrink-0"
-                  style={{
-                    backgroundColor:
-                      ev.kind === 'payment_confirmed' ? 'var(--color-forest-tint)' : 'var(--color-bg-page)',
-                    color:
-                      ev.kind === 'payment_confirmed' ? 'var(--color-forest-deep)' : 'var(--color-text-muted)',
-                    border: '1px solid var(--color-border-subtle)',
-                  }}
-                >
-                  {ev.kind === 'payment_confirmed' ? <CheckCircle size={14} /> : <FileText size={14} />}
+          <section className="mt-8" aria-labelledby="scope-label">
+            <SectionHead title={<span id="scope-label">Scope of these figures</span>} />
+            <dl className="border-t border-ink-faint pt-3 text-xs">
+              <div className="py-1.5">
+                <dt className="text-ink-muted">Headline</dt>
+                <dd className="mt-0.5 font-medium text-ink-secondary">{kpiScope.label}</dd>
+              </div>
+              {kpiScope.termName ? (
+                <div className="py-1.5">
+                  <dt className="text-ink-muted">Cut-over</dt>
+                  <dd className="mt-0.5 tabular-nums text-ink-secondary">
+                    {kpiScope.termName} began {kpiScope.cutoverOn}
+                  </dd>
                 </div>
-                <div className="flex-1 min-w-0">
-                  <div
-                    className="text-[13.5px] font-medium truncate"
-                    style={{ color: 'var(--color-text-primary)' }}
-                  >
-                    {ev.title}
-                  </div>
-                  <div className="text-xs truncate" style={{ color: 'var(--color-text-muted)' }}>
-                    {ev.meta}
-                  </div>
-                </div>
-                <div className="text-[11px] shrink-0 tabular-nums" style={{ color: 'var(--color-text-faint)' }}>
-                  {relativeTime(ev.at)}
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
-      </Card>
+              ) : null}
+              <div className="py-1.5">
+                <dt className="text-ink-muted">Population</dt>
+                <dd className="mt-0.5 text-ink-secondary">{s.scope.activeStudents.label}</dd>
+              </div>
+            </dl>
+          </section>
+        </aside>
+      </div>
     </div>
   );
 }
 
-function QuickAction({
-  icon, title, hint, href, disabled,
-}: { icon: React.ReactNode; title: string; hint: string; href: string; disabled?: boolean }) {
-  const content = (
-    <div
-      className={
-        'w-full text-left flex items-start gap-3 rounded-lg px-3 py-2.5 transition-colors ' +
-        (disabled ? 'opacity-50 cursor-not-allowed' : 'hover:bg-[color:var(--color-forest-tint)]')
-      }
+/* ─────────────────────────── presentational ─────────────────────────── */
+
+function PrimaryLink({
+  href,
+  icon,
+  children,
+}: {
+  href: string;
+  icon?: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  return (
+    <Link
+      href={href}
+      className="inline-flex items-center gap-2 rounded-sm px-3.5 py-2 text-[13px] font-medium text-ivory transition-colors hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold-reference"
+      style={{ backgroundColor: 'var(--color-forest-deep)' }}
     >
-      <div
-        className="h-7 w-7 mt-0.5 rounded-md flex items-center justify-center shrink-0"
-        style={{
-          backgroundColor: disabled ? 'var(--color-bg-page)' : 'var(--color-forest-tint)',
-          color: disabled ? 'var(--color-text-faint)' : 'var(--color-forest-deep)',
-          border: '1px solid var(--color-border-subtle)',
-        }}
-      >
-        {icon}
-      </div>
-      <div className="flex-1 min-w-0">
-        <div className="text-[13.5px] font-medium" style={{ color: 'var(--color-text-primary)' }}>
-          {title}
-        </div>
-        <div className="text-xs" style={{ color: 'var(--color-text-muted)' }}>{hint}</div>
-      </div>
-      {!disabled && <ArrowRight size={14} className="opacity-40 mt-1" />}
-    </div>
+      {icon}
+      {children}
+    </Link>
   );
-  if (disabled) return content;
-  return <Link href={href} className="block focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--color-gold)] rounded-md">{content}</Link>;
 }
 
-const TONE_STYLES: Record<string, { icon: React.ReactNode; dot: string; label: string }> = {
-  danger:  { icon: <AlertTriangle size={14} />, dot: 'var(--color-danger, #a82a1c)', label: 'Overdue' },
-  warning: { icon: <Clock size={14} />,        dot: 'var(--color-gold)',                       label: 'Pending' },
-  info:    { icon: <FileText size={14} />,     dot: 'var(--color-forest)',                     label: 'Draft' },
-  neutral: { icon: <CheckCircle size={14} />,  dot: 'var(--color-text-faint)',                 label: 'Note' },
+function QuietLink({
+  href,
+  icon,
+  children,
+}: {
+  href: string;
+  icon?: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  return (
+    <Link
+      href={href}
+      className="inline-flex items-center gap-2 rounded-sm border px-3.5 py-2 text-[13px] font-medium text-ink-secondary transition-colors hover:border-ink-subtle hover:text-forest-deep focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold-reference"
+      style={{ borderColor: 'var(--color-border)' }}
+    >
+      {icon}
+      {children}
+    </Link>
+  );
+}
+
+const SEVERITY: Record<string, { dot: string; label: string; icon: React.ReactNode }> = {
+  danger: { dot: 'var(--color-danger-fg)', label: 'Overdue', icon: <AlertTriangle size={14} /> },
+  warning: { dot: 'var(--color-gold-rich)', label: 'Pending', icon: <Clock size={14} /> },
+  info: { dot: 'var(--color-forest-primary)', label: 'Draft', icon: <FileText size={14} /> },
+  neutral: { dot: 'var(--color-ink-subtle)', label: 'Note', icon: <CheckCircle size={14} /> },
 };
 
 function AttentionRow({
-  title, meta, tone, href,
-}: { title: string; meta: string; tone: 'danger'|'warning'|'info'|'neutral'; href?: string; kind: string }) {
-  const tone_ = TONE_STYLES[tone]! || TONE_STYLES.neutral;
+  title,
+  meta,
+  tone,
+  href,
+}: {
+  title: string;
+  meta: string;
+  tone: 'danger' | 'warning' | 'info' | 'neutral';
+  href?: string;
+}) {
+  const t = SEVERITY[tone] ?? SEVERITY.neutral!;
   const inner = (
-    <div className="px-5 py-3 flex items-start gap-3 hover:bg-[color:var(--color-forest-tint)] transition-colors">
-      <div
-        className="h-7 w-7 mt-0.5 rounded-full flex items-center justify-center shrink-0"
-        style={{
-          backgroundColor: `color-mix(in srgb, ${tone_.dot} 12%, transparent)`,
-          color: tone_.dot,
-          border: `1px solid color-mix(in srgb, ${tone_.dot} 25%, transparent)`,
-        }}
-      >
-        {tone_.icon}
-      </div>
-      <div className="flex-1 min-w-0">
-        <div className="text-[13.5px] font-medium" style={{ color: 'var(--color-text-primary)' }}>
-          {title}
+    <div className="group flex items-start gap-3 py-3.5 transition-colors">
+      {/* Severity is carried by a rule on the left edge AND a word — never by
+          colour alone. */}
+      <span
+        aria-hidden
+        className="mt-1 h-4 w-[2px] shrink-0 rounded-full"
+        style={{ backgroundColor: t.dot }}
+      />
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+          <span className="text-[13.5px] font-medium text-ink-primary">{title}</span>
+          <span
+            className="text-[10px] font-semibold uppercase tracking-[0.12em]"
+            style={{ color: t.dot }}
+          >
+            {t.label}
+          </span>
         </div>
-        <div className="text-xs mt-0.5" style={{ color: 'var(--color-text-muted)' }}>{meta}</div>
+        <div className="mt-0.5 text-xs text-ink-muted">{meta}</div>
       </div>
-      {href && <ArrowRight size={13} className="opacity-40 mt-1.5" />}
+      {href ? (
+        <ArrowRight
+          size={14}
+          className="mt-1 shrink-0 text-ink-subtle transition-transform group-hover:translate-x-0.5"
+          aria-hidden
+        />
+      ) : null}
     </div>
   );
   if (!href) return <div>{inner}</div>;
-  return <Link href={href} className="block focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--color-gold)] rounded-md">{inner}</Link>;
+  return (
+    <Link
+      href={href}
+      className="block rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold-rich"
+    >
+      {inner}
+    </Link>
+  );
+}
+
+function ActionRow({
+  icon,
+  title,
+  hint,
+  href,
+  disabled,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  hint: string;
+  href: string;
+  disabled?: boolean;
+}) {
+  const inner = (
+    <div
+      className={
+        'group flex items-start gap-3 border-b border-ink-faint py-3 transition-colors ' +
+        (disabled ? 'opacity-45' : '')
+      }
+    >
+      <span
+        aria-hidden
+        className="mt-0.5 shrink-0"
+        style={{ color: disabled ? 'var(--color-ink-subtle)' : 'var(--color-forest-primary)' }}
+      >
+        {icon}
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block text-[13px] font-medium text-ink-primary">{title}</span>
+        <span className="block text-xs leading-snug text-ink-muted">{hint}</span>
+      </span>
+      {!disabled ? (
+        <ArrowRight size={13} className="mt-1 shrink-0 text-ink-subtle" aria-hidden />
+      ) : null}
+    </div>
+  );
+  if (disabled) return inner;
+  return (
+    <Link
+      href={href}
+      className="block rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold-rich"
+    >
+      {inner}
+    </Link>
+  );
 }
 
 function relativeTime(iso: string): string {
@@ -375,25 +569,4 @@ function relativeTime(iso: string): string {
   const days = Math.floor(h / 24);
   if (days < 7) return `${days}d ago`;
   return d.toLocaleDateString('en-NG', { day: 'numeric', month: 'short' });
-}
-
-/**
- * Lightweight server-rendered link styled as a button.
- */
-function ServerButton({
-  variant = 'primary', icon, href, children,
-}: {
-  variant?: 'primary' | 'secondary'; icon?: React.ReactNode; href: string; children: React.ReactNode;
-}) {
-  const primary =
-    'bg-[color:var(--color-forest)] text-white hover:bg-[color:var(--color-forest-deep)]';
-  const secondary =
-    'bg-white text-[color:var(--color-text-primary)] border border-[color:var(--color-border)] hover:bg-[color:var(--color-bg-page)]';
-  const base =
-    'inline-flex items-center gap-1.5 rounded-md px-3 py-2 text-[13px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--color-gold)]';
-  return (
-    <Link href={href} className={`${base} ${variant === 'primary' ? primary : secondary}`}>
-      {icon}{children}
-    </Link>
-  );
 }

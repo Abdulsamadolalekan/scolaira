@@ -308,6 +308,35 @@ gate green on a broken deployment (see `docs/readiness/H6_SCOPE_MAP.md`, G1).
 - Readiness is the **deploy gate**: `npm run e2e` and CI wait on `/api/ready`
   (which stays 503 until it passes), never on `/api/health`.
 
+### W. Opening balances (`/api/opening-balances*`) — Phase 2
+
+Carry-in figures for children who were already at the school before SCOLAIRA kept
+the books. Everything in this group is guarded twice over: an API permission check
+and, for the writes, database triggers. No endpoint in the group accepts a total, a
+balance or a "confirmed" flag from the caller — the figure is derived from the row's
+own signed amount, and the status is derived from the state machine below.
+
+| Method | Path | Requires | Behaviour |
+| --- | --- | --- | --- |
+| `GET` | `/api/opening-balances` | `invoice.read` | `{rows, summary, categories, priorTerms, currentTerm}`. School-wide `summary` (a role whose view is narrowed to its own children still sees what the school has carried in). Figures are reported **per category and never added across categories** — see the state machine. |
+| `POST` | `/api/opening-balances` | `invoice.create`, optional `Idempotency-Key` (scope `opening_balance.record`) | `201 {row}`. Writes a `DRAFT` only; **no invoice, no line, no ledger movement**. `note` in the response states which kind of record was made. `400` on a rule violation (message is the rule's own sentence), `404` for a student outside the caller's scope, `409` on a replay conflict. |
+| `POST` | `/api/opening-balances/:id/review` | `invoice.issue` | Body `{decision: 'APPROVE' \| 'REJECT', note?}`. `REJECT` requires a reason. Only a `DRAFT` can be reviewed; a second reviewer is *advised* in the UI, never enforced, because a one-person school must still be able to set up. |
+| `POST` | `/api/opening-balances/:id/post` | `invoice.issue`, **required** `Idempotency-Key` (scope `opening_balance.post`) | `201 {row, invoiceId}`. Only an `APPROVED` `HISTORICAL_BALANCE` with a `termId` pointing at a **past** term. Creates one `AD HOC` invoice line, runs it through the ordinary `createDraft → addLine → issue` sequence, and stamps the invoice id back on the row. A replay with the same key returns the same row with `Idempotent-Replayed: 1`; a second attempt with a new key is refused by a partial unique index, so a student can never owe an amount twice for the same past term. |
+| `POST` | `/api/opening-balances/:id/reverse` | `invoice.void` | Body `{reason}` (required). Only while the created invoice is unpaid; voids the invoice and moves the row to `REVERSED`. Rows are never deleted. |
+
+The onboarding status endpoint (`GET /api/onboarding/status`) grows one derived
+field for this surface, present only when the caller may read invoices:
+
+```json
+"openingBalances": { "count": 3, "pendingReviewCount": 1, "pendingPostCount": 0,
+                     "outstandingKobo": 14500000, "hasPriorTerm": true }
+```
+
+`steps[]` gains `key: "balances"`; it is `done` only when the register is **empty of
+work** — at least one row and nothing waiting on approval or posting. A school with
+an empty register is therefore shown "start recording, or confirm there is nothing to
+carry in", never a tick.
+
 ## III. Pagination, Filtering & Sorting Conventions
 
 - List endpoints accept `?cursor=...&limit=50&sort=field:dir&filter[status]=CONFIRMED`.

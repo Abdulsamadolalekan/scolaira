@@ -5,7 +5,7 @@
  * Run after a restore, before the restored database is trusted. Answers one
  * question: *is the data in front of me internally consistent and correctly
  * protected?* It is not a backup tool and it does not prove a backup exists —
- * see `docs/ops/restore.md`, which states plainly that no backup mechanism
+ * see `docs/ops/RESTORE_TO_CLEAN_DATABASE.md`, which states plainly that no backup mechanism
  * exists yet.
  *
  *   npm run db:verify -- --platform-admin ops@example.com

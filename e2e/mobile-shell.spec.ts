@@ -115,25 +115,101 @@ test.describe('H-8 mobile shell at 390x844', () => {
     await expect(forms.locator('button[type="submit"]')).toHaveCount(1);
   });
 
-  test('every destination is reachable from the mobile navigation band', async ({ page }) => {
+  /**
+   * The mobile navigation contract, as built in `components/ui/app-shell.tsx`:
+   * a fixed, labelled bottom band (`nav[aria-label="Primary"]`, hidden from `md`
+   * up) holding the primary destinations, plus a "More" button that opens the
+   * `#app-more` "All destinations" sheet for the rest.
+   *
+   * The band is deliberately NOT a sideways-scrolling strip. The previous
+   * version of this test asserted exactly that (`scrollWidth > clientWidth`) and
+   * reached for "Members" inside the band, which is a design the shell replaced:
+   * a thumb has to be able to hit every tab, so the overflow moved into the
+   * sheet. The promise the test existed to protect — nothing is unreachable on a
+   * phone — is asserted here instead, and more strictly: the sheet's destination
+   * set must equal the desktop sidebar's, so a destination added to one and not
+   * the other fails.
+   */
+  test('every destination is reachable from the mobile navigation band and its More sheet', async ({
+    page,
+  }) => {
     await page.goto('/dashboard');
-    const nav = page.locator('nav').first();
-    await expect(nav).toBeVisible();
 
-    const links = nav.getByRole('link');
-    const count = await links.count();
-    expect(count).toBeGreaterThanOrEqual(10);
+    const band = page.getByRole('navigation', { name: 'Primary' });
+    await expect(band).toBeVisible();
+    // The desktop sidebar is the wrong control at this width and must not be shown.
+    // Read from the DOM rather than the accessibility tree: a hidden node is simply
+    // absent from that tree, and `toBeHidden()` on an empty locator proves nothing.
+    await expect(page.locator('nav[aria-label="Workspace"]')).toBeHidden();
 
-    // The band scrolls sideways; that is contained scroll, not page overflow.
-    const scrolls = await nav.evaluate(
-      (el) => (el as HTMLElement).scrollWidth > (el as HTMLElement).clientWidth,
-    );
-    expect(scrolls).toBe(true);
+    // Every tab is labelled: an icon alone is a guess.
+    const bandLinks = await band
+      .locator('a')
+      .evaluateAll((els) => els.map((el) => (el.textContent ?? '').trim()));
+    expect(bandLinks.length).toBeGreaterThan(0);
+    for (const text of bandLinks) expect(text.length).toBeGreaterThan(0);
 
-    // A destination that starts off-screen is still navigable.
-    const membersLink = nav.getByRole('link', { name: /members/i }).first();
-    await membersLink.scrollIntoViewIfNeeded();
-    await membersLink.click();
+    // Contained scroll, not page overflow: the band fits the viewport.
+    const pageOverflow = () =>
+      page.evaluate(() => ({
+        bandScrolls: (() => {
+          const el = document.querySelector('nav[aria-label="Primary"]');
+          return el ? el.scrollWidth > el.clientWidth : null;
+        })(),
+        documentOverflow:
+          document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      }));
+    const before = await pageOverflow();
+    expect(before.bandScrolls, 'the bottom band must not scroll sideways').toBe(false);
+    expect(before.documentOverflow).toBeLessThanOrEqual(0);
+
+    // The rest of the destinations live in the sheet, and the trigger declares it.
+    const sheet = page.locator('#app-more');
+    const more = band.getByRole('button', { name: /^more$/i });
+    await expect(more).toHaveAttribute('aria-controls', 'app-more');
+    await expect(more).toHaveAttribute('aria-expanded', 'false');
+    await expect(sheet).toHaveAttribute('aria-hidden', 'true');
+
+    await more.click();
+
+    await expect(more).toHaveAttribute('aria-expanded', 'true');
+    await expect(sheet).toHaveAttribute('aria-hidden', 'false');
+    await expect(sheet.getByText('All destinations')).toBeVisible();
+
+    const sheetHrefs = await sheet
+      .locator('a')
+      .evaluateAll((els) => els.map((el) => el.getAttribute('href')));
+    const bandHrefs = await band
+      .locator('a')
+      .evaluateAll((els) => els.map((el) => el.getAttribute('href')));
+    // The sidebar is `display: none` at this width, so it is absent from the
+    // accessibility tree — `getByRole` would find nothing here and the set
+    // comparison below would pass vacuously. Its destinations exist in the DOM
+    // at every breakpoint, which is where they have to be read from.
+    const sidebarHrefs = await page
+      .locator('nav[aria-label="Workspace"] a')
+      .evaluateAll((els) => els.map((el) => el.getAttribute('href')));
+
+    // A vacuous comparison is worthless: prove all three sides are populated.
+    expect(bandHrefs.length).toBeGreaterThanOrEqual(1);
+    expect(sidebarHrefs.length).toBeGreaterThanOrEqual(10);
+    expect(sheetHrefs.length).toBeGreaterThanOrEqual(10);
+
+    // One tap from the band, plus the sheet, covers exactly what the desktop
+    // sidebar offers — and the sheet is genuinely load-bearing.
+    const reachable = new Set([...bandHrefs, ...sheetHrefs]);
+    for (const href of sidebarHrefs) expect(reachable.has(href), `${href} unreachable`).toBe(true);
+    expect(new Set(sheetHrefs)).toEqual(new Set(sidebarHrefs));
+    expect(sheetHrefs.filter((href) => !bandHrefs.includes(href)).length).toBeGreaterThan(0);
+
+    // Opening the sheet must not widen the page.
+    expect((await pageOverflow()).documentOverflow).toBeLessThanOrEqual(0);
+
+    // A destination the band does not show is still reachable through it.
+    const members = sheet.getByRole('link', { name: /members/i });
+    await expect(members).toBeVisible();
+    await members.scrollIntoViewIfNeeded();
+    await members.click();
     await page.waitForURL(/\/members$/);
   });
 

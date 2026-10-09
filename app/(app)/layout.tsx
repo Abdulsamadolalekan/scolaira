@@ -3,7 +3,8 @@
  *
  * Every route under (app) requires a valid session (middleware redirects
  * unauthenticated requests; each page also re-validates via getSession()).
- * The shell renders a quiet institutional navigation and a workspace that is
+ * The rail groups destinations the way the product is actually operated: the core
+ * financial operation, the school data it acts on, and administration. It is
  * the same on desktop and mobile: a left rail from md up, and a compact band
  * (brand, workspace, one scrollable row of destinations, account row) below it.
  * A drawer was judged overkill for this scope; flat and immediate wins on the
@@ -40,15 +41,14 @@ interface ItemDef {
   icon: IconKey;
   matchPrefix?: string;
   roles: null | string[];
-  badge?: 'soon';
 }
 
 const ALL_NAV: { section: string; items: ItemDef[] }[] = [
   {
-    section: 'Operations',
+    section: 'Core financial operation',
     items: [
       {
-        label: 'Command Center',
+        label: 'Dashboard',
         href: '/dashboard',
         icon: 'dashboard',
         matchPrefix: '/dashboard',
@@ -69,21 +69,7 @@ const ALL_NAV: { section: string; items: ItemDef[] }[] = [
         roles: ['OWNER', 'SCHOOL_ADMIN', 'FINANCE_OFFICER'],
       },
       {
-        label: 'Students',
-        href: '/students',
-        icon: 'students',
-        matchPrefix: '/students',
-        roles: ['OWNER', 'SCHOOL_ADMIN', 'FINANCE_OFFICER'],
-      },
-      {
-        label: 'Academic roster',
-        href: '/academic',
-        icon: 'students',
-        matchPrefix: '/academic',
-        roles: ['OWNER', 'SCHOOL_ADMIN', 'FINANCE_OFFICER'],
-      },
-      {
-        label: 'Reconcile',
+        label: 'Reconciliation',
         href: '/reconcile',
         icon: 'payments',
         matchPrefix: '/reconcile',
@@ -103,6 +89,40 @@ const ALL_NAV: { section: string; items: ItemDef[] }[] = [
         matchPrefix: '/debtors',
         roles: ['OWNER', 'SCHOOL_ADMIN', 'FINANCE_OFFICER'],
       },
+    ],
+  },
+  {
+    section: 'School data',
+    items: [
+      {
+        // The guided path from an empty workspace to a billable school. Its
+        // progress is derived from the records themselves, so it keeps telling
+        // the truth after the school has finished setting up.
+        label: 'Set up',
+        href: '/onboarding',
+        icon: 'settings',
+        matchPrefix: '/onboarding',
+        roles: ['OWNER', 'SCHOOL_ADMIN', 'FINANCE_OFFICER'],
+      },
+      {
+        label: 'Students',
+        href: '/students',
+        icon: 'students',
+        matchPrefix: '/students',
+        roles: ['OWNER', 'SCHOOL_ADMIN', 'FINANCE_OFFICER'],
+      },
+      {
+        label: 'Academic roster',
+        href: '/academic',
+        icon: 'students',
+        matchPrefix: '/academic',
+        roles: ['OWNER', 'SCHOOL_ADMIN', 'FINANCE_OFFICER'],
+      },
+    ],
+  },
+  {
+    section: 'Administration',
+    items: [
       {
         label: 'Members',
         href: '/members',
@@ -110,11 +130,6 @@ const ALL_NAV: { section: string; items: ItemDef[] }[] = [
         matchPrefix: '/members',
         roles: ['OWNER', 'SCHOOL_ADMIN'],
       },
-    ],
-  },
-  {
-    section: 'Institution',
-    items: [
       {
         label: 'Fee structure',
         href: '/settings/fees',
@@ -128,7 +143,6 @@ const ALL_NAV: { section: string; items: ItemDef[] }[] = [
         icon: 'settings',
         matchPrefix: '/settings',
         roles: ['OWNER', 'SCHOOL_ADMIN'],
-        badge: 'soon',
       },
     ],
   },

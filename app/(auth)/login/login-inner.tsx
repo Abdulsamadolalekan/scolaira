@@ -39,23 +39,17 @@ export default function LoginPageInner() {
 
   return (
     <div>
-      <h2
-        className="text-xl mb-1"
-        style={{ color: 'var(--color-forest-deepest)', fontFamily: 'var(--font-serif)' }}
-      >
-        Sign in
-      </h2>
-      <p className="text-sm mb-6" style={{ color: 'var(--color-text-muted)' }}>
-        Enter your credentials to access your school workspace.
+      <h1 className="mb-2 text-display-sm text-forest-deepest">Sign in</h1>
+      <p className="mb-8 text-sm leading-relaxed text-ink-muted">
+        Enter your credentials to open your school&rsquo;s workspace.
       </p>
 
       {error && (
         <div
-          className="rounded-lg px-3 py-2 mb-4 text-sm"
+          className="border-[color:var(--color-danger-fg)]/25 mb-4 rounded-sm border px-3 py-2 text-sm"
           style={{
-            backgroundColor: 'rgba(185, 56, 42, 0.08)',
-            color: 'var(--color-danger)',
-            border: '1px solid rgba(185, 56, 42, 0.25)',
+            backgroundColor: 'var(--color-danger-bg)',
+            color: 'var(--color-danger-fg)',
           }}
         >
           {error}
@@ -64,7 +58,7 @@ export default function LoginPageInner() {
 
       <form onSubmit={onSubmit} className="space-y-4">
         <div>
-          <label htmlFor="email" className="block text-sm font-medium mb-1">
+          <label htmlFor="email" className="mb-1 block text-sm font-medium">
             Email address
           </label>
           <input
@@ -75,25 +69,21 @@ export default function LoginPageInner() {
             required
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            className="w-full rounded-lg px-3 py-2 text-sm"
+            className="w-full rounded-sm px-3 py-2 text-sm"
             style={{
               border: '1px solid var(--color-border)',
-              backgroundColor: 'white',
+              backgroundColor: 'var(--color-bg-surface)',
               color: 'var(--color-text-primary)',
             }}
             placeholder="name@school.edu.ng"
           />
         </div>
         <div>
-          <div className="flex items-center justify-between mb-1">
+          <div className="mb-1 flex items-center justify-between">
             <label htmlFor="password" className="block text-sm font-medium">
               Password
             </label>
-            <Link
-              href="/reset"
-              className="text-xs"
-              style={{ color: 'var(--color-forest)' }}
-            >
+            <Link href="/reset" className="text-xs" style={{ color: 'var(--color-forest)' }}>
               Forgot password?
             </Link>
           </div>
@@ -105,10 +95,10 @@ export default function LoginPageInner() {
             required
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            className="w-full rounded-lg px-3 py-2 text-sm"
+            className="w-full rounded-sm px-3 py-2 text-sm"
             style={{
               border: '1px solid var(--color-border)',
-              backgroundColor: 'white',
+              backgroundColor: 'var(--color-bg-surface)',
             }}
             placeholder="••••••••••"
           />
@@ -117,11 +107,10 @@ export default function LoginPageInner() {
         <button
           type="submit"
           disabled={loading}
-          className="w-full rounded-lg py-2.5 text-sm font-medium transition"
+          className="w-full rounded-sm py-2.5 text-sm font-medium transition-[filter,opacity] duration-fast ease-standard hover:brightness-110 disabled:cursor-not-allowed"
           style={{
             backgroundColor: 'var(--color-forest-deep)',
             color: 'var(--color-ivory)',
-            border: '1px solid var(--color-gold)',
             opacity: loading ? 0.7 : 1,
           }}
         >
@@ -129,9 +118,16 @@ export default function LoginPageInner() {
         </button>
       </form>
 
-      <div className="mt-6 pt-5 text-center text-sm" style={{ borderTop: '1px solid var(--color-border-subtle)' }}>
+      <div
+        className="mt-6 pt-5 text-center text-sm"
+        style={{ borderTop: '1px solid var(--color-border-subtle)' }}
+      >
         <span style={{ color: 'var(--color-text-muted)' }}>New school?</span>{' '}
-        <Link href="/register" className="font-medium" style={{ color: 'var(--color-forest-deep)' }}>
+        <Link
+          href="/register"
+          className="font-medium"
+          style={{ color: 'var(--color-forest-deep)' }}
+        >
           Create an account
         </Link>
       </div>

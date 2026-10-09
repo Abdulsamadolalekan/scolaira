@@ -56,3 +56,11 @@ e2e/screenshots/
 
 # H-6 E2E seed artefact (throwaway credentials for a throwaway database)
 e2e/.artifacts/
+
+# H-9 rehearsal/evidence artefacts (may contain dump filenames; never committed)
+h9-evidence/
+
+# Local environment backups — never committed (they carry live secrets).
+# Added during the release-gate closure: `.env.local.bak` existed untracked and
+# unignored, so a future `git add -A` would have committed real credentials.
+.env*.bak

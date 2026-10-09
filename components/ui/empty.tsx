@@ -32,23 +32,21 @@ export function EmptyState({
   return (
     <div
       className={cn(
-        'flex flex-col items-center justify-center px-6 py-12 text-center',
-        'rounded-lg border border-dashed border-border-strong bg-white',
+        'flex flex-col items-center justify-center px-6 py-14 text-center',
+        'border-t border-ink-faint',
         className,
       )}
       role="status"
     >
-      <div
-        className={cn(
-          'flex h-12 w-12 items-center justify-center rounded-full',
-          'mb-4 bg-forest-wash text-forest-primary',
-        )}
-        aria-hidden
-      >
-        {icon ?? <Inbox size={22} />}
+      {/* No dashed placeholder box and no circular icon chip: an empty register
+          is stated in the same voice as a full one, quietly, on the same paper. */}
+      <div className="mb-3 text-ink-subtle" aria-hidden>
+        {icon ?? <Inbox size={20} />}
       </div>
-      <h3 className="mb-1 text-md font-semibold text-ink-primary">{title}</h3>
-      {description && <p className="max-w-sm text-sm text-ink-muted">{description}</p>}
+      <h3 className="mb-1 text-[15px] font-medium text-ink-secondary">{title}</h3>
+      {description && (
+        <p className="max-w-md text-xs leading-relaxed text-ink-muted">{description}</p>
+      )}
       {(actionLabel || action) && (
         <div className="mt-4">
           {action ?? (

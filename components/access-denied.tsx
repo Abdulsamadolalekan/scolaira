@@ -10,7 +10,7 @@ export function AccessDenied({ surface, requiredRole }: { surface: string; requi
   return (
     <div className="mx-auto w-full max-w-xl px-6 py-24 text-center">
       <div
-        className="mx-auto h-12 w-12 rounded-full flex items-center justify-center"
+        className="mx-auto flex h-12 w-12 items-center justify-center rounded-full"
         style={{
           backgroundColor: 'var(--color-forest-tint)',
           color: 'var(--color-forest-deep)',
@@ -21,7 +21,7 @@ export function AccessDenied({ surface, requiredRole }: { surface: string; requi
       </div>
       <h1
         className="mt-4 text-xl font-semibold tracking-tight"
-        style={{ color: 'var(--color-forest-deepest)', fontFamily: 'var(--font-serif)' }}
+        style={{ color: 'var(--color-forest-deepest)' }}
       >
         {surface} is restricted to {requiredRole}.
       </h1>
@@ -33,7 +33,7 @@ export function AccessDenied({ surface, requiredRole }: { surface: string; requi
       <div className="mt-6">
         <Link
           href="/dashboard"
-          className="inline-flex items-center rounded-md bg-[color:var(--color-forest)] px-4 py-2 text-sm font-medium text-white hover:bg-[color:var(--color-forest-deep)]"
+          className="inline-flex items-center rounded-sm bg-[color:var(--color-forest-deep)] px-4 py-2 text-sm font-medium text-white hover:brightness-110"
         >
           Return to command center
         </Link>

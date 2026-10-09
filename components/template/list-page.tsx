@@ -205,8 +205,8 @@ export function ListPage<T>({
             <div className="space-y-3 p-4">
               {Array.from({ length: 4 }).map((_, i) => (
                 <div key={i} className="space-y-2">
-                  <div className="h-4 w-1/3 animate-pulse rounded bg-ink-faint" />
-                  <div className="h-3 w-1/2 animate-pulse rounded bg-ink-faint" />
+                  <div className="h-4 w-1/3 animate-pulse rounded-sm bg-ink-faint" />
+                  <div className="h-3 w-1/2 animate-pulse rounded-sm bg-ink-faint" />
                 </div>
               ))}
             </div>

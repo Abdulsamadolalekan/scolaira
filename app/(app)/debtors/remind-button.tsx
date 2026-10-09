@@ -10,19 +10,30 @@
 import { useState } from 'react';
 import { csrfHeaders } from '@/lib/ui/csrf';
 
-export default function RemindButton({ studentId, invoiceId }: { studentId: string; invoiceId?: string }) {
+export default function RemindButton({
+  studentId,
+  invoiceId,
+}: {
+  studentId: string;
+  invoiceId?: string;
+}) {
   const [state, setState] = useState<'idle' | 'sending' | 'sent'>('idle');
   const [err, setErr] = useState<string | null>(null);
 
   async function onClick() {
     if (state !== 'idle') return;
-    setState('sending'); setErr(null);
+    setState('sending');
+    setErr(null);
     try {
       const res = await fetch(`/api/debtors/${studentId}/remind`, {
         method: 'POST',
         headers: { 'content-type': 'application/json', ...csrfHeaders() },
         credentials: 'same-origin',
-        body: JSON.stringify({ channel: 'PRINT', invoiceId: invoiceId ?? undefined, includeAll: !invoiceId }),
+        body: JSON.stringify({
+          channel: 'PRINT',
+          invoiceId: invoiceId ?? undefined,
+          includeAll: !invoiceId,
+        }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -46,24 +57,49 @@ export default function RemindButton({ studentId, invoiceId }: { studentId: stri
         type="button"
         onClick={onClick}
         disabled={state !== 'idle'}
-        className="inline-flex items-center gap-1 rounded-md px-2.5 py-1 text-[12px] font-medium disabled:opacity-60"
-        style={{ backgroundColor: 'var(--color-gold-tint,#fbf1d1)', color: 'var(--color-gold-dark,#8a6b11)', border: '1px solid var(--color-gold,#c2922d)' }}
+        className="inline-flex items-center gap-1 rounded-sm px-2.5 py-1 text-[12px] font-medium disabled:opacity-60"
+        style={{
+          backgroundColor: 'var(--color-gold-tint,#fbf1d1)',
+          color: 'var(--color-gold-dark,#8a6b11)',
+          border: '1px solid var(--color-gold,#c2922d)',
+        }}
         title="Print a payment reminder for this account"
       >
         {state === 'sending' ? 'Preparing…' : state === 'sent' ? 'Sent' : 'Print reminder'}
       </button>
-      {err && <span className="text-[11px]" style={{ color: 'var(--color-danger,#a82a1c)' }}>{err}</span>}
+      {err && (
+        <span className="text-[11px]" style={{ color: 'var(--color-danger,#a82a1c)' }}>
+          {err}
+        </span>
+      )}
     </span>
   );
 }
 
-function openPrint(doc: { orgName: string; studentName: string; subject: string; body: string;
-  invoices: Array<{invoiceNumber: string; dueDate: string|null; remainingKobo: number; daysOverdue: number}>;
-  totalKobo: number; generatedAt: string }) {
+function openPrint(doc: {
+  orgName: string;
+  studentName: string;
+  subject: string;
+  body: string;
+  invoices: Array<{
+    invoiceNumber: string;
+    dueDate: string | null;
+    remainingKobo: number;
+    daysOverdue: number;
+  }>;
+  totalKobo: number;
+  generatedAt: string;
+}) {
   const w = window.open('', '_blank', 'width=720,height=900');
   if (!w) return;
-  const rows = doc.invoices.map(i => `<tr><td>${escapeHtml(i.invoiceNumber)}</td><td>${escapeHtml(i.dueDate ?? '—')}</td><td>${i.daysOverdue>0?`${i.daysOverdue} days`:''}</td><td style="text-align:right">${fmt(i.remainingKobo)}</td></tr>`).join('');
-  w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(doc.subject)}</title>
+  const rows = doc.invoices
+    .map(
+      (i) =>
+        `<tr><td>${escapeHtml(i.invoiceNumber)}</td><td>${escapeHtml(i.dueDate ?? '—')}</td><td>${i.daysOverdue > 0 ? `${i.daysOverdue} days` : ''}</td><td style="text-align:right">${fmt(i.remainingKobo)}</td></tr>`,
+    )
+    .join('');
+  w.document
+    .write(`<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(doc.subject)}</title>
     <style>
       body { font-family: ui-sans-serif, system-ui, sans-serif; color:#111; padding:40px; max-width:720px; margin:0 auto; }
       h1 { font-size:20px; margin:0 0 4px 0; }
@@ -78,9 +114,9 @@ function openPrint(doc: { orgName: string; studentName: string; subject: string;
       @media print { body { padding:24px; } button { display:none; } }
     </style></head><body>
     <div class="muted">${escapeHtml(doc.orgName)} · Bursary</div>
-    <h1>Payment Reminder</h1>
+    <h1>Payment reminder</h1>
     <div class="muted">Student: <strong>${escapeHtml(doc.studentName)}</strong> &nbsp;·&nbsp; Generated ${new Date(doc.generatedAt).toLocaleString()}</div>
-    <h2>Outstanding Invoices</h2>
+    <h2>Outstanding invoices</h2>
     <table><thead><tr><th>Invoice</th><th>Due</th><th>Overdue</th><th class="r">Balance</th></tr></thead>
       <tbody>${rows}</tbody>
       <tfoot><tr><td colspan="3" class="r total">Total outstanding</td><td class="r total">${fmt(doc.totalKobo)}</td></tr></tfoot>
@@ -94,8 +130,13 @@ function openPrint(doc: { orgName: string; studentName: string; subject: string;
 }
 
 function fmt(k: number) {
-  return '₦' + (k/100).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return (
+    '₦' + (k / 100).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  );
 }
 function escapeHtml(s: string): string {
-  return s.replace(/[&<>"']/g, (c) => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]!));
+  return s.replace(
+    /[&<>"']/g,
+    (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!,
+  );
 }

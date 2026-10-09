@@ -1,9 +1,22 @@
 /**
- * SCOLAIRA brand identity.
+ * SCOLAIRA brand surface — the single import path for every brand mark.
  *
- * Import the mark from here rather than inlining SVG at the call site — the
- * mark previously existed as two divergent inline copies, which is exactly the
- * drift a shared component prevents.
+ *   import { ScolairaSymbol, ScolairaLockup } from '@/components/brand';
+ *
+ * Importing from anywhere else (`./scolaira-mark`, a copy, an inline SVG) is how a
+ * brand forks. Everything ships through this barrel.
  */
-export { ScolairaSymbol, ScolairaSymbolSmall, ScolairaIcon, ScolairaLockup } from './scolaira-mark';
-export type { MarkTone, ScolairaSymbolProps, ScolairaLockupProps } from './scolaira-mark';
+export {
+  ScolairaSymbol,
+  ScolairaSymbolSmall,
+  ScolairaIcon,
+  ScolairaWordmark,
+  ScolairaLockup,
+  SCOLAIRA_DESCRIPTOR,
+} from './scolaira-mark';
+export type {
+  MarkTone,
+  ScolairaSymbolProps,
+  ScolairaWordmarkProps,
+  ScolairaLockupProps,
+} from './scolaira-mark';

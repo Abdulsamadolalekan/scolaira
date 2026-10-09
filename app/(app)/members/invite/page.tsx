@@ -15,6 +15,7 @@ import { Card, CardHeader } from '@/components/ui/nav-shell';
 import { AccessDenied } from '@/components/access-denied';
 import { checkPermission } from '@/components/permission-guard';
 import { InviteForm } from './invite-form';
+import { PageContainer, PageHeader, Crumb } from '@/components/ui/page-header';
 
 export const runtime = 'nodejs';
 export const metadata = { title: 'Invite member' };
@@ -26,19 +27,12 @@ export default async function InviteMemberPage() {
   }
 
   return (
-    <div className="mx-auto w-full max-w-3xl px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
-      <div className="mb-6">
-        <h1
-          className="text-[22px] font-semibold tracking-tight sm:text-2xl"
-          style={{ color: 'var(--color-forest-deepest)', fontFamily: 'var(--font-serif)' }}
-        >
-          Invite a member
-        </h1>
-        <p className="mt-1 text-sm" style={{ color: 'var(--color-text-secondary)' }}>
-          Create a single-use link for one address. The link expires in seven days and can be used
-          once.
-        </p>
-      </div>
+    <PageContainer width="narrow">
+      <PageHeader
+        breadcrumbs={<Crumb parent="Members" parentHref="/members" trail="Invite" />}
+        title="Invite a member"
+        lede="Create a single-use link for one address. The link expires in seven days and can be used once."
+      />
 
       <Card>
         <CardHeader
@@ -49,6 +43,6 @@ export default async function InviteMemberPage() {
           <InviteForm />
         </div>
       </Card>
-    </div>
+    </PageContainer>
   );
 }

@@ -14,8 +14,11 @@
 | Point-in-time recovery                      | **Absent.** No host decision, so there is nothing to enable (H9-F5).                                                                                      |
 | Off-site backup                             | **Absent.**                                                                                                                                                |
 | Restore ever performed                      | **No.** No restore from a real backup has been performed; RPO/RTO are unmeasured (H9-F3).                                                                |
-| Restore verification tooling                | **Present** — `scripts/verify-restored-db.ts` (read-only; 10 checks). Local evidence only; no production run has happened.                                 |
+| Restore verification tooling                | **Present and runnable** — `npm run db:verify` → `scripts/verify-restored-db.ts` (read-only; 10 checks). The documented entry point existed as prose but not as an npm script until 2026-09-28. Local evidence only; no production run has happened. |
 | Restore runbook                             | **Present** — `RESTORE_TO_CLEAN_DATABASE.md`. Rehearsed locally against a disposable database (see §Rehearsal).                                            |
+| Restore rehearsal script                    | **Present** — `scripts/rehearse-restore.sh`: dump → clean target → restore → migrate → verify, with JSON evidence. Locally verified 2026-09-28; provider-independent by construction. |
+| Recovery drill procedure                    | **Present** — `RECOVERY_DRILL.md`: procedure, ownership slots, evidence structure, record template, and the list of what must be true before a drill can be reported. |
+| Recovery drill record                       | **Absent.** No drill has been performed, because no backup exists (H9-F3/H9-F16).                                                                          |
 | Named recovery owner                        | **Absent.** Nobody is named for backup verification, drill cadence or SEV1 recovery (H9-F4).                                                              |
 | Alert delivery                              | **Absent.** No alert is delivered anywhere: `/api/ready` failing produces a log line and nothing else (H9-F10). See `INCIDENT_SEVERITY.md` §Manual check. |
 | Incident runbook                            | **Present** — `INCIDENT_SEVERITY.md` (severity definitions + manual detection cadence).                                                                    |
@@ -34,6 +37,7 @@
 | [`INCIDENT_SEVERITY.md`](./INCIDENT_SEVERITY.md)               | Something is wrong and you need to decide how wrong, and what to do first.          |
 | [`BREACH_NOTIFICATION.md`](./BREACH_NOTIFICATION.md)           | Personal data may have been exposed. Start the clock immediately.                   |
 | [`SUPPORT_OPERATOR_MODEL.md`](./SUPPORT_OPERATOR_MODEL.md)     | You are supporting a school and need to know what you may look at, and what is logged. |
+| [`RECOVERY_DRILL.md`](./RECOVERY_DRILL.md)                     | You are proving — or preparing to prove — that recovery actually works.              |
 | [`DEPLOYMENT_RECORD.md`](./DEPLOYMENT_RECORD.md)               | You are about to deploy to a real environment and must leave evidence behind.        |
 
 ---
@@ -44,7 +48,8 @@
   mechanism is blocked on the host/provider decision (`DISASTER_RECOVERY.md` §II is intent, not
   implementation) and belongs to a later, separately authorised tranche.
 - **No recovery-owner assignment.** Naming a person is a founder decision (H9-F4).
-- **No production drill record.** No production backup exists to restore from (H9-F3).
+- **No production drill record.** No production backup exists to restore from (H9-F3). The
+  *procedure* now exists (`RECOVERY_DRILL.md`); the record it produces does not.
 - **No contact list.** See above; inventing names would be worse than an empty file.
 
 ## Related

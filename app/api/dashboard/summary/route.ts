@@ -27,14 +27,7 @@ import * as scopingRepo from '@/lib/db/repo/scoping';
 import * as reminderRepo from '@/lib/db/repo/reminders';
 import * as aggregates from '@/lib/db/repo/aggregates';
 import { FOLLOWUP_THRESHOLDS, followupThresholdsPayload } from '@/lib/db/repo/staleness';
-import {
-  invoices,
-  payments,
-  students,
-  users,
-  terms,
-  reminders,
-} from '@/lib/db/schema';
+import { invoices, payments, students, users, terms, reminders } from '@/lib/db/schema';
 
 export type Summary = {
   termLabel: string;
@@ -168,7 +161,8 @@ export const GET = withAuthorizedRoute(
     const overdue = headline.totals.overdueKobo;
     const unreconciled = Number(pendAgg?.count) || 0;
     const activeStudents = Number(stuAgg?.count) || 0;
-    const drafts = scopeDecl.scope === 'TERM' ? headline.current.draftCount : allTermBuckets.draftCount;
+    const drafts =
+      scopeDecl.scope === 'TERM' ? headline.current.draftCount : allTermBuckets.draftCount;
     const collectionRateBps = billed > 0 ? Math.round((collected * 10000) / billed) : 0;
 
     // ---------- Attention: top 3 overdue invoices (by outstanding balance, current term) ----------
@@ -474,13 +468,33 @@ export const GET = withAuthorizedRoute(
 
     for (const p of reconciliationPays as any[]) {
       const amt = Number(p.amountKobo) || 0;
-      const method = (p.method || '').replace(/_/g, ' ').toLowerCase();
+      /*
+       * `p.method` is an enum token from the register, stored UPPERCASE with
+       * underscores: 'BANK_TRANSFER', 'POS', 'CASH'. The surface needs a
+       * sentence, so the label is produced by normalising the token once and
+       * sentence-casing the result — 'Bank transfer', 'Pos', 'Cash'.
+       *
+       * The code this replaces lowercased the token and then compared it to the
+       * snake_case literal 'bank_transfer'. That comparison could never be true
+       * (the value had already been through toLowerCase), so the special case
+       * never ran and the title fell through to the bare normalised form,
+       * rendering the fragment "bank transfer pending confirmation" beside
+       * properly-cased siblings. Deriving the label directly removes the dead
+       * comparison rather than adding a second one: for 'BANK_TRANSFER' it
+       * yields exactly the 'Bank transfer' the original special case intended.
+       *
+       * Presentation only — no amount, status or allocation is touched.
+       */
+      const method = (p.method || '').trim().toLowerCase();
+      const methodLabel = method
+        ? method.replace(/_/g, ' ').replace(/^./, (c: string) => c.toUpperCase())
+        : 'Payment';
       const title =
         p.status === 'DUPLICATE_SUSPECT'
           ? 'Duplicate-suspect payment needs review'
           : p.status === 'CONFIRMED'
-            ? `${method === 'bank_transfer' ? 'Bank transfer' : method || 'Payment'} needs matching`
-            : `${method === 'bank_transfer' ? 'Bank transfer' : method || 'Payment'} pending confirmation`;
+            ? `${methodLabel} needs matching`
+            : `${methodLabel} pending confirmation`;
       const meta =
         p.status === 'CONFIRMED'
           ? `${fmt(Number(p.unallocatedKobo) || amt)} still unallocated${p.payerName ? ' from ' + p.payerName : ''} — ref ${p.reference || 'n/a'}`

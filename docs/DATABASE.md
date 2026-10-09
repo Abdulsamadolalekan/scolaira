@@ -260,6 +260,47 @@
 | line_type         | TEXT NOT NULL DEFAULT 'FEE'                            | FEE / CREDIT / ADJUSTMENT                             |
 | created_at        | TIMESTAMPTZ NOT NULL DEFAULT now()                     |                                                       |
 
+### opening_balances
+
+Carry-in figures for children already at the school before SCOLAIRA kept the books
+(migration `0052`). One row per student per statement, held through a five-state
+machine; only `HISTORICAL_BALANCE` can become a real invoice, and only on a past term.
+
+| Column               | Type                                              | Notes                                                    |
+| -------------------- | ------------------------------------------------- | -------------------------------------------------------- |
+| id                   | UUID PK                                           |                                                          |
+| organization_id      | UUID NOT NULL FK → organizations                  | tenancy; stamped by `set_org_id()`                        |
+| student_id           | UUID NOT NULL FK → students                       | RLS-filtered, so a foreign student reads as absent (`404`) |
+| category             | enum `opening_balance_category` NOT NULL          | `CURRENT_TERM_UNBILLED` / `HISTORICAL_BALANCE` / `CREDIT_OVERPAYMENT` / `UNVERIFIED` |
+| amount_kobo          | BIGINT NOT NULL CHECK (amount_kobo > 0)           | the figure as the receipt showed it, always positive      |
+| signed_amount_kobo   | BIGINT NOT NULL CHECK (sign derived by CHECK)     | negative only for a credit; the sign is enforced, not trusted |
+| term_id              | UUID FK → terms (nullable)                        | the *past* term this belongs to; posting requires it     |
+| as_at                | DATE NOT NULL                                     | the date the school's own books stopped                    |
+| source_note          | TEXT NOT NULL (5–500 after btrim)                 | where the figure came from; an audit requirement          |
+| status               | enum `opening_balance_status` NOT NULL DEFAULT 'DRAFT' | DRAFT → APPROVED \| REJECTED, APPROVED → POSTED \| REJECTED, POSTED → REVERSED |
+| created_by           | UUID NOT NULL FK → users                          |                                                          |
+| reviewed_by/_at/_note | (nullable) + `self_reviewed` BOOLEAN             | `self_reviewed` is written by a BEFORE trigger, so it cannot be lied to |
+| posted_invoice_id    | UUID FK → invoices (RESTRICT)                     | set with `posted_at`; both cleared together by a reversal |
+| reversal_reason/_at  | (nullable)                                        | a reversal is a state transition, never a delete          |
+
+**UNIQUE (partial)** `(organization_id, student_id, term_id) WHERE status='POSTED' AND
+category='HISTORICAL_BALANCE' AND term_id IS NOT NULL` — the one-posted-per-student-per-term
+rule the API also tries, enforced where a race cannot happen.
+
+**Guards:** `FORCE ROW LEVEL SECURITY` with three permissive tenant policies plus
+`AS RESTRICTIVE FOR DELETE USING (false)`; `REVOKE ALL (UPDATE, DELETE, TRUNCATE,
+REFERENCES, TRIGGER)` from `scolaira_app`; a BEFORE UPDATE trigger that refuses status
+skips, freezes non-status columns once the row leaves `DRAFT`, and re-reads
+`invoices ⨝ terms` when a row enters `POSTED` (right student, right term, not the
+current term, due date not later than `as_at`, term already ended). 11 CHECK
+constraints total.
+
+**Reporting rule (load-bearing):** the four categories are never summed into one
+number, and `UNVERIFIED` feeds no money total at all. (The register's summary card shows
+five figures; they are counts and ledger readings across those four categories, not a
+fifth category.) Outstanding is
+`max(total − paid, 0)` for a live posted invoice and `0` once it is `VOID`.
+
 ### payments
 
 | Column             | Type                                                  | Notes                                                                      |
@@ -444,6 +485,10 @@ Materialized views may be added later for performance if needed, but must be ref
 
 ## IV. Migrations
 
+- Migration `0052_opening_balances` (Phase 2 carry-in register) ends with a self-audit
+  `DO $audit$` block that raises if RLS is not forced, if the policy/trigger/CHECK counts
+  are wrong, or if the one-posted-per-student-per-term index is missing. A migration that
+  applied without its guards does not get to look like a success.
 - All schema changes go through Drizzle migrations (`drizzle-kit generate` / `migrate`).
 - Migrations are committed to `/apps/web/lib/db/migrations/`.
 - Migrations are applied in CI before deploy; never run ad-hoc DDL in production.

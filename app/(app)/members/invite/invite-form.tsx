@@ -139,7 +139,7 @@ export function InviteForm() {
       <button
         type="submit"
         disabled={busy}
-        className="inline-flex items-center justify-center gap-1.5 rounded-md px-3 py-2 text-[13px] font-medium text-white disabled:opacity-60"
+        className="inline-flex items-center justify-center gap-1.5 rounded-sm px-3 py-2 text-[13px] font-medium text-white disabled:opacity-60"
         style={{ backgroundColor: 'var(--color-forest)' }}
       >
         {busy ? 'Creating link…' : 'Create invitation link'}
@@ -168,7 +168,7 @@ export function InviteForm() {
           </p>
           <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center">
             <code
-              className="min-w-0 flex-1 break-all rounded-md px-2 py-1.5 text-[12px]"
+              className="min-w-0 flex-1 break-all rounded-sm px-2 py-1.5 text-[12px]"
               style={{
                 backgroundColor: 'var(--color-bg-page)',
                 color: 'var(--color-text-primary)',
@@ -179,7 +179,7 @@ export function InviteForm() {
             <button
               type="button"
               onClick={copy}
-              className="shrink-0 rounded-md px-3 py-1.5 text-[12px] font-medium"
+              className="shrink-0 rounded-sm px-3 py-1.5 text-[12px] font-medium"
               style={{ backgroundColor: 'var(--color-forest)', color: 'var(--color-ivory)' }}
             >
               {copied ? 'Copied' : 'Copy link'}

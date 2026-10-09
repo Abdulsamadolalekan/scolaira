@@ -48,7 +48,7 @@ export function AcceptInvitation({
         type="button"
         onClick={accept}
         disabled={busy}
-        className="inline-flex items-center justify-center rounded-md px-3 py-2 text-[13px] font-medium disabled:opacity-60"
+        className="inline-flex items-center justify-center rounded-sm px-3 py-2 text-[13px] font-medium disabled:opacity-60"
         style={{ backgroundColor: 'var(--color-forest)', color: 'var(--color-ivory)' }}
       >
         {busy ? 'Joining…' : `Accept and join ${organizationName}`}

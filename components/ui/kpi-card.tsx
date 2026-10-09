@@ -29,7 +29,19 @@ export interface KpiCardProps {
 }
 
 /**
- * KPI card — large tabular number, small label, optional delta ↑/↓, no chart junk.
+ * Measure — one figure with its label and any delta.
+ *
+ * REDESIGN NOTE (2026-09)
+ *   This was a rounded, bordered, shadowed card. Five of them in a row is the
+ *   most recognisable template-dashboard gesture there is: every measure gets
+ *   the same weight, and the eye is given boxes to read instead of figures to
+ *   compare. It is now a ruled measure — a top hairline, a small-caps label, the
+ *   figure in tabular sans — so a row of them reads as a single statement of the
+ *   school's position rather than a set of cards. No radius, no border, no
+ *   shadow, no fill; depth in this system comes from rules and paper.
+ *
+ *   The props are unchanged, so every existing caller keeps working and
+ *   inherits the calmer treatment.
  */
 export function KpiCard({
   label,
@@ -62,25 +74,24 @@ export function KpiCard({
           : undefined
       }
       className={cn(
-        'flex flex-col gap-1 rounded-lg border border-border bg-white p-5 shadow-xs',
-        clickable &&
-          'cursor-pointer transition-shadow hover:shadow-sm focus-visible:shadow-focus-ring',
+        'border-t border-ink-faint pt-3',
+        clickable && 'cursor-pointer transition-colors hover:border-forest-primary',
         className,
       )}
     >
       <div className="flex items-start justify-between gap-3">
-        <p className="text-xs font-medium uppercase tracking-wide text-ink-muted">{label}</p>
+        <p className="text-2xs font-semibold uppercase tracking-[0.14em] text-ink-muted">{label}</p>
         {icon && (
-          <span className="text-ink-muted" aria-hidden>
+          <span className="text-ink-subtle" aria-hidden>
             {icon}
           </span>
         )}
       </div>
-      <div className="mt-1 flex items-baseline gap-2">
+      <div className="mt-1.5 flex items-baseline gap-2">
         {valueIsMoney && typeof value === 'number' ? (
-          <Money kobo={value} size="xl" compact={compact} />
+          <Money kobo={value} size="lg" compact={compact} />
         ) : (
-          <span className="kpi-value text-2xl font-semibold tabular-nums text-ink-deepest">
+          <span className="kpi-value text-figure-lg tabular-nums text-forest-deepest">
             {value ?? '—'}
           </span>
         )}

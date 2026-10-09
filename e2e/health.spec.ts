@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { loadSeed } from './support/seed';
 
 /**
  * Liveness smoke test + design-system smoke tests.
@@ -27,10 +28,54 @@ test('/api/health is liveness only and claims nothing about dependencies', async
   expect(JSON.stringify(body)).not.toContain('not_configured');
 });
 
-test('root page enforces authentication for the Command Center', async ({ page }) => {
-  await page.goto('/');
-  await page.waitForURL(/\/login\?next=%2Fdashboard/);
-  await expect(page.getByRole('heading', { name: 'Sign in' })).toBeVisible({ timeout: 10000 });
+/**
+ * The root route's contract (fixed in Phase 0, and stated in `app/page.tsx`):
+ * an ANONYMOUS visitor sees the public landing page — schools evaluate Scolaira
+ * before they have an account, so `/` must not be a login wall — while a
+ * signed-in visitor is redirected to `/dashboard`. Guarded surfaces stay behind
+ * the session check in `app/middleware.ts`, answering 307 with the return path.
+ *
+ * The assertion this replaces expected `page.goto('/')` to land on
+ * `/login?next=%2Fdashboard` for an anonymous visitor. That was the behaviour
+ * before the public landing page existed; it was never restored by any later
+ * decision, so the test was pinning the product to a superseded contract.
+ */
+test('the root route answers anonymously with the public landing page, and guarded routes ask to sign in', async ({
+  page,
+  request,
+}) => {
+  const response = await page.goto('/');
+  expect(response?.status()).toBe(200);
+  expect(page.url()).not.toContain('/login');
+  await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
+  // A visitor who is not signed in must always be offered the way in.
+  await expect(page.getByRole('link', { name: /sign in/i }).first()).toBeVisible();
+
+  // Anonymous means anonymous. The landing page may describe the product; it may
+  // not hand a real school's books to whoever asks. Asserted against the seeded
+  // tenant, so the check bites if the page ever starts rendering live data.
+  const seed = loadSeed();
+  const body = await page.locator('body').innerText();
+  expect(body).not.toMatch(/₦\s?[\d,]+/); // no money figures
+  expect(body).not.toMatch(/INV-\d{4}-\d{6}/); // no invoice numbers
+  expect(body).not.toContain(seed.organization.name); // no school identity
+  expect(body).not.toContain(seed.owner.email); // no person's address
+
+  // …and the guard is still the guard: every data-bearing route refuses an
+  // anonymous read and carries the return path through sign-in.
+  for (const path of [
+    '/dashboard',
+    '/invoices',
+    '/students',
+    '/finance/opening-balances',
+    '/reconcile',
+  ]) {
+    const guarded = await request.get(path, { maxRedirects: 0 });
+    expect(guarded.status(), `${path} answered without a session`).toBe(307);
+    const location = new URL(guarded.headers()['location'] ?? '', 'http://127.0.0.1:3000');
+    expect(location.pathname).toBe('/login');
+    expect(location.searchParams.get('next')).toBe(path);
+  }
 });
 
 test(

@@ -34,7 +34,7 @@ export const DropdownMenuContent = React.forwardRef<
 DropdownMenuContent.displayName = 'DropdownMenuContent';
 
 const itemBase = cn(
-  'relative flex cursor-pointer select-none items-center gap-2 rounded',
+  'relative flex cursor-pointer select-none items-center gap-2 rounded-sm',
   'px-2.5 py-1.5 text-sm text-ink-primary',
   'outline-none transition-colors duration-fast',
   'data-[highlighted]:bg-forest-wash data-[highlighted]:text-ink-deepest',

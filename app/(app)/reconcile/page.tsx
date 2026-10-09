@@ -1,21 +1,20 @@
 import Link from 'next/link';
-import { headers } from 'next/headers';
 import { Card, CardHeader } from '@/components/ui/nav-shell';
 import { Money } from '@/components/ui/money';
 import { checkPermission } from '@/components/permission-guard';
 import { AccessDenied } from '@/components/access-denied';
 import ReconciliationQueue from './reconciliation-queue';
 import type { QueueRow } from '@/lib/db/repo/reconciliation';
+import { internalBaseUrl, requestCookieHeader } from '@/lib/http/internal-origin';
+import { PageHeader } from '@/components/ui/page-header';
 
 export const runtime = 'nodejs';
 
 async function loadQueue(): Promise<{ rows: QueueRow[]; nextCursor: string | null }> {
-  const h = await headers();
-  const host = h.get('x-forwarded-host') || h.get('host');
-  const proto = h.get('x-forwarded-proto') ?? 'http';
-  const cookie = h.get('cookie') ?? '';
-  if (!host) return { rows: [], nextCursor: null };
-  const response = await fetch(`${proto}://${host}/api/reconciliation/queue?limit=50`, {
+  const cookie = await requestCookieHeader();
+  const base = await internalBaseUrl();
+  if (!base) return { rows: [], nextCursor: null };
+  const response = await fetch(`${base}/api/reconciliation/queue?limit=50`, {
     cache: 'no-store',
     headers: { cookie },
   }).catch(() => null);
@@ -40,30 +39,26 @@ export default async function ReconcilePage() {
   const pendingKobo = pending.reduce((sum, row) => sum + row.amountKobo, 0);
 
   return (
-    <div className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
-      <div className="mb-6 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <h1
-            className="text-[22px] font-semibold tracking-tight sm:text-2xl"
-            style={{ color: 'var(--color-forest-deepest)', fontFamily: 'var(--font-serif)' }}
+    <div className="mx-auto w-full max-w-[1400px] px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
+      <PageHeader
+        title="Reconciliation"
+        lede="Payment cases that need a human decision. Balances stay authoritative in payments, allocations and invoices."
+        actions={
+          <Link
+            href="/payments/new"
+            className="inline-flex items-center gap-1.5 rounded-sm bg-[color:var(--color-forest-deep)] px-3 py-2 text-[13px] font-medium text-white hover:brightness-110"
           >
-            Reconciliation control plane
-          </h1>
-          <p className="mt-1 max-w-3xl text-sm" style={{ color: 'var(--color-text-secondary)' }}>
-            Human-reviewed payment cases with durable evidence and explicit decisions. Financial
-            balances remain authoritative in payments, allocations, invoices, reversals, refunds,
-            and receipts. Summary cards describe the currently loaded page.
-          </p>
-        </div>
-        <Link
-          href="/payments/new"
-          className="inline-flex items-center gap-1.5 rounded-md bg-[color:var(--color-forest)] px-3 py-2 text-[13px] font-medium text-white hover:bg-[color:var(--color-forest-deep)]"
-        >
-          Record payment
-        </Link>
-      </div>
+            Record payment
+          </Link>
+        }
+      />
 
-      <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
+      {/* The four figures, set as ruled measures.
+          They were four bordered boxes with a fill, which gave the summary the
+          same weight as the queue below it and made the top of the page read as
+          a card row. The invoice register already renders this exact job as a
+          ruled strip; the same job now looks the same on both surfaces. */}
+      <dl className="mb-6 grid grid-cols-2 gap-x-8 gap-y-5 lg:grid-cols-4">
         <Stat
           label="Visible open cases"
           value={rows.length.toLocaleString('en-NG')}
@@ -84,7 +79,7 @@ export default async function ReconcilePage() {
           value={flagged.length.toLocaleString('en-NG')}
           tone={flagged.length ? 'danger' : 'muted'}
         />
-      </div>
+      </dl>
 
       <Card>
         <CardHeader
@@ -113,19 +108,11 @@ function Stat({
     muted: 'var(--color-text-faint)',
   } as const;
   return (
-    <div
-      className="rounded-md border px-3 py-3"
-      style={{ borderColor: 'var(--color-border-subtle)', backgroundColor: 'var(--color-bg-page)' }}
-    >
-      <div
-        className="text-[10px] font-medium uppercase tracking-wider"
-        style={{ color: 'var(--color-text-faint)' }}
-      >
-        {label}
-      </div>
-      <div className="mt-1 text-[15px] font-semibold tabular-nums" style={{ color: colors[tone] }}>
+    <div className="border-t border-ink-faint pt-3">
+      <dt className="text-2xs font-semibold uppercase tracking-[0.14em] text-ink-muted">{label}</dt>
+      <dd className="mt-1.5 tabular-nums" style={{ color: colors[tone] }}>
         {value}
-      </div>
+      </dd>
     </div>
   );
 }

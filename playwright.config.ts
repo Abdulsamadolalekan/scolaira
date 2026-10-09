@@ -129,6 +129,23 @@ export default defineConfig({
         // ADDED to the trust store (`NODE_EXTRA_CA_CERTS`) — certificate
         // verification stays fully on; nothing here disables it.
         NODE_EXTRA_CA_CERTS: 'e2e/.artifacts/tls/localhost-cert.pem',
+        /*
+         * Where the app reaches ITSELF for server-side self-fetches.
+         *
+         * Derived from the inbound request this resolved to the TLS front end
+         * (https://localhost:3443), so every page's data load traversed the
+         * throwaway certificate — which Node rejects:
+         *   DEPTH_ZERO_SELF_SIGNED_CERT
+         * Measured: the Command Center rendered its error boundary and the whole
+         * authenticated suite could not complete setup.
+         *
+         * Pointing it at loopback means the request never leaves the host, so no
+         * certificate is involved at all. Nothing is disabled — verification stays
+         * fully on, and the session cookie is still forwarded through the same
+         * authorised route. Production sets its own internal origin, or leaves
+         * this unset, which preserves the previous behaviour exactly.
+         */
+        SCOLAIRA_INTERNAL_ORIGIN: 'http://127.0.0.1:3000',
       },
     },
     // TLS front end. Readiness is proxied, so the browser origin is only

@@ -1,0 +1,41 @@
+-- Phase 3 — one primary guardian per student, enforced by the database.
+--
+-- FINDING (measured against the running database before this migration)
+--
+--   `student_guardians.is_primary` was a bare `boolean DEFAULT false NOT NULL`
+--   with NO database-level uniqueness. The only unique index on the table was
+--   `student_guardians_pair_idx (student_id, guardian_id)`, which constrains
+--   pairs, not primaries. Measured directly, inside one authorized tenant
+--   transaction, inserting two links for one student with is_primary = true:
+--
+--     primaries for one student: 2      (no error, no constraint raised)
+--
+--   Two consequences, both real:
+--
+--     * `resolvePrimaryContact()` — the function collections and reminders use
+--       to decide WHO TO TELEPHONE — resolves by preference order, so with two
+--       primaries the responsible contact becomes whatever the planner returns
+--       first. That is non-determinism in the one field a collections workflow
+--       depends on.
+--
+--     * Two concurrent "make this guardian primary" requests can each demote and
+--       promote under READ COMMITTED and both commit, so the ambiguity is
+--       reachable through ordinary use, not only by direct SQL.
+--
+--   The application layer (`lib/db/repo/guardians.ts`) already enforces one
+--   primary per student in a transaction and now takes a row lock on the
+--   student so promotions serialise instead of failing. This migration makes
+--   the same guarantee true of the DATABASE, so no future writer — importer,
+--   backfill, script or migration — can reintroduce the ambiguity by going
+--   around the repository.
+--
+-- SCOPE / SAFETY
+--   Purely additive: one partial unique index. It touches no financial table,
+--   no ledger, no payment state machine and no RLS policy. `guardians` and
+--   `student_guardians` were both EMPTY when this migration was written, so
+--   there was no pre-existing multi-primary data to reconcile and the index
+--   could not fail on existing rows.
+CREATE UNIQUE INDEX student_guardians_one_primary_idx
+  ON student_guardians (student_id)
+  WHERE is_primary;
+--> statement-breakpoint

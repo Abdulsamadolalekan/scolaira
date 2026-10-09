@@ -125,7 +125,16 @@ export const config = {
      * or user data, so bypassing the auth redirect for them grants nothing: the
      * files are served verbatim to anyone. Nothing else about the matcher changes
      * — every application route is still authenticated as before.
+     *
+     * `product/` was added for the same reason and after the same failure. It holds
+     * the public site's product plates — captures of this build against the demo
+     * dataset, published ON the marketing page by design. Without the exclusion the
+     * auth redirect answered `307 -> /login` for every one of them, and `next/image`
+     * reported it as `400 The requested resource isn't a valid image` because the
+     * optimiser had received the login HTML instead of the file. Measured before the
+     * fix: two broken images and two console errors on the public homepage, for
+     * signed-out visitors only — which is everybody the page exists for.
      */
-    '/((?!_next/static|_next/image|favicon.ico|icon\\.svg|icon\\.png|apple-icon\\.png|apple-icon-precomposed\\.png).*)',
+    '/((?!_next/static|_next/image|product/|favicon.ico|icon\\.svg|icon\\.png|apple-icon\\.png|apple-icon-precomposed\\.png).*)',
   ],
 };

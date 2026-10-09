@@ -3,6 +3,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { csrfHeaders } from '@/lib/ui/csrf';
 import { Money } from '@/components/ui/money';
+import { EmptyState } from '@/components/ui/empty';
+import { Filter, Inbox } from '@/components/ui/icons';
+import { PageContainer, PageHeader } from '@/components/ui/page-header';
 
 type State = 'OPEN' | 'IN_PROGRESS' | 'ESCALATED' | 'RESOLVED' | 'CLOSED';
 type Priority = 'LOW' | 'NORMAL' | 'HIGH' | 'URGENT';
@@ -321,41 +324,28 @@ export default function CollectionsWorkbench({ canMutate = true }: { canMutate?:
   const selectedState = detail?.case.state;
 
   return (
-    <div className="mx-auto w-full max-w-[1500px] px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
-      <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-        <div>
-          <p
-            className="text-xs font-medium uppercase tracking-[0.14em]"
-            style={{ color: 'var(--color-text-faint)' }}
-          >
-            Accounts receivable control
-          </p>
-          <h1
-            className="mt-1 text-2xl font-semibold tracking-tight"
-            style={{ color: 'var(--color-forest-deepest)', fontFamily: 'var(--font-serif)' }}
-          >
-            Collections Workbench
-          </h1>
-          <p className="mt-1 max-w-2xl text-sm" style={{ color: 'var(--color-text-secondary)' }}>
-            Coordinate outstanding-obligation follow-up without creating a second ledger. Every
-            balance below is read live from the authoritative financial records.
-          </p>
-        </div>
-        {canMutate && (
-          <button
-            type="button"
-            onClick={() => setShowCreate(true)}
-            className="rounded-md px-4 py-2 text-sm font-semibold"
-            style={{ background: 'var(--color-forest-deep)', color: 'var(--color-ivory)' }}
-          >
-            Open a case
-          </button>
-        )}
-      </div>
+    <PageContainer width="wide">
+      <PageHeader
+        eyebrow="Accounts receivable control"
+        title="Collections workbench"
+        lede="Coordinate outstanding-obligation follow-up without creating a second ledger. Every balance below is read live from the authoritative financial records."
+        actions={
+          canMutate && (
+            <button
+              type="button"
+              onClick={() => setShowCreate(true)}
+              className="rounded-sm px-4 py-2 text-sm font-semibold"
+              style={{ background: 'var(--color-forest-deep)', color: 'var(--color-ivory)' }}
+            >
+              Open a case
+            </button>
+          )
+        }
+      />
 
       {error && (
         <div
-          className="mb-4 rounded-md border px-3 py-2 text-sm"
+          className="mb-4 rounded-sm border px-3 py-2 text-sm"
           style={{
             borderColor: 'rgba(185,56,42,.3)',
             background: 'rgba(185,56,42,.07)',
@@ -366,29 +356,38 @@ export default function CollectionsWorkbench({ canMutate = true }: { canMutate?:
         </div>
       )}
 
-      <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <Metric label="Open work" value={queue.filter((row) => row.state !== 'CLOSED').length} />
-        <Metric
-          label="Escalated"
-          value={queue.filter((row) => row.state === 'ESCALATED').length}
-          tone="gold"
-        />
-        <Metric
-          label="Urgent"
-          value={queue.filter((row) => row.priority === 'URGENT').length}
-          tone="danger"
-        />
-        <Metric
-          label="Live balance"
-          value={formatMoney(queue.reduce((sum, row) => sum + row.outstandingKobo, 0))}
-        />
-      </div>
+      {/* Shown only when there is something to measure. Four zeroes reads as a
+    broken register rather than an empty one — and "Live balance ₦0" would
+    imply the school has nothing outstanding, when all it means is that no
+    case is currently open. The empty state below states what is true. */}
+      {queue.length > 0 && (
+        <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <Metric label="Open work" value={queue.filter((row) => row.state !== 'CLOSED').length} />
+          <Metric
+            label="Escalated"
+            value={queue.filter((row) => row.state === 'ESCALATED').length}
+            tone="gold"
+          />
+          <Metric
+            label="Urgent"
+            value={queue.filter((row) => row.priority === 'URGENT').length}
+            tone="danger"
+          />
+          <Metric
+            label="Live balance"
+            value={formatMoney(queue.reduce((sum, row) => sum + row.outstandingKobo, 0))}
+          />
+        </div>
+      )}
 
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(360px,0.9fr)]">
-        <section
-          className="min-w-0 rounded-lg border"
-          style={{ borderColor: 'var(--color-border-subtle)', background: 'var(--color-ivory)' }}
-        >
+      <div
+        className={
+          queue.length === 0
+            ? 'grid gap-4'
+            : 'grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(360px,0.9fr)]'
+        }
+      >
+        <section className="min-w-0 border-t border-ink-faint">
           <div
             className="flex flex-col gap-3 border-b px-4 py-3 sm:flex-row sm:items-center sm:justify-between"
             style={{ borderColor: 'var(--color-border-subtle)' }}
@@ -406,7 +405,7 @@ export default function CollectionsWorkbench({ canMutate = true }: { canMutate?:
                 aria-label="Filter by state"
                 value={stateFilter}
                 onChange={(event) => setStateFilter(event.target.value as 'ALL' | State)}
-                className="rounded-md border px-2 py-1.5 text-xs"
+                className="rounded-sm border border-border-strong px-2 py-1.5 text-xs"
                 style={{
                   borderColor: 'var(--color-border-subtle)',
                   background: 'var(--color-bg-page)',
@@ -423,7 +422,7 @@ export default function CollectionsWorkbench({ canMutate = true }: { canMutate?:
                 aria-label="Filter by priority"
                 value={priorityFilter}
                 onChange={(event) => setPriorityFilter(event.target.value as 'ALL' | Priority)}
-                className="rounded-md border px-2 py-1.5 text-xs"
+                className="rounded-sm border border-border-strong px-2 py-1.5 text-xs"
                 style={{
                   borderColor: 'var(--color-border-subtle)',
                   background: 'var(--color-bg-page)',
@@ -455,8 +454,51 @@ export default function CollectionsWorkbench({ canMutate = true }: { canMutate?:
               Loading queue…
             </div>
           ) : queue.length === 0 ? (
-            <div className="p-10 text-center text-sm" style={{ color: 'var(--color-text-faint)' }}>
-              No cases match these filters.
+            <div className="p-8 sm:p-10">
+              {stateFilter !== 'ALL' || priorityFilter !== 'ALL' || includeClosed ? (
+                <EmptyState
+                  className="border-t-0"
+                  icon={<Filter size={20} />}
+                  title="No cases match these filters"
+                  description="The queue is filtered by state, priority or closed cases, and nothing in this school matches the combination currently applied."
+                  action={
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setStateFilter('ALL');
+                        setPriorityFilter('ALL');
+                        setIncludeClosed(false);
+                      }}
+                      className="rounded-sm border px-3 py-2 text-[13px] font-medium"
+                      style={{ borderColor: 'var(--color-border-strong)' }}
+                    >
+                      Clear filters
+                    </button>
+                  }
+                />
+              ) : (
+                <EmptyState
+                  className="border-t-0"
+                  icon={<Inbox size={20} />}
+                  title="No open cases"
+                  description="No collection case is currently open in this school. A case carries the follow-up on one student's outstanding balance — who owns it, its next action, and the record of what has been done."
+                  action={
+                    canMutate ? (
+                      <button
+                        type="button"
+                        onClick={() => setShowCreate(true)}
+                        className="rounded-sm px-3 py-2 text-[13px] font-semibold"
+                        style={{
+                          background: 'var(--color-forest-deep)',
+                          color: 'var(--color-ivory)',
+                        }}
+                      >
+                        Open a case
+                      </button>
+                    ) : undefined
+                  }
+                />
+              )}
             </div>
           ) : (
             <div className="divide-y" style={{ borderColor: 'var(--color-border-subtle)' }}>
@@ -473,21 +515,25 @@ export default function CollectionsWorkbench({ canMutate = true }: { canMutate?:
         </section>
 
         <section
-          className="min-w-0 rounded-lg border"
-          style={{ borderColor: 'var(--color-border-subtle)', background: 'var(--color-ivory)' }}
+          className={'min-w-0 border-t border-ink-faint' + (queue.length === 0 ? ' hidden' : '')}
         >
           {!detail ? (
             <div className="flex min-h-[420px] items-center justify-center p-8 text-center">
               <div>
-                <div className="mb-2 text-3xl" aria-hidden>
-                  ◎
+                <div
+                  className="mb-3 flex justify-center"
+                  aria-hidden
+                  style={{ color: 'var(--color-text-faint)' }}
+                >
+                  <Inbox size={22} />
                 </div>
                 <p className="text-sm font-medium" style={{ color: 'var(--color-text-primary)' }}>
-                  Select a case
+                  {queue.length === 0 ? 'Nothing to review yet' : 'Select a case'}
                 </p>
                 <p className="mt-1 max-w-xs text-xs" style={{ color: 'var(--color-text-faint)' }}>
-                  Review live obligation, payment, allocation, reconciliation and history context in
-                  one place.
+                  {queue.length === 0
+                    ? 'This pane shows one case at a time — its live obligation, its payment and allocation history, and the record of every action taken.'
+                    : 'Review live obligation, payment, allocation, reconciliation and history context in one place.'}
                 </p>
               </div>
             </div>
@@ -532,7 +578,7 @@ export default function CollectionsWorkbench({ canMutate = true }: { canMutate?:
           onCreate={() => void createCase()}
         />
       )}
-    </div>
+    </PageContainer>
   );
 }
 
@@ -636,11 +682,11 @@ function CaseDetail({
               className="text-[10px] uppercase tracking-wider"
               style={{ color: 'var(--color-text-faint)' }}
             >
-              Case control plane
+              Case actions
             </p>
             <h2
               className="mt-1 text-lg font-semibold"
-              style={{ color: 'var(--color-forest-deepest)', fontFamily: 'var(--font-serif)' }}
+              style={{ color: 'var(--color-forest-deepest)' }}
             >
               {detail.case.studentName}
             </h2>
@@ -657,7 +703,7 @@ function CaseDetail({
           <Stat label="Version" value={String(detail.case.version)} />
         </div>
         <div
-          className="mt-3 rounded-md border px-3 py-2 text-xs"
+          className="mt-3 rounded-sm border px-3 py-2 text-xs"
           style={{
             borderColor: 'var(--color-gold)',
             background: 'var(--color-gold-tint,#fbf1d1)',
@@ -681,7 +727,7 @@ function CaseDetail({
             disabled={!canMutate || busy || detail.case.state === 'CLOSED'}
             value={detail.case.assignedTo ?? ''}
             onChange={(event) => onAssign(event.target.value)}
-            className="w-full rounded-md border px-3 py-2 text-sm"
+            className="w-full rounded-sm border border-border-strong px-3 py-2 text-sm"
             style={{
               borderColor: 'var(--color-border-subtle)',
               background: 'var(--color-bg-page)',
@@ -714,7 +760,7 @@ function CaseDetail({
                 disabled={!canMutate || busy || detail.case.state === 'CLOSED'}
                 value={eventType}
                 onChange={(event) => setEventType(event.target.value as 'NOTE' | 'ACTION')}
-                className="rounded-md border px-2 text-xs"
+                className="rounded-sm border border-border-strong px-2 text-xs"
                 style={{
                   borderColor: 'var(--color-border-subtle)',
                   background: 'var(--color-bg-page)',
@@ -731,7 +777,7 @@ function CaseDetail({
                 }}
                 disabled={!canMutate || busy || detail.case.state === 'CLOSED'}
                 placeholder="What happened or what should happen next?"
-                className="min-w-0 flex-1 rounded-md border px-3 py-2 text-sm"
+                className="min-w-0 flex-1 rounded-sm border border-border-strong px-3 py-2 text-sm"
                 style={{ borderColor: 'var(--color-border-subtle)' }}
               />
             </div>
@@ -739,7 +785,7 @@ function CaseDetail({
               type="button"
               onClick={onAddEvent}
               disabled={!canMutate || busy || detail.case.state === 'CLOSED' || !note.trim()}
-              className="rounded-md px-3 py-2 text-xs font-semibold disabled:opacity-50"
+              className="rounded-sm px-3 py-2 text-xs font-semibold disabled:opacity-50"
               style={{ background: 'var(--color-forest-deep)', color: 'var(--color-ivory)' }}
             >
               Add
@@ -753,7 +799,7 @@ function CaseDetail({
                 value={nextActionAt}
                 onChange={(event) => setNextActionAt(event.target.value)}
                 disabled={!canMutate || busy || detail.case.state === 'CLOSED'}
-                className="mt-1 w-full rounded-md border px-2 py-1.5 text-xs"
+                className="mt-1 w-full rounded-sm border border-border-strong px-2 py-1.5 text-xs"
                 style={{ borderColor: 'var(--color-border-subtle)' }}
               />
             </label>
@@ -763,7 +809,7 @@ function CaseDetail({
                 value={noteReminderId}
                 onChange={(event) => setNoteReminderId(event.target.value)}
                 disabled={!canMutate || busy || detail.case.state === 'CLOSED'}
-                className="mt-1 w-full rounded-md border px-2 py-1.5 text-xs"
+                className="mt-1 w-full rounded-sm border border-border-strong px-2 py-1.5 text-xs"
                 style={{
                   borderColor: 'var(--color-border-subtle)',
                   background: 'var(--color-bg-page)',
@@ -793,7 +839,7 @@ function CaseDetail({
             disabled={!canMutate || busy || detail.case.state === 'CLOSED'}
             placeholder="Required reason for the transition"
             rows={2}
-            className="mb-2 w-full rounded-md border px-3 py-2 text-sm"
+            className="mb-2 w-full rounded-sm border border-border-strong px-3 py-2 text-sm"
             style={{ borderColor: 'var(--color-border-subtle)' }}
           />
           <div className="flex flex-wrap gap-2">
@@ -803,7 +849,7 @@ function CaseDetail({
                 type="button"
                 disabled={!canMutate || busy}
                 onClick={() => onTransition(state)}
-                className="rounded-md border px-2.5 py-1.5 text-xs font-medium disabled:opacity-50"
+                className="rounded-sm border px-2.5 py-1.5 text-xs font-medium disabled:opacity-50"
                 style={{
                   borderColor:
                     state === 'CLOSED' ? 'var(--color-gold)' : 'var(--color-border-subtle)',
@@ -830,7 +876,7 @@ function CaseDetail({
               {detail.reminders.slice(0, 8).map((reminder) => (
                 <div
                   key={reminder.id}
-                  className="flex items-center justify-between rounded-md border px-3 py-2 text-xs"
+                  className="flex items-center justify-between rounded-sm border px-3 py-2 text-xs"
                   style={{ borderColor: 'var(--color-border-subtle)' }}
                 >
                   <span>
@@ -849,18 +895,15 @@ function CaseDetail({
           <h3 className="mb-2 text-sm font-semibold" style={{ color: 'var(--color-text-primary)' }}>
             Authoritative obligation view
           </h3>
-          <div
-            className="overflow-x-auto rounded-md border"
-            style={{ borderColor: 'var(--color-border-subtle)' }}
-          >
+          <div className="overflow-x-auto">
             <table className="w-full text-xs">
               <thead>
                 <tr
                   style={{ background: 'var(--color-bg-page)', color: 'var(--color-text-faint)' }}
                 >
-                  <th className="px-2 py-2 text-left">Invoice</th>
-                  <th className="px-2 py-2 text-left">Status</th>
-                  <th className="px-2 py-2 text-right">Outstanding</th>
+                  <th className="border-b border-ink-faint px-2 py-2 text-left">Invoice</th>
+                  <th className="border-b border-ink-faint px-2 py-2 text-left">Status</th>
+                  <th className="border-b border-ink-faint px-2 py-2 text-right">Outstanding</th>
                 </tr>
               </thead>
               <tbody>
@@ -900,7 +943,7 @@ function CaseDetail({
               {detail.payments.slice(0, 8).map((payment) => (
                 <div
                   key={payment.allocationId}
-                  className="rounded-md border px-3 py-2 text-xs"
+                  className="rounded-sm border px-3 py-2 text-xs"
                   style={{ borderColor: 'var(--color-border-subtle)' }}
                 >
                   <div className="flex justify-between gap-3">
@@ -933,7 +976,7 @@ function CaseDetail({
               {detail.reconciliation.map((row, index) => (
                 <div
                   key={`${String(row.id)}-${index}`}
-                  className="flex justify-between rounded-md border px-3 py-2"
+                  className="flex justify-between rounded-sm border px-3 py-2"
                   style={{ borderColor: 'var(--color-border-subtle)' }}
                 >
                   <span>
@@ -1052,7 +1095,7 @@ function CreateCaseModal({
             <h2
               id="create-case-title"
               className="text-lg font-semibold"
-              style={{ color: 'var(--color-forest-deepest)', fontFamily: 'var(--font-serif)' }}
+              style={{ color: 'var(--color-forest-deepest)' }}
             >
               Open collections case
             </h2>
@@ -1070,7 +1113,7 @@ function CreateCaseModal({
             <select
               value={studentId}
               onChange={(event) => setStudentId(event.target.value)}
-              className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
+              className="mt-1 w-full rounded-sm border border-border-strong px-3 py-2 text-sm"
               style={{ borderColor: 'var(--color-border-subtle)' }}
             >
               <option value="">Select an outstanding student</option>
@@ -1087,7 +1130,7 @@ function CreateCaseModal({
             <select
               value={priority}
               onChange={(event) => setPriority(event.target.value as Priority)}
-              className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
+              className="mt-1 w-full rounded-sm border border-border-strong px-3 py-2 text-sm"
               style={{ borderColor: 'var(--color-border-subtle)' }}
             >
               {PRIORITIES.map((value) => (
@@ -1105,7 +1148,7 @@ function CreateCaseModal({
               rows={3}
               maxLength={2000}
               placeholder="What requires follow-up?"
-              className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
+              className="mt-1 w-full rounded-sm border border-border-strong px-3 py-2 text-sm"
               style={{ borderColor: 'var(--color-border-subtle)' }}
             />
           </label>
@@ -1115,7 +1158,7 @@ function CreateCaseModal({
               type="datetime-local"
               value={nextActionAt}
               onChange={(event) => setNextActionAt(event.target.value)}
-              className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
+              className="mt-1 w-full rounded-sm border border-border-strong px-3 py-2 text-sm"
               style={{ borderColor: 'var(--color-border-subtle)' }}
             />
           </label>
@@ -1124,7 +1167,7 @@ function CreateCaseModal({
           <button
             type="button"
             onClick={onClose}
-            className="rounded-md border px-3 py-2 text-sm"
+            className="rounded-sm border px-3 py-2 text-sm"
             style={{ borderColor: 'var(--color-border-subtle)' }}
           >
             Cancel
@@ -1133,7 +1176,7 @@ function CreateCaseModal({
             type="button"
             onClick={onCreate}
             disabled={busy || !studentId || !reason.trim()}
-            className="rounded-md px-3 py-2 text-sm font-semibold disabled:opacity-50"
+            className="rounded-sm px-3 py-2 text-sm font-semibold disabled:opacity-50"
             style={{ background: 'var(--color-forest-deep)', color: 'var(--color-ivory)' }}
           >
             {busy ? 'Opening…' : 'Open case'}
@@ -1178,7 +1221,7 @@ function Metric({
 }
 function Stat({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-md px-2 py-2" style={{ background: 'var(--color-bg-page)' }}>
+    <div className="rounded-sm px-2 py-2" style={{ background: 'var(--color-bg-page)' }}>
       <div className="text-[10px]" style={{ color: 'var(--color-text-faint)' }}>
         {label}
       </div>

@@ -142,7 +142,7 @@ export function NavShell({
       >
         {/* Brand */}
         <div className="flex h-topbar items-center gap-3 border-b border-border px-4">
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded bg-forest-deepest text-sm font-bold text-white">
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-sm bg-forest-deepest text-sm font-bold text-white">
             S
           </div>
           {!collapsed && (
@@ -155,7 +155,7 @@ export function NavShell({
           )}
           <button
             onClick={() => setCollapsed((c) => !c)}
-            className="hidden h-7 w-7 items-center justify-center rounded text-ink-muted hover:bg-surface-subtle hover:text-ink-primary focus-visible:shadow-focus-ring lg:inline-flex"
+            className="hidden h-7 w-7 items-center justify-center rounded-sm text-ink-muted hover:bg-surface-subtle hover:text-ink-primary focus-visible:shadow-focus-ring lg:inline-flex"
             aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
           >
             {collapsed ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}
@@ -190,7 +190,7 @@ export function NavShell({
         aria-hidden={!mobileOpen}
       >
         <div className="flex h-topbar items-center gap-3 border-b border-border px-4">
-          <div className="flex h-8 w-8 items-center justify-center rounded bg-forest-deepest text-sm font-bold text-white">
+          <div className="flex h-8 w-8 items-center justify-center rounded-sm bg-forest-deepest text-sm font-bold text-white">
             S
           </div>
           <div className="min-w-0 flex-1">
@@ -201,7 +201,7 @@ export function NavShell({
           </div>
           <button
             onClick={() => setMobileOpen(false)}
-            className="inline-flex h-8 w-8 items-center justify-center rounded text-ink-muted hover:bg-surface-subtle"
+            className="inline-flex h-8 w-8 items-center justify-center rounded-sm text-ink-muted hover:bg-surface-subtle"
             aria-label="Close menu"
           >
             ✕
@@ -248,14 +248,14 @@ export function NavShell({
         >
           <button
             onClick={() => setMobileOpen(true)}
-            className="inline-flex h-9 w-9 items-center justify-center rounded text-ink-primary hover:bg-surface-subtle focus-visible:shadow-focus-ring lg:hidden"
+            className="inline-flex h-9 w-9 items-center justify-center rounded-sm text-ink-primary hover:bg-surface-subtle focus-visible:shadow-focus-ring lg:hidden"
             aria-label="Open navigation"
           >
             <Menu size={18} />
           </button>
 
           {/* Term switcher / context */}
-          <div className="hidden cursor-pointer items-center gap-2 rounded px-2 py-1 hover:bg-surface-subtle md:flex">
+          <div className="hidden cursor-pointer items-center gap-2 rounded-sm px-2 py-1 hover:bg-surface-subtle md:flex">
             <span className="text-sm font-medium text-ink-primary">{orgLabel}</span>
             <span className="text-xs text-ink-muted">· {orgSubLabel}</span>
           </div>
@@ -271,7 +271,7 @@ export function NavShell({
               <input
                 type="search"
                 placeholder="Search students, invoices, receipts…"
-                className="h-9 w-full rounded border border-transparent bg-surface-subtle pl-9 pr-3 text-sm outline-none transition-colors placeholder:text-ink-muted focus:border-border-focus focus:bg-white focus:shadow-focus-ring"
+                className="h-9 w-full rounded-sm border border-transparent bg-surface-subtle pl-9 pr-3 text-sm outline-none transition-colors placeholder:text-ink-muted focus:border-border-focus focus:bg-white focus:shadow-focus-ring"
                 aria-label="Global search"
               />
             </div>
@@ -280,7 +280,7 @@ export function NavShell({
           {/* Actions */}
           <div className="ml-auto flex items-center gap-1 sm:ml-2">
             <button
-              className="relative inline-flex h-9 w-9 items-center justify-center rounded text-ink-secondary hover:bg-surface-subtle focus-visible:shadow-focus-ring"
+              className="relative inline-flex h-9 w-9 items-center justify-center rounded-sm text-ink-secondary hover:bg-surface-subtle focus-visible:shadow-focus-ring"
               aria-label="Notifications (4 pending)"
             >
               <Bell size={16} />
@@ -291,7 +291,7 @@ export function NavShell({
             </button>
             <div className="mx-1 h-8 w-px bg-border" aria-hidden />
             <button
-              className="inline-flex h-9 items-center gap-2 rounded px-1.5 hover:bg-surface-subtle focus-visible:shadow-focus-ring"
+              className="inline-flex h-9 items-center gap-2 rounded-sm px-1.5 hover:bg-surface-subtle focus-visible:shadow-focus-ring"
               aria-label="Account menu"
             >
               <div className="flex h-7 w-7 items-center justify-center rounded-full bg-forest-deep text-xs font-semibold text-white">
@@ -369,7 +369,7 @@ function NavGroup({
                 title={collapsed ? item.label : undefined}
                 aria-current={active ? 'page' : undefined}
                 className={cn(
-                  'group relative flex items-center gap-3 rounded px-3 py-2 text-sm transition-colors',
+                  'group relative flex items-center gap-3 rounded-sm px-3 py-2 text-sm transition-colors',
                   collapsed && 'mx-auto w-10 justify-center px-0',
                   active
                     ? 'bg-forest-tint font-medium text-forest-deepest'
@@ -460,7 +460,7 @@ export function PageHeader({
       )}
     >
       <div className="min-w-0">
-        <h1 className="text-xl font-semibold leading-tight text-ink-deepest lg:text-2xl">
+        <h1 className="text-display-sm font-normal leading-tight tracking-[-0.01em] text-forest-deepest">
           {title}
         </h1>
         {description && <p className="mt-1 max-w-2xl text-sm text-ink-muted">{description}</p>}
@@ -473,6 +473,18 @@ export function PageHeader({
 /**
  * Section card — subtle surface for grouping content.
  */
+/**
+ * Section container (redesign 2026-09) — a RULED BLOCK, not a box.
+ *
+ * The old Card drew a white rounded box with a hairline border and a shadow
+ * everywhere, so every page read as a grid of containers: structure came from
+ * boxes rather than from typography, and sixteen equal boxes on a screen gave
+ * the eye nowhere to land.
+ *
+ * In this system a section is separated by a rule and by space. The container
+ * is transparent; the header carries a top rule; rows inside carry hairlines.
+ * The `padded` prop is retained so existing call sites keep their layout.
+ */
 export function Card({
   className,
   children,
@@ -482,19 +494,16 @@ export function Card({
   children: React.ReactNode;
   padded?: boolean;
 }) {
-  return (
-    <div
-      className={cn(
-        'rounded-lg border border-border bg-white shadow-xs',
-        padded && 'p-5',
-        className,
-      )}
-    >
-      {children}
-    </div>
-  );
+  return <div className={cn('bg-transparent', padded && 'px-0 py-0', className)}>{children}</div>;
 }
 
+/**
+ * Section header — the institutional rule that opens a block.
+ *
+ * Small-caps label, an optional one-line reading hint, and actions at the far
+ * end of the rule. The count/status sits inline rather than in a badge, so the
+ * eye travels label → rule → figures without stopping at a chip.
+ */
 export function CardHeader({
   title,
   description,
@@ -507,12 +516,18 @@ export function CardHeader({
   className?: string;
 }) {
   return (
-    <div className={cn('mb-4 flex items-start justify-between gap-3', className)}>
-      <div className="min-w-0">
-        <h2 className="text-md font-semibold leading-tight text-ink-primary">{title}</h2>
-        {description && <p className="mt-0.5 text-sm text-ink-muted">{description}</p>}
+    <div className={cn('mb-0 border-t border-ink-faint pt-3', className)}>
+      <div className="flex items-baseline justify-between gap-4 pb-2">
+        <div className="flex min-w-0 items-baseline gap-3">
+          <h2 className="text-sm font-semibold uppercase tracking-[0.1em] text-forest-deep">
+            {title}
+          </h2>
+          {description && (
+            <p className="hidden min-w-0 truncate text-xs text-ink-muted sm:block">{description}</p>
+          )}
+        </div>
+        {actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
       </div>
-      {actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
     </div>
   );
 }

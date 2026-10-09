@@ -159,3 +159,32 @@ export const invoiceScopeEnum = pgEnum('invoice_scope', ['TERM', 'ALL_TERM']);
 // H-8 invitations. PENDING is the only state a token can be consumed from;
 // acceptance and revocation are terminal.
 export const invitationStatusEnum = pgEnum('invitation_status', ['PENDING', 'ACCEPTED', 'REVOKED']);
+
+// --- Phase 2: opening balances ---------------------------------------------
+
+/**
+ * What a school carries in. The split IS the feature: these four numbers must
+ * never be added together, because they answer different questions.
+ * `CREDIT_OVERPAYMENT` and `UNVERIFIED` are recorded and reported but can never
+ * be posted — `opening_balances_only_history_posts` enforces that in the
+ * database (see migration 0052), and the reason is documented there.
+ */
+export const openingBalanceCategoryEnum = pgEnum('opening_balance_category', [
+  'CURRENT_TERM_UNBILLED',
+  'HISTORICAL_BALANCE',
+  'CREDIT_OVERPAYMENT',
+  'UNVERIFIED',
+]);
+
+/**
+ * The lifecycle of a carry-in figure. Nothing reaches `POSTED` without passing
+ * `APPROVED`, and `REJECTED` / `REVERSED` are terminal — an opening balance is
+ * corrected by recording a new one, never by editing the old one.
+ */
+export const openingBalanceStatusEnum = pgEnum('opening_balance_status', [
+  'DRAFT',
+  'APPROVED',
+  'REJECTED',
+  'POSTED',
+  'REVERSED',
+]);

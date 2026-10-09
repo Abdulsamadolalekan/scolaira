@@ -30,41 +30,8 @@
 #
 # Paying this debt down is a separate, deliberate task (one path at a time, each
 # removal is a real diff); it is not a release-gate prerequisite.
-app/(app)/academic/academic-workspace.tsx
-app/(app)/academic/page.tsx
-app/(app)/dashboard/page.tsx
-app/(app)/debtors/[studentId]/page.tsx
-app/(app)/debtors/page.tsx
-app/(app)/debtors/remind-button.tsx
 app/(app)/invoices/[id]/invoice-actions.test.tsx
-app/(app)/invoices/[id]/invoice-actions.tsx
-app/(app)/invoices/[id]/page.tsx
-app/(app)/invoices/new/new-invoice-form.tsx
-app/(app)/invoices/new/page.tsx
-app/(app)/invoices/page.tsx
-app/(app)/members/page.tsx
-app/(app)/not-found.tsx
-app/(app)/payments/[id]/page.tsx
-app/(app)/payments/[id]/payment-actions.tsx
-app/(app)/payments/[id]/receipt/page.tsx
-app/(app)/payments/new/page.tsx
-app/(app)/payments/new/record-payment-form.tsx
-app/(app)/payments/page.tsx
-app/(app)/settings/fees/fee-setup.tsx
-app/(app)/settings/fees/page.tsx
-app/(app)/settings/page.tsx
-app/(app)/students/[id]/page.tsx
 app/(app)/students/[id]/student-actions.tsx
-app/(app)/students/new/new-student-form.tsx
-app/(app)/students/new/page.tsx
-app/(app)/students/page.tsx
-app/(app)/terms/[id]/bill/bill-preview.tsx
-app/(app)/terms/[id]/bill/page.tsx
-app/(auth)/login/login-inner.tsx
-app/(auth)/register/page.tsx
-app/(auth)/reset/confirm/page.tsx
-app/(auth)/reset/page.tsx
-app/(print)/debtors/[studentId]/statement/page.tsx
 app/api/academic-sessions/[id]/activate/route.ts
 app/api/academic-sessions/[id]/route.ts
 app/api/academic-sessions/route.ts
@@ -81,7 +48,6 @@ app/api/classes/[id]/restore/route.ts
 app/api/classes/[id]/route.ts
 app/api/classes/route.ts
 app/api/collections/[id]/route.ts
-app/api/dashboard/summary/route.ts
 app/api/debtors/[studentId]/remind/route.ts
 app/api/debtors/[studentId]/route.ts
 app/api/debtors/route.ts
@@ -108,7 +74,6 @@ app/api/payments/[id]/allocate/route.ts
 app/api/payments/[id]/confirm/route.ts
 app/api/payments/[id]/reverse/route.ts
 app/api/payments/[id]/route.ts
-app/api/payments/route.ts
 app/api/receipts/[id]/route.ts
 app/api/receipts/route.ts
 app/api/setup/seed-current-term/route.ts
@@ -125,9 +90,6 @@ app/api/terms/[id]/fee-assignments/route.ts
 app/api/terms/[id]/roster/route.ts
 app/api/terms/[id]/route.ts
 app/api/terms/route.ts
-app/p/[token]/page.tsx
-app/p/[token]/submit-form.tsx
-components/access-denied.tsx
 components/permission-guard.tsx
 components/ui/icons.tsx
 e2e/h5-operational-surface.spec.ts

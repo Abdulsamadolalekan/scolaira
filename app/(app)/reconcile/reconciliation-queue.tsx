@@ -134,7 +134,7 @@ export default function ReconciliationQueue({
     <div>
       {error && (
         <div
-          className="mb-3 rounded-md px-3 py-2 text-sm"
+          className="mb-3 rounded-sm border px-3 py-2 text-sm"
           style={{
             background: 'rgba(185,56,42,.08)',
             color: 'var(--color-danger,#a82a1c)',
@@ -144,14 +144,11 @@ export default function ReconciliationQueue({
           {error}
         </div>
       )}
-      <div
-        className="overflow-hidden rounded-md border"
-        style={{ borderColor: 'var(--color-border-subtle)' }}
-      >
-        <div
-          className="hidden grid-cols-[1.1fr_1fr_1fr_.9fr_1fr_auto] gap-3 px-4 py-2.5 text-[10px] font-medium uppercase tracking-wider md:grid"
-          style={{ color: 'var(--color-text-faint)', background: 'var(--color-bg-page)' }}
-        >
+      {/* No container. The queue is a ruled table: a header rule, then a hairline
+          between rows. Boxing it put a border around a border and made one row of
+          data look like a panel. */}
+      <div>
+        <div className="hidden grid-cols-[1.1fr_1fr_1fr_.9fr_1fr_auto] gap-3 border-b border-ink-faint px-4 py-2.5 text-2xs font-semibold uppercase tracking-[0.12em] text-ink-muted md:grid">
           <div>Payment</div>
           <div>Source / date</div>
           <div>Student / invoice</div>
@@ -243,7 +240,7 @@ export default function ReconciliationQueue({
             type="button"
             onClick={() => void loadMore()}
             disabled={busy === 'more'}
-            className="rounded-md border px-3 py-2 text-[13px] font-medium disabled:opacity-50"
+            className="rounded-sm border px-3 py-2 text-[13px] font-medium disabled:opacity-50"
             style={{ borderColor: 'var(--color-border)', color: 'var(--color-text-primary)' }}
           >
             {busy === 'more' ? 'Loading…' : 'Load more cases'}
@@ -307,7 +304,7 @@ function CaseDetail({
             />
           </div>
           <div
-            className="rounded-md border p-3"
+            className="rounded-sm border p-3"
             style={{
               borderColor: 'var(--color-border-subtle)',
               background: 'var(--color-bg-surface)',
@@ -349,27 +346,29 @@ function CaseDetail({
                 value={evidenceKind}
                 onChange={(e) => setEvidenceKind(e.target.value)}
                 disabled={isClosed}
-                className="rounded-md border px-2 py-2 text-[12px]"
+                className="rounded-sm border border-border-strong px-2 py-2 text-[12px]"
                 style={{ borderColor: 'var(--color-border)', background: 'var(--color-bg-page)' }}
               >
-                <option>OPERATOR_NOTE</option>
-                <option>BANK_REFERENCE</option>
-                <option>CASH_RECEIPT</option>
-                <option>POS_SLIP</option>
-                <option>PROVIDER_EVENT</option>
+                {/* The label is sentence case; the value stays the API's enum, so
+                    humanising this copy can never change what is submitted. */}
+                <option value="OPERATOR_NOTE">Operator note</option>
+                <option value="BANK_REFERENCE">Bank reference</option>
+                <option value="CASH_RECEIPT">Cash receipt</option>
+                <option value="POS_SLIP">POS slip</option>
+                <option value="PROVIDER_EVENT">Provider event</option>
               </select>
               <input
                 value={evidenceText}
                 onChange={(e) => setEvidenceText(e.target.value)}
                 disabled={isClosed}
                 placeholder="Reference or observation"
-                className="rounded-md border px-2 py-2 text-[12px]"
+                className="rounded-sm border border-border-strong px-2 py-2 text-[12px]"
                 style={{ borderColor: 'var(--color-border)', background: 'var(--color-bg-page)' }}
               />
               <button
                 type="submit"
                 disabled={isClosed || !evidenceText.trim() || actionBusy('evidence')}
-                className="rounded-md px-3 py-2 text-[12px] font-medium text-white disabled:opacity-50"
+                className="rounded-sm px-3 py-2 text-[12px] font-medium text-white disabled:opacity-50"
                 style={{ background: 'var(--color-forest)' }}
               >
                 {actionBusy('evidence') ? 'Adding…' : 'Add evidence'}
@@ -377,7 +376,7 @@ function CaseDetail({
             </form>
           </div>
           <div
-            className="rounded-md border p-3"
+            className="rounded-sm border p-3"
             style={{
               borderColor: 'var(--color-border-subtle)',
               background: 'var(--color-bg-surface)',
@@ -454,7 +453,7 @@ function CaseDetail({
                       'Match payment',
                     );
                 }}
-                className="space-y-2 rounded-md border p-3"
+                className="space-y-2 rounded-sm border p-3"
                 style={{ borderColor: 'var(--color-border-subtle)' }}
               >
                 <div className="text-[12px] font-medium">Establish invoice match</div>
@@ -463,7 +462,7 @@ function CaseDetail({
                   value={matchInvoice}
                   onChange={(e) => setMatchInvoice(e.target.value)}
                   placeholder="Invoice UUID"
-                  className="w-full rounded-md border px-2 py-2 text-[11px]"
+                  className="w-full rounded-sm border border-border-strong px-2 py-2 text-[11px]"
                   style={{ borderColor: 'var(--color-border)' }}
                 />
                 <input
@@ -471,7 +470,7 @@ function CaseDetail({
                   value={matchBasis}
                   onChange={(e) => setMatchBasis(e.target.value)}
                   placeholder="Human basis for match"
-                  className="w-full rounded-md border px-2 py-2 text-[11px]"
+                  className="w-full rounded-sm border border-border-strong px-2 py-2 text-[11px]"
                   style={{ borderColor: 'var(--color-border)' }}
                 />
                 <ActionButton busy={actionBusy('match')} type="submit">
@@ -501,7 +500,7 @@ function CaseDetail({
                     'Allocate payment',
                   );
               }}
-              className="space-y-2 rounded-md border p-3"
+              className="space-y-2 rounded-sm border p-3"
               style={{ borderColor: 'var(--color-border-subtle)' }}
             >
               <div className="text-[12px] font-medium">Use existing allocation mechanism</div>
@@ -513,7 +512,7 @@ function CaseDetail({
                 }
                 onChange={(e) => setMatchInvoice(e.target.value)}
                 placeholder="Invoice UUID"
-                className="w-full rounded-md border px-2 py-2 text-[11px]"
+                className="w-full rounded-sm border border-border-strong px-2 py-2 text-[11px]"
                 style={{ borderColor: 'var(--color-border)' }}
               />
               <input
@@ -522,7 +521,7 @@ function CaseDetail({
                 max={payment.unallocatedKobo}
                 value={allocateAmount}
                 onChange={(e) => setAllocateAmount(e.target.value)}
-                className="w-full rounded-md border px-2 py-2 text-[11px]"
+                className="w-full rounded-sm border border-border-strong px-2 py-2 text-[11px]"
                 style={{ borderColor: 'var(--color-border)' }}
               />
               <ActionButton busy={actionBusy('allocate')} type="submit">
@@ -542,14 +541,14 @@ function CaseDetail({
                     'Flag case',
                   );
               }}
-              className="space-y-2 rounded-md border p-3"
+              className="space-y-2 rounded-sm border p-3"
               style={{ borderColor: 'var(--color-border-subtle)' }}
             >
               <input
                 value={reason}
                 onChange={(e) => setReason(e.target.value)}
                 placeholder="Flag / resolve reason"
-                className="w-full rounded-md border px-2 py-2 text-[11px]"
+                className="w-full rounded-sm border border-border-strong px-2 py-2 text-[11px]"
                 style={{ borderColor: 'var(--color-border)' }}
               />
               {state === 'FLAGGED' ? (
@@ -615,7 +614,7 @@ function ActionButton({
       type={type}
       onClick={onClick}
       disabled={busy}
-      className="w-full rounded-md px-3 py-2 text-[12px] font-medium text-white disabled:opacity-50"
+      className="w-full rounded-sm px-3 py-2 text-[12px] font-medium text-white disabled:opacity-50"
       style={{ background: 'var(--color-forest)' }}
     >
       {busy ? 'Working…' : children}

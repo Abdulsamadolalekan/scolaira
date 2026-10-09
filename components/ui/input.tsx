@@ -39,9 +39,9 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(
       return (
         <div
           className={cn(
-            'flex items-center rounded border border-border-strong bg-white',
+            'flex items-center rounded-sm border border-border-strong bg-surface-base',
             'transition-colors duration-fast ease-standard',
-            'focus-within:border-border-focus focus-within:shadow-focus-ring',
+            'focus-within:border-forest-primary focus-within:shadow-focus-ring',
             invalid && 'border-danger-fg focus-within:shadow-focus-ring-danger',
             disabled && 'bg-surface-subtle',
             containerClassName,
@@ -54,7 +54,7 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(
     return (
       <div
         className={cn(
-          'flex items-center gap-2 rounded border border-border-strong bg-white px-3',
+          'flex items-center gap-2 rounded-sm border border-border-strong bg-surface-base px-3',
           'transition-colors duration-fast ease-standard',
           'focus-within:border-border-focus focus-within:shadow-focus-ring',
           invalid && 'border-danger-fg focus-within:shadow-focus-ring-danger',
@@ -93,7 +93,7 @@ export const Textarea = React.forwardRef<HTMLTextAreaElement, TextareaProps>(
       disabled={disabled}
       aria-invalid={invalid || undefined}
       className={cn(
-        'w-full rounded border border-border-strong bg-white px-3 py-2',
+        'w-full rounded-sm border border-border-strong bg-surface-base px-3 py-2',
         'resize-y text-ink-primary outline-none placeholder:text-ink-muted',
         'transition-colors duration-fast ease-standard',
         'focus:border-border-focus focus:shadow-focus-ring',
@@ -118,7 +118,7 @@ export const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
   ({ className, invalid, disabled, children, ...rest }, ref) => (
     <div
       className={cn(
-        'relative flex items-center rounded border border-border-strong bg-white',
+        'relative flex items-center rounded-sm border border-border-strong bg-surface-base',
         'transition-colors duration-fast ease-standard',
         'focus-within:border-border-focus focus-within:shadow-focus-ring',
         invalid && 'border-danger-fg focus-within:shadow-focus-ring-danger',

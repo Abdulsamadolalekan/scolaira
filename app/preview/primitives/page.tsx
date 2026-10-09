@@ -104,7 +104,7 @@ export default function PrimitivesPage() {
                 ].map(([name, hex, fg]) => (
                   <div
                     key={name}
-                    className={`flex h-24 flex-col justify-between rounded p-3 ${fg}`}
+                    className={`flex h-24 flex-col justify-between rounded-sm p-3 ${fg}`}
                     style={{ background: hex }}
                   >
                     <span className="font-mono text-xs">{name}</span>
@@ -442,7 +442,7 @@ export default function PrimitivesPage() {
                   <KpiSkeleton />
                   <KpiSkeleton />
                 </div>
-                <div className="rounded border border-border">
+                <div className="rounded-sm border border-border">
                   <table className="w-full">
                     <TableBody>
                       <TableSkeleton rows={4} cols={4} />
@@ -769,7 +769,7 @@ export default function PrimitivesPage() {
 
 function Swatch({ label, bg, fg }: { label: string; bg: string; fg: string }) {
   return (
-    <div className={`rounded ${bg} ${fg} border border-transparent px-3 py-4`}>
+    <div className={`rounded-sm ${bg} ${fg} border border-transparent px-3 py-4`}>
       <p className="text-xs font-semibold">{label}</p>
     </div>
   );

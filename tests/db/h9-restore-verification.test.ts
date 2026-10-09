@@ -15,7 +15,7 @@
  * The damage runs against a DISPOSABLE database created here as a template copy
  * of the migrated, hardened test database (`scolaira_test`). A template copy is
  * used deliberately: it carries the exact posture the global setup produced
- * (migrations 0000–0050 plus the post-migration privilege hardening), so the
+ * (migrations 0000 onwards plus the post-migration privilege hardening), so the
  * healthy PASS below is also a drift check — if the test harness ever stopped
  * hardening the database, the first assertion in this file would fail rather
  * than the damage assertions quietly passing against a permissive database.
@@ -35,6 +35,7 @@ import {
   type VerificationReport,
 } from '@/lib/ops/restore-verification';
 import { withScopedDb } from '@/lib/db/tenant';
+import { EXPECTED_MIGRATION_COUNT } from '@/lib/ops/migration-manifest';
 import { seedTwoOrgs } from '../support/seed';
 import { applyRichSeed } from '../support/rich-seed';
 import type { RichIds } from '../support/rich-seed';
@@ -272,7 +273,14 @@ describe('H9-3 restore verification — deliberate damage is detected and named'
     );
     const report = await verify();
     expect(statusOf(report, 'schema.migration_state')).toBe('FAIL');
-    expect(failures(report).join('\n')).toMatch(/49/);
+    // The message must name the count it actually found, so an operator can see
+    // how far behind the database is. One migration was just removed, so the
+    // expected number is derived rather than hardcoded: a hardcoded count goes
+    // stale the moment a migration is added, which is how this assertion broke
+    // when 0051 shipped. It still fails if the message names the wrong number.
+    const appliedAfterDamage = EXPECTED_MIGRATION_COUNT - 1;
+    expect(failures(report).join('\n')).toMatch(new RegExp(String(appliedAfterDamage)));
+    expect(failures(report).join('\n')).toContain(`applied ${appliedAfterDamage} migrations`);
   });
 
   it('detects an invoice whose total no longer equals its lines', async () => {

@@ -19,6 +19,7 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx scripts/migrate.ts",
     "db:studio": "drizzle-kit studio",
+    "db:verify": "tsx --conditions=react-server scripts/verify-restored-db.ts",
     "e2e:seed": "tsx --conditions=react-server scripts/seed-e2e.ts",
     "e2e": "npm run e2e:seed && playwright test --grep-invert @design-system",
     "test:e2e:design-system": "playwright test --grep @design-system",
